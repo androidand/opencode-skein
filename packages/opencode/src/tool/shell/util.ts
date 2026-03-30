@@ -80,13 +80,17 @@ export async function resolvePath(text: string, root: string, shell: string) {
   return path.resolve(root, text)
 }
 
-export function formatShellDescription(template: string, opts: { name: string; shellName: string; chaining: string }) {
+export function formatShellDescription(
+  template: string,
+  opts: { name: string; shellName: string; chaining: string; guidance: string },
+) {
   return template
     .replaceAll("${directory}", Instance.directory)
     .replaceAll("${os}", process.platform)
     .replaceAll("${shell}", opts.name)
     .replaceAll("${shellName}", opts.shellName)
     .replaceAll("${chaining}", opts.chaining)
+    .replaceAll("${guidance}", opts.guidance)
     .replaceAll("${maxLines}", String(Truncate.MAX_LINES))
     .replaceAll("${maxBytes}", String(Truncate.MAX_BYTES))
 }
@@ -102,16 +106,21 @@ export type ShellType = "bash" | "pwsh" | "powershell"
 
 const DEFAULT_TIMEOUT = Flag.OPENCODE_EXPERIMENTAL_BASH_DEFAULT_TIMEOUT_MS || 2 * 60 * 1000
 
-export function createShellTool(id: ShellType, shellName: string, chaining: string) {
-  const log = Log.create({ service: `${id}-tool` })
+export function createShellTool(opts: { id: ShellType; shellName: string; chaining: string; guidance: string }) {
+  const log = Log.create({ service: `${opts.id}-tool` })
 
-  return Tool.define(id, async () => {
+  return Tool.define(opts.id, async () => {
     const shell = Shell.acceptable()
     const name = Shell.name(shell)
-    log.info(`${id} tool using shell`, { shell, name })
+    log.info(`${opts.id} tool using shell`, { shell, name })
 
     return {
-      description: formatShellDescription(DESCRIPTION, { name, shellName, chaining }),
+      description: formatShellDescription(DESCRIPTION, {
+        name,
+        shellName: opts.shellName,
+        chaining: opts.chaining,
+        guidance: opts.guidance,
+      }),
       parameters: z.object({
         command: z.string().describe("The command to execute"),
         timeout: z.number().describe("Optional timeout in milliseconds").optional(),
@@ -138,11 +147,11 @@ export function createShellTool(id: ShellType, shellName: string, chaining: stri
           command: params.command,
           cwd,
           shell,
-          shellType: id,
+          shellType: opts.id,
         })
         if (!Instance.containsPath(cwd)) scan.dirs.add(cwd)
 
-        await askPermission(ctx, scan, id)
+        await askPermission(ctx, scan, opts.id)
 
         return ShellRunner.run(
           {
