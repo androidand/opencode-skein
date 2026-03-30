@@ -34,7 +34,11 @@ async function waitForPending(count: number) {
 
 test("fromConfig - string value becomes wildcard rule", () => {
   const result = Permission.fromConfig({ bash: "allow" })
-  expect(result).toEqual([{ permission: "bash", pattern: "*", action: "allow" }])
+  expect(result).toEqual([
+    { permission: "bash", pattern: "*", action: "allow" },
+    { permission: "pwsh", pattern: "*", action: "allow" },
+    { permission: "powershell", pattern: "*", action: "allow" },
+  ])
 })
 
 test("fromConfig - object value converts to rules array", () => {
@@ -42,6 +46,10 @@ test("fromConfig - object value converts to rules array", () => {
   expect(result).toEqual([
     { permission: "bash", pattern: "*", action: "allow" },
     { permission: "bash", pattern: "rm", action: "deny" },
+    { permission: "pwsh", pattern: "*", action: "allow" },
+    { permission: "pwsh", pattern: "rm", action: "deny" },
+    { permission: "powershell", pattern: "*", action: "allow" },
+    { permission: "powershell", pattern: "rm", action: "deny" },
   ])
 })
 
@@ -54,6 +62,10 @@ test("fromConfig - mixed string and object values", () => {
   expect(result).toEqual([
     { permission: "bash", pattern: "*", action: "allow" },
     { permission: "bash", pattern: "rm", action: "deny" },
+    { permission: "pwsh", pattern: "*", action: "allow" },
+    { permission: "pwsh", pattern: "rm", action: "deny" },
+    { permission: "powershell", pattern: "*", action: "allow" },
+    { permission: "powershell", pattern: "rm", action: "deny" },
     { permission: "edit", pattern: "*", action: "allow" },
     { permission: "webfetch", pattern: "*", action: "ask" },
   ])

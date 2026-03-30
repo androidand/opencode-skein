@@ -1,6 +1,5 @@
 import { PlanExitTool } from "./plan"
 import { QuestionTool } from "./question"
-import { BashTool } from "./bash"
 import { EditTool } from "./edit"
 import { GlobTool } from "./glob"
 import { GrepTool } from "./grep"
@@ -32,6 +31,10 @@ import { pathToFileURL } from "url"
 import { Effect, Layer, ServiceMap } from "effect"
 import { InstanceState } from "@/effect/instance-state"
 import { makeRuntime } from "@/effect/run-service"
+import { BashTool } from "./shell/bash"
+import { PwshTool } from "./shell/pwsh"
+import { PowershellTool } from "./shell/powershell"
+import { Shell } from "@/shell/shell"
 
 export namespace ToolRegistry {
   const log = Log.create({ service: "tool.registry" })
@@ -115,10 +118,13 @@ export namespace ToolRegistry {
         const cfg = yield* config.get()
         const question = ["app", "cli", "desktop"].includes(Flag.OPENCODE_CLIENT) || Flag.OPENCODE_ENABLE_QUESTION_TOOL
 
+        const shellName = Shell.name(Shell.acceptable())
+        const ActiveShellTool = shellName === "pwsh" ? PwshTool : shellName === "powershell" ? PowershellTool : BashTool
+
         return [
           InvalidTool,
           ...(question ? [QuestionTool] : []),
-          BashTool,
+          ActiveShellTool,
           ReadTool,
           GlobTool,
           GrepTool,

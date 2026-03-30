@@ -278,6 +278,36 @@ export namespace Permission {
   export function fromConfig(permission: Config.Permission) {
     const ruleset: Ruleset = []
     for (const [key, value] of Object.entries(permission)) {
+      if (key === "bash") {
+        if (typeof value === "string") {
+          ruleset.push({ permission: "bash", action: value, pattern: "*" })
+          ruleset.push({ permission: "pwsh", action: value, pattern: "*" })
+          ruleset.push({ permission: "powershell", action: value, pattern: "*" })
+        } else {
+          ruleset.push(
+            ...Object.entries(value).map(([pattern, action]) => ({
+              permission: "bash",
+              pattern: expand(pattern),
+              action,
+            })),
+          )
+          ruleset.push(
+            ...Object.entries(value).map(([pattern, action]) => ({
+              permission: "pwsh",
+              pattern: expand(pattern),
+              action,
+            })),
+          )
+          ruleset.push(
+            ...Object.entries(value).map(([pattern, action]) => ({
+              permission: "powershell",
+              pattern: expand(pattern),
+              action,
+            })),
+          )
+        }
+        continue
+      }
       if (typeof value === "string") {
         ruleset.push({ permission: key, action: value, pattern: "*" })
         continue

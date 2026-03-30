@@ -639,6 +639,10 @@ export namespace Config {
         // write, edit, patch, multiedit all map to edit permission
         if (tool === "write" || tool === "edit" || tool === "patch" || tool === "multiedit") {
           permission.edit = action
+        } else if (tool === "bash") {
+          permission.bash = action
+          permission.pwsh = action
+          permission.powershell = action
         } else {
           permission[tool] = action
         }

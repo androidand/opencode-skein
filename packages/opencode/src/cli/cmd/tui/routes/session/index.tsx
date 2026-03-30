@@ -35,7 +35,7 @@ import { Locale } from "@/util/locale"
 import type { Tool } from "@/tool/tool"
 import type { ReadTool } from "@/tool/read"
 import type { WriteTool } from "@/tool/write"
-import { BashTool } from "@/tool/bash"
+import { BashTool } from "@/tool/shell/bash"
 import type { GlobTool } from "@/tool/glob"
 import { TodoWriteTool } from "@/tool/todo"
 import type { GrepTool } from "@/tool/grep"
@@ -1514,7 +1514,7 @@ function ToolPart(props: { last: boolean; part: ToolPart; message: AssistantMess
   return (
     <Show when={!shouldHide()}>
       <Switch>
-        <Match when={props.part.tool === "bash"}>
+        <Match when={props.part.tool === "bash" || props.part.tool === "pwsh" || props.part.tool === "powershell"}>
           <Bash {...toolprops} />
         </Match>
         <Match when={props.part.tool === "glob"}>

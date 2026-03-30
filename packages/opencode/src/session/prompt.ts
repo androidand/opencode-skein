@@ -1629,12 +1629,14 @@ NOTE: At any point in time through this workflow you should feel free to ask the
       providerID: model.providerID,
     }
     await Session.updateMessage(msg)
+    const shell = Shell.preferred()
+    const shellName = Shell.name(shell)
     const part: MessageV2.Part = {
       type: "tool",
       id: PartID.ascending(),
       messageID: msg.id,
       sessionID: input.sessionID,
-      tool: "bash",
+      tool: shellName === "pwsh" ? "pwsh" : shellName === "powershell" ? "powershell" : "bash",
       callID: ulid(),
       state: {
         status: "running",
@@ -1647,8 +1649,6 @@ NOTE: At any point in time through this workflow you should feel free to ask the
       },
     }
     await Session.updatePart(part)
-    const shell = Shell.preferred()
-    const shellName = Shell.name(shell)
 
     const invocations: Record<string, { args: string[] }> = {
       nu: {
