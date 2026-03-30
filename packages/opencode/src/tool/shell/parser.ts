@@ -1,4 +1,4 @@
-import { Language, Parser, type Node } from "web-tree-sitter"
+import type { Node } from "web-tree-sitter"
 import { lazy } from "@/util/lazy"
 import { resolveWasm, resolvePath, unquote, home, expand, type Scan, type Part } from "./util"
 import { Instance } from "@/project/instance"
@@ -141,6 +141,7 @@ export namespace ShellParser {
     const { default: psWasm } = await import("tree-sitter-powershell/tree-sitter-powershell.wasm" as string, {
       with: { type: "wasm" },
     })
+    const { Language } = await import("web-tree-sitter")
     const bashPath = resolveWasm(bashWasm)
     const psPath = resolveWasm(psWasm)
     const bashLanguage = await Language.load(bashPath)

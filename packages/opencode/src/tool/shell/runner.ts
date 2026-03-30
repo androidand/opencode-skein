@@ -121,10 +121,10 @@ export namespace ShellRunner {
     })
 
     const metadata: string[] = []
-    if (expired) metadata.push(`bash tool terminated command after exceeding timeout ${input.timeout} ms`)
+    if (expired) metadata.push(`${input.name} tool terminated command after exceeding timeout ${input.timeout} ms`)
     if (aborted) metadata.push("User aborted the command")
     if (metadata.length > 0) {
-      output += "\n\n<bash_metadata>\n" + metadata.join("\n") + "\n</bash_metadata>"
+      output += "\n\n<shell_metadata>\n" + metadata.join("\n") + "\n</shell_metadata>"
     }
 
     return {
