@@ -91,6 +91,76 @@ export function formatShellDescription(template: string, opts: { name: string; s
     .replaceAll("${maxBytes}", String(Truncate.MAX_BYTES))
 }
 
+import z from "zod"
+import DESCRIPTION from "./shell.txt"
+import { Log } from "@/util/log"
+import { Flag } from "@/flag/flag"
+import { ShellParser } from "./parser"
+import { ShellRunner } from "./runner"
+
+export type ShellType = "bash" | "pwsh" | "powershell"
+
+const DEFAULT_TIMEOUT = Flag.OPENCODE_EXPERIMENTAL_BASH_DEFAULT_TIMEOUT_MS || 2 * 60 * 1000
+
+export function createShellTool(id: ShellType, shellName: string, chaining: string) {
+  const log = Log.create({ service: `${id}-tool` })
+
+  return Tool.define(id, async () => {
+    const shell = Shell.acceptable()
+    const name = Shell.name(shell)
+    log.info(`${id} tool using shell`, { shell, name })
+
+    return {
+      description: formatShellDescription(DESCRIPTION, { name, shellName, chaining }),
+      parameters: z.object({
+        command: z.string().describe("The command to execute"),
+        timeout: z.number().describe("Optional timeout in milliseconds").optional(),
+        workdir: z
+          .string()
+          .describe(
+            `The working directory to run the command in. Defaults to ${Instance.directory}. Use this instead of 'cd' commands.`,
+          )
+          .optional(),
+        description: z
+          .string()
+          .describe(
+            "Clear, concise description of what this command does in 5-10 words. Examples:\nInput: ls\nOutput: Lists files in current directory\n\nInput: git status\nOutput: Shows working tree status\n\nInput: npm install\nOutput: Installs package dependencies\n\nInput: mkdir foo\nOutput: Creates directory 'foo'",
+          ),
+      }),
+      async execute(params, ctx) {
+        const cwd = params.workdir ? await resolvePath(params.workdir, Instance.directory, shell) : Instance.directory
+        if (params.timeout !== undefined && params.timeout < 0) {
+          throw new Error(`Invalid timeout value: ${params.timeout}. Timeout must be a positive number.`)
+        }
+        const timeout = params.timeout ?? DEFAULT_TIMEOUT
+
+        const scan = await ShellParser.collect({
+          command: params.command,
+          cwd,
+          shell,
+          shellType: id,
+        })
+        if (!Instance.containsPath(cwd)) scan.dirs.add(cwd)
+
+        await askPermission(ctx, scan, id)
+
+        return ShellRunner.run(
+          {
+            shell,
+            name,
+            command: params.command,
+            cwd,
+            env: await ShellRunner.shellEnv(ctx, cwd),
+            timeout,
+            description: params.description,
+          },
+          ctx,
+        )
+      },
+    }
+  })
+}
+
 export async function askPermission(ctx: Tool.Context, scan: Scan, permissionName: string = "bash") {
   if (scan.dirs.size > 0) {
     const globs = Array.from(scan.dirs).map((dir) => {
