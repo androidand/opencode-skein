@@ -11,6 +11,11 @@ export function preview(text: string) {
 }
 
 export namespace ShellRunner {
+  function wrap(name: string, command: string) {
+    if (name !== "powershell" && name !== "pwsh") return command
+    return `${command}; if ($null -ne $LASTEXITCODE) { exit $LASTEXITCODE }; if ($?) { exit 0 }; exit 1`
+  }
+
   export async function shellEnv(ctx: Tool.Context, cwd: string) {
     const extra = await Plugin.trigger("shell.env", { cwd, sessionID: ctx.sessionID, callID: ctx.callID }, { env: {} })
     return {
@@ -21,7 +26,7 @@ export namespace ShellRunner {
 
   export function launch(shell: string, name: string, command: string, cwd: string, env: NodeJS.ProcessEnv) {
     if (process.platform === "win32" && (name === "powershell" || name === "pwsh")) {
-      return spawn(shell, ["-NoLogo", "-NoProfile", "-NonInteractive", "-Command", command], {
+      return spawn(shell, ["-NoLogo", "-NoProfile", "-NonInteractive", "-Command", wrap(name, command)], {
         cwd,
         env,
         stdio: ["ignore", "pipe", "pipe"],
@@ -54,6 +59,7 @@ export namespace ShellRunner {
   ) {
     const proc = launch(input.shell, input.name, input.command, input.cwd, input.env)
     let output = ""
+    let code: number | null = null
 
     ctx.metadata({
       metadata: {
@@ -103,12 +109,14 @@ export namespace ShellRunner {
         ctx.abort.removeEventListener("abort", abort)
       }
 
-      proc.once("exit", () => {
+      proc.once("exit", (next) => {
         exited = true
+        code = next
       })
 
-      proc.once("close", () => {
+      proc.once("close", (next) => {
         exited = true
+        code = next
         cleanup()
         resolve()
       })
@@ -131,7 +139,7 @@ export namespace ShellRunner {
       title: input.description,
       metadata: {
         output: preview(output),
-        exit: proc.exitCode,
+        exit: code,
         description: input.description,
       },
       output,

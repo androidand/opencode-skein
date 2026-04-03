@@ -269,6 +269,8 @@ export type ToolInfo = {
   subtitle?: string
 }
 
+const SHELL = new Set(["bash", "pwsh", "powershell"])
+
 function agentTitle(i18n: UiI18n, type?: string) {
   if (!type) return i18n.t("ui.tool.agent.default")
   return i18n.t("ui.tool.agent", { type })
@@ -331,6 +333,8 @@ export function getToolInfo(tool: string, input: any = {}): ToolInfo {
       }
     }
     case "bash":
+    case "pwsh":
+    case "powershell":
       return {
         icon: "console",
         title: i18n.t("ui.tool.shell"),
@@ -518,7 +522,7 @@ function renderable(part: PartType, showReasoningSummaries = true) {
 }
 
 function toolDefaultOpen(tool: string, shell = false, edit = false) {
-  if (tool === "bash") return shell
+  if (SHELL.has(tool)) return shell
   if (tool === "edit" || tool === "write" || tool === "apply_patch") return edit
 }
 
