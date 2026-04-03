@@ -115,6 +115,15 @@ const each = (name: string, fn: (item: { label: string; shell: string }) => Prom
   }
 }
 
+const eachps = (name: string, fn: (item: { label: string; shell: string }) => Promise<void>) => {
+  for (const item of ps) {
+    test(
+      `${name} [${item.label}]`,
+      withShell(item, () => fn(item)),
+    )
+  }
+}
+
 const capture = (requests: Array<Omit<Permission.Request, "id" | "sessionID" | "tool">>, stop?: Error) => ({
   ...ctx,
   ask: async (req: Omit<Permission.Request, "id" | "sessionID" | "tool">) => {
@@ -1014,6 +1023,40 @@ describe("tool.shell runtime", () => {
           ctx,
         )
         expect(result.metadata.exit).toBe(42)
+      },
+    })
+  })
+
+  eachps("preserves native exit code with trailing comment", async () => {
+    await Instance.provide({
+      directory: projectRoot,
+      fn: async () => {
+        const bash = await getTool()
+        const result = await bash.execute(
+          {
+            command: `${js("process.exit(42)")} # keep wrapper separate`,
+            description: "Trailing comment exit",
+          },
+          ctx,
+        )
+        expect(result.metadata.exit).toBe(42)
+      },
+    })
+  })
+
+  eachps("returns non-zero exit for powershell cmdlet errors", async () => {
+    await Instance.provide({
+      directory: projectRoot,
+      fn: async () => {
+        const bash = await getTool()
+        const result = await bash.execute(
+          {
+            command: "Write-Error x",
+            description: "Cmdlet error exit",
+          },
+          ctx,
+        )
+        expect(result.metadata.exit).toBe(1)
       },
     })
   })

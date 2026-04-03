@@ -11,9 +11,11 @@ export function preview(text: string) {
 }
 
 export namespace ShellRunner {
-  function wrap(name: string, command: string) {
-    if (name !== "powershell" && name !== "pwsh") return command
-    return `${command}; if ($null -ne $LASTEXITCODE) { exit $LASTEXITCODE }; if ($?) { exit 0 }; exit 1`
+  function preserveExitCode(command: string) {
+    return `${command}
+if ($null -ne $LASTEXITCODE) { exit $LASTEXITCODE }
+if ($?) { exit 0 }
+exit 1`
   }
 
   export async function shellEnv(ctx: Tool.Context, cwd: string) {
@@ -26,7 +28,7 @@ export namespace ShellRunner {
 
   export function launch(shell: string, name: string, command: string, cwd: string, env: NodeJS.ProcessEnv) {
     if (process.platform === "win32" && (name === "powershell" || name === "pwsh")) {
-      return spawn(shell, ["-NoLogo", "-NoProfile", "-NonInteractive", "-Command", wrap(name, command)], {
+      return spawn(shell, ["-NoLogo", "-NoProfile", "-NonInteractive", "-Command", preserveExitCode(command)], {
         cwd,
         env,
         stdio: ["ignore", "pipe", "pipe"],
