@@ -155,7 +155,7 @@ describe("tool.shell", () => {
           },
           ctx,
         )
-        expect(result.metadata.exit).toBe(0)
+        expect(result.metadata.exit ?? -1).toBe(0)
         expect(result.metadata.output).toContain("test")
       },
     })
@@ -1005,7 +1005,7 @@ describe("tool.shell runtime", () => {
         )
         expect(result.output).toContain("333")
         expect(result.output).toContain("444")
-        expect(result.metadata.exit).toBe(0)
+        expect(result.metadata.exit ?? -1).toBe(0)
       },
     })
   })
@@ -1022,7 +1022,7 @@ describe("tool.shell runtime", () => {
           },
           ctx,
         )
-        expect(result.metadata.exit).toBe(42)
+        expect(result.metadata.exit ?? -1).toBe(42)
       },
     })
   })
@@ -1039,7 +1039,7 @@ describe("tool.shell runtime", () => {
           },
           ctx,
         )
-        expect(result.metadata.exit).toBe(42)
+        expect(result.metadata.exit ?? -1).toBe(42)
       },
     })
   })
@@ -1056,7 +1056,7 @@ describe("tool.shell runtime", () => {
           },
           ctx,
         )
-        expect(result.metadata.exit).toBe(1)
+        expect(result.metadata.exit ?? -1).toBe(1)
       },
     })
   })
