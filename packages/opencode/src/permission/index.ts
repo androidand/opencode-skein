@@ -276,46 +276,30 @@ export namespace Permission {
     return pattern
   }
 
+  function pushRules(ruleset: Ruleset, permission: string, value: Config.PermissionRule) {
+    if (typeof value === "string") {
+      ruleset.push({ permission, action: value, pattern: "*" })
+      return
+    }
+
+    ruleset.push(
+      ...Object.entries(value).map(([pattern, action]) => ({ permission, pattern: expand(pattern), action })),
+    )
+  }
+
   export function fromConfig(permission: Config.Permission) {
     const ruleset: Ruleset = []
+
+    const bash = permission["bash"]
+    if (bash !== undefined) {
+      pushRules(ruleset, "bash", bash)
+      pushRules(ruleset, "pwsh", bash)
+      pushRules(ruleset, "powershell", bash)
+    }
+
     for (const [key, value] of Object.entries(permission)) {
-      if (key === "bash") {
-        if (typeof value === "string") {
-          ruleset.push({ permission: "bash", action: value, pattern: "*" })
-          ruleset.push({ permission: "pwsh", action: value, pattern: "*" })
-          ruleset.push({ permission: "powershell", action: value, pattern: "*" })
-        } else {
-          ruleset.push(
-            ...Object.entries(value).map(([pattern, action]) => ({
-              permission: "bash",
-              pattern: expand(pattern),
-              action,
-            })),
-          )
-          ruleset.push(
-            ...Object.entries(value).map(([pattern, action]) => ({
-              permission: "pwsh",
-              pattern: expand(pattern),
-              action,
-            })),
-          )
-          ruleset.push(
-            ...Object.entries(value).map(([pattern, action]) => ({
-              permission: "powershell",
-              pattern: expand(pattern),
-              action,
-            })),
-          )
-        }
-        continue
-      }
-      if (typeof value === "string") {
-        ruleset.push({ permission: key, action: value, pattern: "*" })
-        continue
-      }
-      ruleset.push(
-        ...Object.entries(value).map(([pattern, action]) => ({ permission: key, pattern: expand(pattern), action })),
-      )
+      if (key === "bash") continue
+      pushRules(ruleset, key, value)
     }
     return ruleset
   }

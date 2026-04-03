@@ -71,6 +71,30 @@ test("fromConfig - mixed string and object values", () => {
   ])
 })
 
+test("fromConfig - explicit pwsh overrides bash regardless of key order", () => {
+  const result = Permission.fromConfig({
+    pwsh: "deny",
+    bash: "allow",
+  })
+  expect(result).toEqual([
+    { permission: "bash", pattern: "*", action: "allow" },
+    { permission: "pwsh", pattern: "*", action: "allow" },
+    { permission: "powershell", pattern: "*", action: "allow" },
+    { permission: "pwsh", pattern: "*", action: "deny" },
+  ])
+  expect(Permission.evaluate("pwsh", "ls", result).action).toBe("deny")
+  expect(Permission.evaluate("bash", "ls", result).action).toBe("allow")
+})
+
+test("fromConfig - explicit powershell pattern overrides bash pattern regardless of key order", () => {
+  const result = Permission.fromConfig({
+    powershell: { "rm *": "deny" },
+    bash: { "*": "allow", "rm *": "ask" },
+  })
+  expect(Permission.evaluate("powershell", "rm foo", result).action).toBe("deny")
+  expect(Permission.evaluate("pwsh", "rm foo", result).action).toBe("ask")
+})
+
 test("fromConfig - empty object", () => {
   const result = Permission.fromConfig({})
   expect(result).toEqual([])

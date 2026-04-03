@@ -9,24 +9,12 @@ import fs from "fs/promises"
 import { Filesystem } from "../../util/filesystem"
 import matter from "gray-matter"
 import { Instance } from "../../project/instance"
-import { ShellTool } from "../../tool/shell/id"
 import { EOL } from "os"
 import type { Argv } from "yargs"
 
 type AgentMode = "all" | "primary" | "subagent"
 
-const AVAILABLE_TOOLS = [
-  ...ShellTool.ids,
-  "read",
-  "write",
-  "edit",
-  "list",
-  "glob",
-  "grep",
-  "webfetch",
-  "task",
-  "todowrite",
-]
+const AVAILABLE_TOOLS = ["bash", "read", "write", "edit", "list", "glob", "grep", "webfetch", "task", "todowrite"]
 
 const AgentCreateCommand = cmd({
   command: "create",
