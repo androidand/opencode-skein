@@ -278,6 +278,14 @@ function agentTitle(i18n: UiI18n, type?: string) {
 
 export function getToolInfo(tool: string, input: any = {}): ToolInfo {
   const i18n = useI18n()
+  if (SHELL.has(tool)) {
+    return {
+      icon: "console",
+      title: i18n.t("ui.tool.shell"),
+      subtitle: input.description,
+    }
+  }
+
   switch (tool) {
     case "read":
       return {
@@ -332,14 +340,6 @@ export function getToolInfo(tool: string, input: any = {}): ToolInfo {
         subtitle: input.description,
       }
     }
-    case "bash":
-    case "pwsh":
-    case "powershell":
-      return {
-        icon: "console",
-        title: i18n.t("ui.tool.shell"),
-        subtitle: input.description,
-      }
     case "edit":
       return {
         icon: "code-lines",

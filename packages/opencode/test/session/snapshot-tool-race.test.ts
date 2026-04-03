@@ -16,10 +16,12 @@ import { Effect } from "effect"
 import fs from "fs/promises"
 import path from "path"
 import { Session } from "../../src/session"
+import { Shell } from "../../src/shell/shell"
 import { LLM } from "../../src/session/llm"
 import { SessionPrompt } from "../../src/session/prompt"
 import { SessionSummary } from "../../src/session/summary"
 import { MessageV2 } from "../../src/session/message-v2"
+import { ShellTool } from "../../src/tool/shell/id"
 import { Log } from "../../src/util/log"
 import { provideTmpdirServer } from "../fixture/fixture"
 import { testEffect } from "../lib/effect"
@@ -42,7 +44,6 @@ import { SessionCompaction } from "../../src/session/compaction"
 import { Instruction } from "../../src/session/instruction"
 import { SessionProcessor } from "../../src/session/processor"
 import { SessionStatus } from "../../src/session/status"
-import { Shell } from "../../src/shell/shell"
 import { Snapshot } from "../../src/snapshot"
 import { ToolRegistry } from "../../src/tool/registry"
 import { Truncate } from "../../src/tool/truncate"
@@ -183,13 +184,15 @@ it.live("tool execution produces non-empty session diff (snapshot race)", () =>
         permission: [{ permission: "*", pattern: "*", action: "allow" }],
       })
 
-      // Use bash tool (always registered) to create a file
+      const shell = ShellTool.from(Shell.name(Shell.acceptable()))
+
+      // Use the active shell tool to create a file
       const command = `echo 'snapshot race test content' > ${path.join(dir, "race-test.txt")}`
-      yield* llm.toolMatch((hit) => JSON.stringify(hit.body).includes("create the file"), "bash", {
+      yield* llm.toolMatch((hit) => JSON.stringify(hit.body).includes("create the file"), shell, {
         command,
         description: "create test file",
       })
-      yield* llm.textMatch((hit) => JSON.stringify(hit.body).includes("bash"), "done")
+      yield* llm.textMatch((hit) => JSON.stringify(hit.body).includes(shell), "done")
 
       // Seed user message
       yield* prompt.prompt({
@@ -217,7 +220,7 @@ it.live("tool execution produces non-empty session diff (snapshot race)", () =>
       const allMsgs = yield* MessageV2.filterCompactedEffect(session.id)
       const tool = allMsgs
         .flatMap((m) => m.parts)
-        .find((p): p is MessageV2.ToolPart => p.type === "tool" && p.tool === "bash")
+        .find((p): p is MessageV2.ToolPart => p.type === "tool" && p.tool === shell)
       expect(tool?.state.status).toBe("completed")
 
       // Poll for diff — summarize() is fire-and-forget

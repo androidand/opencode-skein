@@ -2,6 +2,7 @@ import { spawn } from "child_process"
 import { Shell } from "@/shell/shell"
 import { Tool } from "../tool"
 import { Plugin } from "@/plugin"
+import { ShellTool } from "./id"
 
 const MAX_METADATA_LENGTH = 30_000
 
@@ -27,7 +28,7 @@ exit 1`
   }
 
   export function launch(shell: string, name: string, command: string, cwd: string, env: NodeJS.ProcessEnv) {
-    if (process.platform === "win32" && (name === "powershell" || name === "pwsh")) {
+    if (process.platform === "win32" && ShellTool.powershell(name)) {
       return spawn(shell, ["-NoLogo", "-NoProfile", "-NonInteractive", "-Command", preserveExitCode(command)], {
         cwd,
         env,

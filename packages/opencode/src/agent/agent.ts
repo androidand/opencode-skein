@@ -168,8 +168,6 @@ export namespace Agent {
                   glob: "allow",
                   list: "allow",
                   bash: "allow",
-                  pwsh: "allow",
-                  powershell: "allow",
                   webfetch: "allow",
                   websearch: "allow",
                   codesearch: "allow",

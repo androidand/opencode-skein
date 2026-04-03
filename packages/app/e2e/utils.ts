@@ -1,4 +1,4 @@
-import { createOpencodeClient } from "@opencode-ai/sdk/v2/client"
+import { createOpencodeClient, type ToolPart } from "@opencode-ai/sdk/v2/client"
 import { base64Encode, checksum } from "@opencode-ai/util/encode"
 
 export const serverHost = process.env.PLAYWRIGHT_SERVER_HOST ?? "127.0.0.1"
@@ -18,6 +18,7 @@ const serverLabels = (() => {
 export const serverNames = [...new Set(serverLabels)]
 
 export const serverUrls = serverNames.map((name) => `http://${name}`)
+const shell = new Set(["bash", "pwsh", "powershell"])
 
 const escape = (value: string) => value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")
 
@@ -28,6 +29,13 @@ export const terminalToggleKey = "Control+Backquote"
 
 export function createSdk(directory?: string, baseUrl = serverUrl) {
   return createOpencodeClient({ baseUrl, directory, throwOnError: true })
+}
+
+export function isShell(part: unknown): part is ToolPart {
+  if (!part || typeof part !== "object") return false
+  if (!("type" in part) || part.type !== "tool") return false
+  if (!("tool" in part) || typeof part.tool !== "string" || !shell.has(part.tool)) return false
+  return "state" in part
 }
 
 export async function resolveDirectory(directory: string, baseUrl = serverUrl) {

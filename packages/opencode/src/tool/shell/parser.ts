@@ -1,6 +1,7 @@
 import type { Node } from "web-tree-sitter"
 import { lazy } from "@/util/lazy"
 import { resolveWasm, resolvePath, unquote, home, expand, type Scan, type Part } from "./util"
+import { ShellTool } from "./id"
 import { Instance } from "@/project/instance"
 import { Filesystem } from "@/util/filesystem"
 import path from "path"
@@ -160,9 +161,9 @@ export namespace ShellParser {
     command: string
     cwd: string
     shell: string
-    shellType: "bash" | "pwsh" | "powershell"
+    shellType: ShellTool.ID
   }): Promise<Scan> {
-    const isPwsh = opts.shellType === "pwsh" || opts.shellType === "powershell"
+    const isPwsh = ShellTool.powershell(opts.shellType)
     const parsers = await getParser()
     const parser = isPwsh ? parsers.ps : parsers.bash
 

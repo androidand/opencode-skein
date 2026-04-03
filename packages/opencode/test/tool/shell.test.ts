@@ -3,6 +3,7 @@ import os from "os"
 import path from "path"
 import { Shell } from "../../src/shell/shell"
 import { BashTool } from "../../src/tool/shell/bash"
+import { ShellTool } from "../../src/tool/shell/id"
 import { PwshTool } from "../../src/tool/shell/pwsh"
 import { PowershellTool } from "../../src/tool/shell/powershell"
 import { Instance } from "../../src/project/instance"
@@ -47,15 +48,14 @@ const shells = (() => {
     (item, i) => list.findIndex((other) => other.shell.toLowerCase() === item.shell.toLowerCase()) === i,
   )
 })()
-const PS = new Set(["pwsh", "powershell"])
-const ps = shells.filter((item) => PS.has(item.label))
+const ps = shells.filter((item) => ShellTool.powershell(item.label))
 
 const sh = () => Shell.name(Shell.acceptable())
 const evalarg = (text: string) => (sh() === "cmd" ? quote(text) : squote(text))
 const js = (code: string, ...args: Array<number | string>) => {
   const tail = args.length ? ` ${args.map(String).join(" ")}` : ""
   const text = `${bin} -e ${evalarg(code)}${tail}`
-  if (PS.has(sh())) return `& ${text}`
+  if (ShellTool.powershell(sh())) return `& ${text}`
   return text
 }
 
@@ -92,18 +92,12 @@ const withShell = (item: { label: string; shell: string }, fn: () => Promise<voi
   }
 }
 
-const expectedPermission = () => {
-  const name = sh()
-  if (name === "pwsh") return "pwsh"
-  if (name === "powershell") return "powershell"
-  return "bash"
-}
+const expectedPermission = () => ShellTool.from(sh())
+
+const tools = { bash: BashTool, pwsh: PwshTool, powershell: PowershellTool } as const
 
 const getTool = async () => {
-  const name = sh()
-  if (name === "pwsh") return await PwshTool.init()
-  if (name === "powershell") return await PowershellTool.init()
-  return await BashTool.init()
+  return await tools[ShellTool.from(sh())].init()
 }
 
 const each = (name: string, fn: (item: { label: string; shell: string }) => Promise<void>) => {

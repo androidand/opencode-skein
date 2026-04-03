@@ -1,19 +1,11 @@
-import type { ToolPart } from "@opencode-ai/sdk/v2/client"
 import type { Page } from "@playwright/test"
 import { test, expect } from "../fixtures"
 import { assistantText } from "../actions"
 import { promptSelector } from "../selectors"
-import { createSdk } from "../utils"
+import { createSdk, isShell } from "../utils"
 
 const text = (value: string | null) => (value ?? "").replace(/\u200B/g, "").trim()
 type Sdk = ReturnType<typeof createSdk>
-
-const isBash = (part: unknown): part is ToolPart => {
-  if (!part || typeof part !== "object") return false
-  if (!("type" in part) || part.type !== "tool") return false
-  if (!("tool" in part) || part.tool !== "bash") return false
-  return "state" in part
-}
 
 async function wait(page: Page, value: string) {
   await expect.poll(async () => text(await page.locator(promptSelector).textContent())).toBe(value)
@@ -31,7 +23,7 @@ async function shell(sdk: Sdk, sessionID: string, cmd: string, token: string) {
         const part = messages
           .filter((item) => item.info.role === "assistant")
           .flatMap((item) => item.parts)
-          .filter(isBash)
+          .filter(isShell)
           .find((item) => item.state.input?.command === cmd && item.state.status === "completed")
 
         if (!part || part.state.status !== "completed") return

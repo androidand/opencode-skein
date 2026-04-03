@@ -108,12 +108,13 @@ export function formatShellDescription(
 
 import z from "zod"
 import DESCRIPTION from "./shell.txt"
+import { ShellTool } from "./id"
 import { Log } from "@/util/log"
 import { Flag } from "@/flag/flag"
 import { ShellParser } from "./parser"
 import { ShellRunner } from "./runner"
 
-export type ShellType = "bash" | "pwsh" | "powershell"
+export type ShellType = ShellTool.ID
 
 const DEFAULT_TIMEOUT = Flag.OPENCODE_EXPERIMENTAL_BASH_DEFAULT_TIMEOUT_MS || 2 * 60 * 1000
 

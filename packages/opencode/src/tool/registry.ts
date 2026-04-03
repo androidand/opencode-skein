@@ -32,6 +32,7 @@ import { Effect, Layer, ServiceMap } from "effect"
 import { InstanceState } from "@/effect/instance-state"
 import { makeRuntime } from "@/effect/run-service"
 import { BashTool } from "./shell/bash"
+import { ShellTool } from "./shell/id"
 import { PwshTool } from "./shell/pwsh"
 import { PowershellTool } from "./shell/powershell"
 import { Shell } from "@/shell/shell"
@@ -39,6 +40,7 @@ import { Env } from "../env"
 
 export namespace ToolRegistry {
   const log = Log.create({ service: "tool.registry" })
+  const shells = { bash: BashTool, pwsh: PwshTool, powershell: PowershellTool } as const
 
   type State = {
     custom: Tool.Info[]
@@ -118,14 +120,12 @@ export namespace ToolRegistry {
       const all = Effect.fn("ToolRegistry.all")(function* (custom: Tool.Info[]) {
         const cfg = yield* config.get()
         const question = ["app", "cli", "desktop"].includes(Flag.OPENCODE_CLIENT) || Flag.OPENCODE_ENABLE_QUESTION_TOOL
-
-        const shellName = Shell.name(Shell.acceptable())
-        const ActiveShellTool = shellName === "pwsh" ? PwshTool : shellName === "powershell" ? PowershellTool : BashTool
+        const active = shells[ShellTool.from(Shell.name(Shell.acceptable()))]
 
         return [
           InvalidTool,
           ...(question ? [QuestionTool] : []),
-          ActiveShellTool,
+          active,
           ReadTool,
           GlobTool,
           GrepTool,

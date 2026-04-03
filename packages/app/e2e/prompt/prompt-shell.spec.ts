@@ -1,13 +1,6 @@
-import type { ToolPart } from "@opencode-ai/sdk/v2/client"
 import { test, expect } from "../fixtures"
 import { withSession } from "../actions"
-
-const isBash = (part: unknown): part is ToolPart => {
-  if (!part || typeof part !== "object") return false
-  if (!("type" in part) || part.type !== "tool") return false
-  if (!("tool" in part) || part.tool !== "bash") return false
-  return "state" in part
-}
+import { isShell } from "../utils"
 
 async function setAutoAccept(page: Parameters<typeof test>[0]["page"], enabled: boolean) {
   const button = page.locator('[data-action="prompt-permissions"]').first()
@@ -42,7 +35,7 @@ test("shell mode runs a command in the project directory", async ({ page, projec
           if (!msg) return
 
           const part = msg.parts
-            .filter(isBash)
+            .filter(isShell)
             .find((item) => item.state.input?.command === cmd && item.state.status === "completed")
 
           if (!part || part.state.status !== "completed") return

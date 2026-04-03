@@ -1,10 +1,8 @@
+import { ShellTool } from "./id"
+
 export namespace ShellArity {
-  export function prefix(tokens: string[], shellType: "bash" | "pwsh" | "powershell") {
-    if (
-      (shellType === "pwsh" || shellType === "powershell") &&
-      tokens.length > 0 &&
-      /^[a-z]+-[a-z]+$/i.test(tokens[0])
-    ) {
+  export function prefix(tokens: string[], shellType: ShellTool.ID) {
+    if (ShellTool.powershell(shellType) && tokens.length > 0 && /^[a-z]+-[a-z]+$/i.test(tokens[0])) {
       return [tokens[0]]
     }
     for (let len = tokens.length; len > 0; len--) {
