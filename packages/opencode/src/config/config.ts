@@ -588,8 +588,6 @@ export namespace Config {
           permission.edit = action
         } else if (tool === "bash") {
           permission.bash = action
-          permission.pwsh = action
-          permission.powershell = action
         } else {
           permission[tool] = action
         }
