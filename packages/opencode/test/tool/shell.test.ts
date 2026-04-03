@@ -6,6 +6,7 @@ import { BashTool } from "../../src/tool/shell/bash"
 import { ShellTool } from "../../src/tool/shell/id"
 import { PwshTool } from "../../src/tool/shell/pwsh"
 import { PowershellTool } from "../../src/tool/shell/powershell"
+import { ShellRunner } from "../../src/tool/shell/runner"
 import { Instance } from "../../src/project/instance"
 import { Filesystem } from "../../src/util/filesystem"
 import { tmpdir } from "../fixture/fixture"
@@ -966,6 +967,32 @@ describe("tool.shell runtime", () => {
     })
   })
 
+  each("does not hang when already aborted", async (item) => {
+    const controller = new AbortController()
+    controller.abort()
+    const result = await Promise.race([
+      ShellRunner.run(
+        {
+          shell: item.shell,
+          name: item.label,
+          command: js("setTimeout(()=>{},30000)"),
+          cwd: projectRoot,
+          env: process.env,
+          timeout: 500,
+          description: "Already aborted",
+        },
+        {
+          ...ctx,
+          abort: controller.signal,
+        },
+      ),
+      Bun.sleep(1500).then(() => "timeout" as const),
+    ])
+    expect(result).not.toBe("timeout")
+    if (result === "timeout") return
+    expect(result.output).toContain("User aborted the command")
+  })
+
   each("terminates command on timeout", async () => {
     await Instance.provide({
       directory: projectRoot,
@@ -1053,6 +1080,25 @@ describe("tool.shell runtime", () => {
         expect(result.metadata.exit ?? -1).toBe(1)
       },
     })
+  })
+
+  each("preserves multibyte utf8 output across chunks", async (item) => {
+    const result = await ShellRunner.run(
+      {
+        shell: item.shell,
+        name: item.label,
+        command: js(
+          "process.stdout.write(Buffer.from([0xF0,0x9F]));setTimeout(()=>process.stdout.write(Buffer.from([0x98,0x80])),20);setTimeout(()=>process.exit(0),40)",
+        ),
+        cwd: projectRoot,
+        env: process.env,
+        timeout: 1000,
+        description: "Utf8 output",
+      },
+      ctx,
+    )
+    expect(result.output).toContain("😀")
+    expect(result.output).not.toContain("\ufffd")
   })
 
   each("streams metadata updates progressively", async () => {

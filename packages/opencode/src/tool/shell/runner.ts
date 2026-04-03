@@ -71,8 +71,11 @@ exit 1`
       },
     })
 
-    const append = (chunk: Buffer) => {
-      output += chunk.toString()
+    proc.stdout?.setEncoding("utf8")
+    proc.stderr?.setEncoding("utf8")
+
+    const append = (chunk: string) => {
+      output += chunk
       ctx.metadata({
         metadata: {
           output: preview(output),
@@ -87,26 +90,16 @@ exit 1`
     let expired = false
     let aborted = false
     let exited = false
+    let timer: ReturnType<typeof setTimeout>
 
     const kill = () => Shell.killTree(proc, { exited: () => exited })
-
-    if (ctx.abort.aborted) {
-      aborted = true
-      await kill()
-    }
 
     const abort = () => {
       aborted = true
       void kill()
     }
 
-    ctx.abort.addEventListener("abort", abort, { once: true })
-    const timer = setTimeout(() => {
-      expired = true
-      void kill()
-    }, input.timeout + 100)
-
-    await new Promise<void>((resolve, reject) => {
+    const wait = new Promise<void>((resolve, reject) => {
       const cleanup = () => {
         clearTimeout(timer)
         ctx.abort.removeEventListener("abort", abort)
@@ -130,6 +123,16 @@ exit 1`
         reject(error)
       })
     })
+
+    ctx.abort.addEventListener("abort", abort, { once: true })
+    timer = setTimeout(() => {
+      expired = true
+      void kill()
+    }, input.timeout + 100)
+
+    if (ctx.abort.aborted) abort()
+
+    await wait
 
     const metadata: string[] = []
     if (expired) metadata.push(`${input.name} tool terminated command after exceeding timeout ${input.timeout} ms`)

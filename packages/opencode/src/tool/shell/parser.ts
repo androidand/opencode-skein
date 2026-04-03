@@ -22,6 +22,8 @@ const FILES_PWSH = new Set([
   "new-item",
   "rename-item",
 ])
+const FILES_BASH = new Set([...CWD, ...FILES_BASE])
+const FILES_PWSH_ALL = new Set([...FILES_BASH, ...FILES_PWSH])
 
 const FLAGS = new Set(["-destination", "-literalpath", "-path"])
 const SWITCHES = new Set(["-confirm", "-debug", "-force", "-nonewline", "-recurse", "-verbose", "-whatif"])
@@ -125,36 +127,38 @@ function pathArgs(list: Part[], isPwsh: boolean) {
 }
 
 export namespace ShellParser {
-  const getParser = lazy(async () => {
-    const { Parser } = await import("web-tree-sitter")
+  const getCore = lazy(async () => {
+    const tree = await import("web-tree-sitter")
     const { default: treeWasm } = await import("web-tree-sitter/tree-sitter.wasm" as string, {
       with: { type: "wasm" },
     })
     const treePath = resolveWasm(treeWasm)
-    await Parser.init({
+    await tree.Parser.init({
       locateFile() {
         return treePath
       },
     })
+    return tree
+  })
+
+  const getBashParser = lazy(async () => {
+    const tree = await getCore()
     const { default: bashWasm } = await import("tree-sitter-bash/tree-sitter-bash.wasm" as string, {
       with: { type: "wasm" },
     })
+    const bash = new tree.Parser()
+    bash.setLanguage(await tree.Language.load(resolveWasm(bashWasm)))
+    return bash
+  })
+
+  const getPsParser = lazy(async () => {
+    const tree = await getCore()
     const { default: psWasm } = await import("tree-sitter-powershell/tree-sitter-powershell.wasm" as string, {
       with: { type: "wasm" },
     })
-    const { Language } = await import("web-tree-sitter")
-    const bashPath = resolveWasm(bashWasm)
-    const psPath = resolveWasm(psWasm)
-    const bashLanguage = await Language.load(bashPath)
-    const psLanguage = await Language.load(psPath)
-
-    const bash = new Parser()
-    bash.setLanguage(bashLanguage)
-
-    const ps = new Parser()
-    ps.setLanguage(psLanguage)
-
-    return { bash, ps }
+    const ps = new tree.Parser()
+    ps.setLanguage(await tree.Language.load(resolveWasm(psWasm)))
+    return ps
   })
 
   export async function collect(opts: {
@@ -164,8 +168,7 @@ export namespace ShellParser {
     shellType: ShellTool.ID
   }): Promise<Scan> {
     const isPwsh = ShellTool.powershell(opts.shellType)
-    const parsers = await getParser()
-    const parser = isPwsh ? parsers.ps : parsers.bash
+    const parser = isPwsh ? await getPsParser() : await getBashParser()
 
     const tree = parser.parse(opts.command)
     if (!tree) throw new Error("Failed to parse command")
@@ -177,14 +180,14 @@ export namespace ShellParser {
       always: new Set<string>(),
     }
 
-    const filesSet = new Set([...CWD, ...FILES_BASE, ...(isPwsh ? FILES_PWSH : [])])
+    const files = isPwsh ? FILES_PWSH_ALL : FILES_BASH
 
     for (const node of commands(root)) {
       const commandParts = parts(node)
       const tokens = commandParts.map((item) => item.text)
       const cmd = isPwsh ? tokens[0]?.toLowerCase() : tokens[0]
 
-      if (cmd && filesSet.has(cmd)) {
+      if (cmd && files.has(cmd)) {
         for (const arg of pathArgs(commandParts, isPwsh)) {
           const resolved = await argPath(arg, opts.cwd, opts.shell, isPwsh)
           log.info("resolved path", { arg, resolved })
