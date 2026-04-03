@@ -52,15 +52,19 @@ const ps = shells.filter((item) => PS.has(item.label))
 
 const sh = () => Shell.name(Shell.acceptable())
 const evalarg = (text: string) => (sh() === "cmd" ? quote(text) : squote(text))
+const js = (code: string, ...args: Array<number | string>) => {
+  const tail = args.length ? ` ${args.map(String).join(" ")}` : ""
+  const text = `${bin} -e ${evalarg(code)}${tail}`
+  if (PS.has(sh())) return `& ${text}`
+  return text
+}
 
 const fill = (mode: "lines" | "bytes", n: number) => {
   const code =
     mode === "lines"
       ? "console.log(Array.from({length:Number(Bun.argv[1])},(_,i)=>i+1).join(String.fromCharCode(10)))"
       : "process.stdout.write(String.fromCharCode(97).repeat(Number(Bun.argv[1])))"
-  const text = `${bin} -e ${evalarg(code)} ${n}`
-  if (PS.has(sh())) return `& ${text}`
-  return text
+  return js(code, n)
 }
 const glob = (p: string) =>
   process.platform === "win32" ? Filesystem.normalizePathPattern(p) : p.replaceAll("\\", "/")
@@ -907,6 +911,135 @@ describe("tool.shell permissions", () => {
         const bashReq = requests.find((r) => r.permission === expectedPermission())
         expect(bashReq).toBeDefined()
         expect(bashReq!.always[0]).toBe("ls *")
+      },
+    })
+  })
+})
+
+describe("tool.shell description", () => {
+  each("renders description without placeholders", async () => {
+    await Instance.provide({
+      directory: projectRoot,
+      fn: async () => {
+        const tool = await getTool()
+        expect(tool.description).not.toContain("${")
+        expect(tool.description).toContain(projectRoot)
+        expect(tool.description).toContain(`Shell: ${sh()}`)
+      },
+    })
+  })
+})
+
+describe("tool.shell runtime", () => {
+  each("preserves output when aborted", async () => {
+    await Instance.provide({
+      directory: projectRoot,
+      fn: async () => {
+        const bash = await getTool()
+        const controller = new AbortController()
+        const updates: string[] = []
+        const result = bash.execute(
+          {
+            command: js("console.log(111);setTimeout(()=>{},30000)"),
+            description: "Long running command",
+          },
+          {
+            ...ctx,
+            abort: controller.signal,
+            metadata: (input) => {
+              const output = (input.metadata as { output?: string })?.output
+              if (output && output.includes("111") && !controller.signal.aborted) {
+                updates.push(output)
+                controller.abort()
+              }
+            },
+          },
+        )
+        const res = await result
+        expect(res.output).toContain("111")
+        expect(res.output).toContain("User aborted the command")
+        expect(updates.length).toBeGreaterThan(0)
+      },
+    })
+  })
+
+  each("terminates command on timeout", async () => {
+    await Instance.provide({
+      directory: projectRoot,
+      fn: async () => {
+        const bash = await getTool()
+        const result = await bash.execute(
+          {
+            command: js("console.log(222);setTimeout(()=>{},30000)"),
+            description: "Timeout test",
+            timeout: 500,
+          },
+          ctx,
+        )
+        expect(result.output).toContain("222")
+        expect(result.output).toContain(`${sh()} tool terminated command after exceeding timeout`)
+      },
+    })
+  })
+
+  each("captures stderr in output", async () => {
+    await Instance.provide({
+      directory: projectRoot,
+      fn: async () => {
+        const bash = await getTool()
+        const result = await bash.execute(
+          {
+            command: js("console.log(333);console.error(444)"),
+            description: "Stderr test",
+          },
+          ctx,
+        )
+        expect(result.output).toContain("333")
+        expect(result.output).toContain("444")
+        expect(result.metadata.exit).toBe(0)
+      },
+    })
+  })
+
+  each("returns non-zero exit code", async () => {
+    await Instance.provide({
+      directory: projectRoot,
+      fn: async () => {
+        const bash = await getTool()
+        const result = await bash.execute(
+          {
+            command: js("process.exit(42)"),
+            description: "Non-zero exit",
+          },
+          ctx,
+        )
+        expect(result.metadata.exit).toBe(42)
+      },
+    })
+  })
+
+  each("streams metadata updates progressively", async () => {
+    await Instance.provide({
+      directory: projectRoot,
+      fn: async () => {
+        const bash = await getTool()
+        const updates: string[] = []
+        const result = await bash.execute(
+          {
+            command: js("console.log(1);setTimeout(()=>console.log(2),200);setTimeout(()=>process.exit(0),400)"),
+            description: "Streaming test",
+          },
+          {
+            ...ctx,
+            metadata: (input) => {
+              const output = (input.metadata as { output?: string })?.output
+              if (output) updates.push(output)
+            },
+          },
+        )
+        expect(result.output).toContain("1")
+        expect(result.output).toContain("2")
+        expect(updates.length).toBeGreaterThan(1)
       },
     })
   })

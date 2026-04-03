@@ -99,6 +99,9 @@ export function formatShellDescription(
     .replaceAll("${shellName}", opts.shellName)
     .replaceAll("${chaining}", opts.chaining)
     .replaceAll("${guidance}", opts.guidance)
+    .replaceAll("${listCmd}", opts.listCmd)
+    .replaceAll("${toolName}", opts.toolName)
+    .replaceAll("${gitCmds}", opts.gitCmds)
     .replaceAll("${maxLines}", String(Truncate.MAX_LINES))
     .replaceAll("${maxBytes}", String(Truncate.MAX_BYTES))
 }
