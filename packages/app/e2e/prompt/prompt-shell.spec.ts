@@ -1,15 +1,7 @@
 import { test, expect } from "../fixtures"
-import { withSession } from "../actions"
+import { closeDialog, openSettings, withSession } from "../actions"
+import { promptModelSelector, promptSelector, promptVariantSelector } from "../selectors"
 import { isShell } from "../utils"
-
-async function setAutoAccept(page: Parameters<typeof test>[0]["page"], enabled: boolean) {
-  const button = page.locator('[data-action="prompt-permissions"]').first()
-  await expect(button).toBeVisible()
-  const pressed = (await button.getAttribute("aria-pressed")) === "true"
-  if (pressed === enabled) return
-  await button.click()
-  await expect(button).toHaveAttribute("aria-pressed", enabled ? "true" : "false")
-}
 
 test("shell mode runs a command in the project directory", async ({ page, project }) => {
   test.setTimeout(120_000)
@@ -20,7 +12,15 @@ test("shell mode runs a command in the project directory", async ({ page, projec
   await withSession(project.sdk, `e2e shell ${Date.now()}`, async (session) => {
     project.trackSession(session.id)
     await project.gotoSession(session.id)
-    await setAutoAccept(page, true)
+    const dialog = await openSettings(page)
+    const toggle = dialog.locator('[data-action="settings-auto-accept-permissions"]').first()
+    const input = toggle.locator('[data-slot="switch-input"]').first()
+    await expect(toggle).toBeVisible()
+    if ((await input.getAttribute("aria-checked")) !== "true") {
+      await toggle.locator('[data-slot="switch-control"]').click()
+      await expect(input).toHaveAttribute("aria-checked", "true")
+    }
+    await closeDialog(page, dialog)
     await project.shell(cmd)
 
     await expect
@@ -49,4 +49,19 @@ test("shell mode runs a command in the project directory", async ({ page, projec
       )
       .toEqual(expect.objectContaining({ cwd: project.directory, output: expect.stringContaining("README.md") }))
   })
+})
+
+test("shell mode unmounts model and variant controls", async ({ page, project }) => {
+  await project.open()
+
+  const prompt = page.locator(promptSelector).first()
+  await expect(page.locator(promptModelSelector)).toHaveCount(1)
+  await expect(page.locator(promptVariantSelector)).toHaveCount(1)
+
+  await prompt.click()
+  await page.keyboard.type("!")
+
+  await expect(prompt).toHaveAttribute("aria-label", /enter shell command/i)
+  await expect(page.locator(promptModelSelector)).toHaveCount(0)
+  await expect(page.locator(promptVariantSelector)).toHaveCount(0)
 })
