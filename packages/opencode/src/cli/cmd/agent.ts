@@ -11,6 +11,7 @@ import matter from "gray-matter"
 import { Instance } from "../../project/instance"
 import { EOL } from "os"
 import type { Argv } from "yargs"
+import { ShellToolID } from "../../tool/shell/id"
 
 type AgentMode = "all" | "primary" | "subagent"
 
@@ -120,7 +121,16 @@ const AgentCreateCommand = cmd({
         // Select tools
         let selectedTools: string[]
         if (cliTools !== undefined) {
-          selectedTools = cliTools ? cliTools.split(",").map((t) => t.trim()) : AVAILABLE_TOOLS
+          selectedTools = cliTools
+            ? [
+                ...new Set(
+                  cliTools
+                    .split(",")
+                    .map((t) => ShellToolID.normalize(t.trim()))
+                    .filter(Boolean),
+                ),
+              ]
+            : AVAILABLE_TOOLS
         } else {
           const result = await prompts.multiselect({
             message: "Select tools to enable (Space to toggle)",

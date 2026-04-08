@@ -1609,6 +1609,34 @@ test("permission config preserves key order", async () => {
   })
 })
 
+test("permission config preserves shell and legacy bash order", async () => {
+  await using tmp = await tmpdir({
+    init: async (dir) => {
+      await Filesystem.write(
+        path.join(dir, "opencode.json"),
+        JSON.stringify({
+          $schema: "https://opencode.ai/config.json",
+          permission: {
+            shell: "deny",
+            bash: "allow",
+          },
+        }),
+      )
+    },
+  })
+  await Instance.provide({
+    directory: tmp.path,
+    fn: async () => {
+      const config = await Config.get()
+      expect(Object.keys(config.permission!)).toEqual(["shell", "bash"])
+      expect(config.permission).toEqual({
+        shell: "deny",
+        bash: "allow",
+      })
+    },
+  })
+})
+
 // MCP config merging tests
 
 test("project config can override MCP server enabled status", async () => {
@@ -2339,9 +2367,9 @@ test("parseManagedPlist parses permission rules", async () => {
   expect(config.permission?.grep).toBe("allow")
   expect(config.permission?.webfetch).toBe("ask")
   expect(config.permission?.["~/.ssh/*"]).toBe("deny")
-  const shell = config.permission?.shell as Record<string, string>
-  expect(shell?.["rm -rf *"]).toBe("deny")
-  expect(shell?.["curl *"]).toBe("deny")
+  const bash = config.permission?.bash as Record<string, string>
+  expect(bash?.["rm -rf *"]).toBe("deny")
+  expect(bash?.["curl *"]).toBe("deny")
 })
 
 test("parseManagedPlist parses enabled_providers", async () => {

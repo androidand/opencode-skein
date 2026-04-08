@@ -461,15 +461,11 @@ export namespace Config {
     if (typeof x === "string") return { "*": x as PermissionAction }
     const obj = x as { __originalKeys?: string[] } & Record<string, unknown>
     const { __originalKeys, ...rest } = obj
-    if (!__originalKeys) {
-      return Object.fromEntries(
-        Object.entries(rest).map(([key, value]) => [ShellToolID.normalize(key), value as PermissionRule]),
-      )
-    }
+    if (!__originalKeys) return rest as Record<string, PermissionRule>
     const result: Record<string, PermissionRule> = {}
     for (const key of __originalKeys) {
       if (!(key in rest)) continue
-      result[ShellToolID.normalize(key)] = rest[key] as PermissionRule
+      result[key] = rest[key] as PermissionRule
     }
     return result
   }
