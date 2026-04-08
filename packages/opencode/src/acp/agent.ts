@@ -41,7 +41,7 @@ import { Provider } from "../provider/provider"
 import { ModelID, ProviderID } from "../provider/schema"
 import { Agent as AgentModule } from "../agent/agent"
 import { Installation } from "@/installation"
-import { ShellTool } from "@/tool/shell/id"
+import { ShellToolID } from "@/tool/shell/id"
 import { MessageV2 } from "@/session/message-v2"
 import { Config } from "@/config/config"
 import { Todo } from "@/session/todo"
@@ -289,7 +289,7 @@ export namespace ACP {
                 const content: ToolCallContent[] = []
                 if (output) {
                   const hash = Hash.fast(output)
-                  if (ShellTool.has(part.tool)) {
+                  if (ShellToolID.has(part.tool)) {
                     if (this.shellSnapshots.get(part.callID) === hash) {
                       await this.connection
                         .sessionUpdate({
@@ -1111,7 +1111,7 @@ export namespace ACP {
     }
 
     private shellOutput(part: ToolPart) {
-      if (!ShellTool.has(part.tool)) return
+      if (!ShellToolID.has(part.tool)) return
       if (!("metadata" in part.state) || !part.state.metadata || typeof part.state.metadata !== "object") return
       const output = part.state.metadata["output"]
       if (typeof output !== "string") return
@@ -1555,7 +1555,7 @@ export namespace ACP {
 
   function toToolKind(toolName: string): ToolKind {
     const tool = toolName.toLocaleLowerCase()
-    if (ShellTool.has(tool)) return "execute"
+    if (ShellToolID.has(tool)) return "execute"
 
     switch (tool) {
       case "webfetch":
@@ -1583,7 +1583,7 @@ export namespace ACP {
 
   function toLocations(toolName: string, input: Record<string, any>): { path: string }[] {
     const tool = toolName.toLocaleLowerCase()
-    if (ShellTool.has(tool)) return []
+    if (ShellToolID.has(tool)) return []
 
     switch (tool) {
       case "read":

@@ -17,6 +17,7 @@ import { Flag } from "@/flag/flag"
 import { Permission } from "@/permission"
 import { Auth } from "@/auth"
 import { Installation } from "@/installation"
+import { ShellToolID } from "@/tool/shell/id"
 
 export namespace LLM {
   const log = Log.create({ service: "llm" })
@@ -226,6 +227,12 @@ export namespace LLM {
       })
     }
 
+    const repair = (toolName: string) => {
+      const next = ShellToolID.normalize(toolName.toLowerCase())
+      if (!tools[next]) return
+      return next
+    }
+
     // Wire up toolExecutor for DWS workflow models so that tool calls
     // from the workflow service are executed via opencode's tool system
     // and results sent back over the WebSocket.
@@ -233,7 +240,7 @@ export namespace LLM {
       const workflowModel = language
       workflowModel.systemPrompt = system.join("\n")
       workflowModel.toolExecutor = async (toolName, argsJson, _requestID) => {
-        const t = tools[toolName]
+        const t = tools[repair(toolName) ?? toolName]
         if (!t || !t.execute) {
           return { result: "", error: `Unknown tool: ${toolName}` }
         }
@@ -262,15 +269,15 @@ export namespace LLM {
         })
       },
       async experimental_repairToolCall(failed) {
-        const lower = failed.toolCall.toolName.toLowerCase()
-        if (lower !== failed.toolCall.toolName && tools[lower]) {
+        const repaired = repair(failed.toolCall.toolName)
+        if (repaired && repaired !== failed.toolCall.toolName) {
           l.info("repairing tool call", {
             tool: failed.toolCall.toolName,
-            repaired: lower,
+            repaired,
           })
           return {
             ...failed.toolCall,
-            toolName: lower,
+            toolName: repaired,
           }
         }
         return {

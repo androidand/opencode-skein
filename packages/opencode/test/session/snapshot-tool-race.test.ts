@@ -16,12 +16,11 @@ import { Effect } from "effect"
 import fs from "fs/promises"
 import path from "path"
 import { Session } from "../../src/session"
-import { Shell } from "../../src/shell/shell"
 import { LLM } from "../../src/session/llm"
 import { SessionPrompt } from "../../src/session/prompt"
 import { SessionSummary } from "../../src/session/summary"
 import { MessageV2 } from "../../src/session/message-v2"
-import { ShellTool } from "../../src/tool/shell/id"
+import { ShellToolID } from "../../src/tool/shell/id"
 import { Log } from "../../src/util/log"
 import { provideTmpdirServer } from "../fixture/fixture"
 import { testEffect } from "../lib/effect"
@@ -192,7 +191,7 @@ it.live("tool execution produces non-empty session diff (snapshot race)", () =>
         permission: [{ permission: "*", pattern: "*", action: "allow" }],
       })
 
-      const shell = ShellTool.from(Shell.name(Shell.acceptable()))
+      const shell = ShellToolID.id
 
       // Use the active shell tool to create a file
       const command = `echo 'snapshot race test content' > ${path.join(dir, "race-test.txt")}`

@@ -29,11 +29,8 @@ import { pathToFileURL } from "url"
 import { Effect, Layer, ServiceMap } from "effect"
 import { InstanceState } from "@/effect/instance-state"
 import { makeRuntime } from "@/effect/run-service"
-import { BashTool } from "./shell/bash"
-import { ShellTool } from "./shell/id"
-import { PwshTool } from "./shell/pwsh"
-import { PowershellTool } from "./shell/powershell"
-import { Shell } from "@/shell/shell"
+import { ShellTool } from "./shell/tool"
+import { ShellToolID } from "./shell/id"
 import { Env } from "../env"
 import { Question } from "../question"
 import { Todo } from "../session/todo"
@@ -45,7 +42,6 @@ import { Agent } from "../agent/agent"
 
 export namespace ToolRegistry {
   const log = Log.create({ service: "tool.registry" })
-  const shells = { bash: BashTool, pwsh: PwshTool, powershell: PowershellTool } as const
 
   type State = {
     custom: Tool.Def[]
@@ -138,14 +134,13 @@ export namespace ToolRegistry {
 
           const question =
             ["app", "cli", "desktop"].includes(Flag.OPENCODE_CLIENT) || Flag.OPENCODE_ENABLE_QUESTION_TOOL
-          const active = shells[ShellTool.from(Shell.name(Shell.acceptable()))]
 
           return {
             custom,
             builtin: yield* Effect.forEach(
               [
                 InvalidTool,
-                active,
+                ShellTool,
                 ReadTool,
                 GlobTool,
                 GrepTool,
@@ -176,7 +171,7 @@ export namespace ToolRegistry {
 
       const fromID: Interface["fromID"] = Effect.fn("ToolRegistry.fromID")(function* (id: string) {
         const tools = yield* all()
-        const match = tools.find((tool) => tool.id === id)
+        const match = tools.find((tool) => tool.id === ShellToolID.normalize(id))
         if (!match) return yield* Effect.die(`Tool not found: ${id}`)
         return match
       })

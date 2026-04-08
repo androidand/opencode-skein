@@ -15,6 +15,7 @@ import type { SystemError } from "bun"
 import type { Provider } from "@/provider/provider"
 import { ModelID, ProviderID } from "@/provider/schema"
 import { Effect } from "effect"
+import { ShellToolID } from "@/tool/shell/id"
 
 /** Error shape thrown by Bun's fetch() when gzip/br decompression fails mid-stream */
 interface FetchDecompressionError extends Error {
@@ -24,6 +25,17 @@ interface FetchDecompressionError extends Error {
 }
 
 export namespace MessageV2 {
+  export function normalizeTool(tool: string) {
+    return ShellToolID.normalize(tool)
+  }
+
+  export function normalizePart<T extends Part>(part: T): T {
+    if (part.type !== "tool") return part
+    const tool = normalizeTool(part.tool)
+    if (tool === part.tool) return part
+    return { ...part, tool } as T
+  }
+
   export function isMedia(mime: string) {
     return mime.startsWith("image/") || mime === "application/pdf"
   }
@@ -534,12 +546,12 @@ export namespace MessageV2 {
     }) as MessageV2.Info
 
   const part = (row: typeof PartTable.$inferSelect) =>
-    ({
+    normalizePart({
       ...row.data,
       id: row.id,
       sessionID: row.session_id,
       messageID: row.message_id,
-    }) as MessageV2.Part
+    } as MessageV2.Part)
 
   const older = (row: Cursor) =>
     or(
@@ -701,7 +713,8 @@ export namespace MessageV2 {
           role: "assistant",
           parts: [],
         }
-        for (const part of msg.parts) {
+        for (const raw of msg.parts) {
+          const part = normalizePart(raw)
           if (part.type === "text")
             assistantMessage.parts.push({
               type: "text",
@@ -874,14 +887,13 @@ export namespace MessageV2 {
     const rows = Database.use((db) =>
       db.select().from(PartTable).where(eq(PartTable.message_id, message_id)).orderBy(PartTable.id).all(),
     )
-    return rows.map(
-      (row) =>
-        ({
-          ...row.data,
-          id: row.id,
-          sessionID: row.session_id,
-          messageID: row.message_id,
-        }) as MessageV2.Part,
+    return rows.map((row) =>
+      normalizePart({
+        ...row.data,
+        id: row.id,
+        sessionID: row.session_id,
+        messageID: row.message_id,
+      } as MessageV2.Part),
     )
   }
 

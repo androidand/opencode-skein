@@ -15,6 +15,7 @@ import os from "os"
 import z from "zod"
 import { evaluate as evalRule } from "./evaluate"
 import { PermissionID } from "./schema"
+import { ShellToolID } from "@/tool/shell/id"
 
 export namespace Permission {
   const log = Log.create({ service: "permission" })
@@ -174,7 +175,9 @@ export namespace Permission {
           log.info("evaluated", { permission: request.permission, pattern, action: rule })
           if (rule.action === "deny") {
             return yield* new DeniedError({
-              ruleset: ruleset.filter((rule) => Wildcard.match(request.permission, rule.permission)),
+              ruleset: ruleset.filter((rule) =>
+                Wildcard.match(ShellToolID.normalize(request.permission), ShellToolID.normalize(rule.permission)),
+              ),
             })
           }
           if (rule.action === "allow") continue
@@ -290,16 +293,8 @@ export namespace Permission {
   export function fromConfig(permission: Config.Permission) {
     const ruleset: Ruleset = []
 
-    const bash = permission["bash"]
-    if (bash !== undefined) {
-      pushRules(ruleset, "bash", bash)
-      pushRules(ruleset, "pwsh", bash)
-      pushRules(ruleset, "powershell", bash)
-    }
-
     for (const [key, value] of Object.entries(permission)) {
-      if (key === "bash") continue
-      pushRules(ruleset, key, value)
+      pushRules(ruleset, ShellToolID.normalize(key), value)
     }
     return ruleset
   }
@@ -313,8 +308,8 @@ export namespace Permission {
   export function disabled(tools: string[], ruleset: Ruleset): Set<string> {
     const result = new Set<string>()
     for (const tool of tools) {
-      const permission = EDIT_TOOLS.includes(tool) ? "edit" : tool
-      const rule = ruleset.findLast((rule) => Wildcard.match(permission, rule.permission))
+      const permission = EDIT_TOOLS.includes(tool) ? "edit" : ShellToolID.normalize(tool)
+      const rule = ruleset.findLast((rule) => Wildcard.match(permission, ShellToolID.normalize(rule.permission)))
       if (!rule) continue
       if (rule.pattern === "*" && rule.action === "deny") result.add(tool)
     }

@@ -18,7 +18,6 @@ const serverLabels = (() => {
 export const serverNames = [...new Set(serverLabels)]
 
 export const serverUrls = serverNames.map((name) => `http://${name}`)
-const shell = new Set(["bash", "pwsh", "powershell"])
 
 const escape = (value: string) => value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")
 
@@ -34,7 +33,7 @@ export function createSdk(directory?: string, baseUrl = serverUrl) {
 export function isShell(part: unknown): part is ToolPart {
   if (!part || typeof part !== "object") return false
   if (!("type" in part) || part.type !== "tool") return false
-  if (!("tool" in part) || typeof part.tool !== "string" || !shell.has(part.tool)) return false
+  if (!("tool" in part) || part.tool !== "shell") return false
   return "state" in part
 }
 

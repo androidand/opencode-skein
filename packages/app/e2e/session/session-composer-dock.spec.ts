@@ -401,7 +401,7 @@ test("blocked permission flow supports allow once", async ({ page, project }) =>
         {
           id: "per_e2e_once",
           sessionID: session.id,
-          permission: "bash",
+          permission: "shell",
           patterns: ["/tmp/opencode-e2e-perm-once"],
           metadata: { description: "Need permission for command" },
         },
@@ -434,7 +434,7 @@ test("blocked permission flow supports reject", async ({ page, project }) => {
         {
           id: "per_e2e_reject",
           sessionID: session.id,
-          permission: "bash",
+          permission: "shell",
           patterns: ["/tmp/opencode-e2e-perm-reject"],
         },
         undefined,
@@ -466,7 +466,7 @@ test("blocked permission flow supports allow always", async ({ page, project }) 
         {
           id: "per_e2e_always",
           sessionID: session.id,
-          permission: "bash",
+          permission: "shell",
           patterns: ["/tmp/opencode-e2e-perm-always"],
           metadata: { description: "Need permission for command" },
         },
@@ -561,7 +561,7 @@ test("child session permission request blocks parent dock and supports allow onc
           {
             id: "per_e2e_child",
             sessionID: child.id,
-            permission: "bash",
+            permission: "shell",
             patterns: ["/tmp/opencode-e2e-perm-child"],
             metadata: { description: "Need child permission" },
           },

@@ -482,14 +482,15 @@ export namespace Session {
 
       const updatePart = <T extends MessageV2.Part>(part: T): Effect.Effect<T> =>
         Effect.gen(function* () {
+          const next = MessageV2.normalizePart(part)
           yield* Effect.sync(() =>
             SyncEvent.run(MessageV2.Event.PartUpdated, {
-              sessionID: part.sessionID,
-              part: structuredClone(part),
+              sessionID: next.sessionID,
+              part: structuredClone(next),
               time: Date.now(),
             }),
           )
-          return part
+          return next as T
         }).pipe(Effect.withSpan("Session.updatePart"))
 
       const create = Effect.fn("Session.create")(function* (input?: {

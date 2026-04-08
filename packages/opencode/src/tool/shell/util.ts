@@ -108,41 +108,81 @@ export function formatShellDescription(
 
 import z from "zod"
 import DESCRIPTION from "./shell.txt"
-import { ShellTool } from "./id"
+import { ShellKind, ShellToolID } from "./id"
 import { Log } from "@/util/log"
 import { Flag } from "@/flag/flag"
 import { ShellParser } from "./parser"
 import { ShellRunner } from "./runner"
 
-export type ShellType = ShellTool.ID
-
 const DEFAULT_TIMEOUT = Flag.OPENCODE_EXPERIMENTAL_BASH_DEFAULT_TIMEOUT_MS || 2 * 60 * 1000
 
-export function createShellTool(opts: {
-  id: ShellType
-  shellName: string
-  chaining: string
-  guidance: string
-  listCmd: string
-  toolName: string
-  gitCmds: string
-}) {
-  const log = Log.create({ service: `${opts.id}-tool` })
+const info = {
+  bash: {
+    shellName: "bash",
+    listCmd: "ls",
+    gitCmds: "git commands",
+    chaining:
+      "use a single shell call with '&&' to chain them together (e.g., `git add . && git commit -m \"message\" && git push`).",
+    guidance: "",
+  },
+  pwsh: {
+    shellName: "PowerShell Core",
+    listCmd: "Get-ChildItem",
+    gitCmds: "git commands",
+    chaining:
+      "use a single shell call with '&&' to chain them together (e.g., `git add . && git commit -m \"message\" && git push`).",
+    guidance: `# PowerShell 7+ (pwsh) shell notes
+- This cross-platform shell supports pipeline chain operators (\`&&\` and \`||\`).
+- Use double quotes for interpolated strings (\`"Hello $name"\`), single quotes for verbatim strings.
+- Cmdlets use Verb-Noun naming (e.g., \`Get-ChildItem\`, \`Set-Content\`). Common aliases like \`ls\`, \`cat\`, \`rm\` execute the equivalent PowerShell cmdlets.
+- Use \`$(...)\` for subexpressions. Use \`@(...)\` for array expressions.
+- To call a native executable whose path contains spaces, use the call operator: \`& "path/to/exe" args\`.
+- Escape special characters with backtick (\\\`).`,
+  },
+  powershell: {
+    shellName: "Windows PowerShell",
+    listCmd: "Get-ChildItem",
+    gitCmds: "git commands",
+    chaining:
+      "use shell conditionals such as `cmd1; if ($?) { cmd2 }` when later commands must depend on earlier success.",
+    guidance: `# Windows PowerShell 5.1 shell notes
+- Use \`cmd1; if ($?) { cmd2 }\` to chain dependent commands.
+- Use double quotes for interpolated strings (\`"Hello $name"\`), single quotes for verbatim strings.
+- Cmdlets use Verb-Noun naming (e.g., \`Get-ChildItem\`, \`Set-Content\`). Common aliases like \`ls\`, \`cat\`, \`rm\` execute the equivalent PowerShell cmdlets.
+- Use \`$(...)\` for subexpressions. Use \`@(...)\` for array expressions.
+- To call a native executable whose path contains spaces, use the call operator: \`& "path/to/exe" args\`.
+- Escape special characters with backtick (\\\`).`,
+  },
+} satisfies Record<
+  ShellKind.ID,
+  {
+    shellName: string
+    listCmd: string
+    gitCmds: string
+    chaining: string
+    guidance: string
+  }
+>
 
-  return Tool.define(opts.id, async () => {
+export function createShellTool() {
+  const log = Log.create({ service: "shell-tool" })
+
+  return Tool.define(ShellToolID.id, async () => {
     const shell = Shell.acceptable()
     const name = Shell.name(shell)
-    log.info(`${opts.id} tool using shell`, { shell, name })
+    const kind = ShellKind.from(name)
+    const cfg = info[kind]
+    log.info("shell tool using shell", { shell, name, kind })
 
     return {
       description: formatShellDescription(DESCRIPTION, {
         name,
-        shellName: opts.shellName,
-        chaining: opts.chaining,
-        guidance: opts.guidance,
-        listCmd: opts.listCmd,
-        toolName: opts.toolName,
-        gitCmds: opts.gitCmds,
+        shellName: cfg.shellName,
+        chaining: cfg.chaining,
+        guidance: cfg.guidance,
+        listCmd: cfg.listCmd,
+        toolName: "Shell",
+        gitCmds: cfg.gitCmds,
       }),
       parameters: z.object({
         command: z.string().describe("The command to execute"),
@@ -170,16 +210,16 @@ export function createShellTool(opts: {
           command: params.command,
           cwd,
           shell,
-          shellType: opts.id,
+          shellType: kind,
         })
         if (!Instance.containsPath(cwd)) scan.dirs.add(cwd)
 
-        await askPermission(ctx, scan, opts.id)
+        await askPermission(ctx, scan, ShellToolID.id)
 
         return ShellRunner.run(
           {
             shell,
-            name,
+            kind,
             command: params.command,
             cwd,
             env: await ShellRunner.shellEnv(ctx, cwd),
@@ -193,7 +233,7 @@ export function createShellTool(opts: {
   })
 }
 
-export async function askPermission(ctx: Tool.Context, scan: Scan, permissionName: string = "bash") {
+export async function askPermission(ctx: Tool.Context, scan: Scan, permissionName: string = ShellToolID.id) {
   if (scan.dirs.size > 0) {
     const globs = Array.from(scan.dirs).map((dir) => {
       if (process.platform === "win32") return Filesystem.normalizePathPattern(path.join(dir, "*"))

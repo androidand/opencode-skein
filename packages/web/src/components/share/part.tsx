@@ -33,7 +33,7 @@ import type { Diagnostic } from "vscode-languageserver-types"
 import styles from "./part.module.css"
 
 const MIN_DURATION = 2000
-const SHELL = new Set(["bash", "pwsh", "powershell"])
+const SHELL = new Set(["shell"])
 
 export interface PartProps {
   index: number

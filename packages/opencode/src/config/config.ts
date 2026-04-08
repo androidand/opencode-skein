@@ -38,6 +38,7 @@ import { AppFileSystem } from "@/filesystem"
 import { InstanceState } from "@/effect/instance-state"
 import { makeRuntime } from "@/effect/run-service"
 import { Duration, Effect, Layer, Option, ServiceMap } from "effect"
+import { ShellToolID } from "@/tool/shell/id"
 import { Flock } from "@/util/flock"
 import { isPathPluginSpec, parsePluginSpecifier, resolvePathPluginTarget } from "@/plugin/shared"
 import { Npm } from "@/npm"
@@ -460,10 +461,15 @@ export namespace Config {
     if (typeof x === "string") return { "*": x as PermissionAction }
     const obj = x as { __originalKeys?: string[] } & Record<string, unknown>
     const { __originalKeys, ...rest } = obj
-    if (!__originalKeys) return rest as Record<string, PermissionRule>
+    if (!__originalKeys) {
+      return Object.fromEntries(
+        Object.entries(rest).map(([key, value]) => [ShellToolID.normalize(key), value as PermissionRule]),
+      )
+    }
     const result: Record<string, PermissionRule> = {}
     for (const key of __originalKeys) {
-      if (key in rest) result[key] = rest[key] as PermissionRule
+      if (!(key in rest)) continue
+      result[ShellToolID.normalize(key)] = rest[key] as PermissionRule
     }
     return result
   }
@@ -479,7 +485,7 @@ export namespace Config {
           glob: PermissionRule.optional(),
           grep: PermissionRule.optional(),
           list: PermissionRule.optional(),
-          bash: PermissionRule.optional(),
+          shell: PermissionRule.optional(),
           task: PermissionRule.optional(),
           external_directory: PermissionRule.optional(),
           todowrite: PermissionAction.optional(),
@@ -587,8 +593,8 @@ export namespace Config {
         // write, edit, patch, multiedit all map to edit permission
         if (tool === "write" || tool === "edit" || tool === "patch" || tool === "multiedit") {
           permission.edit = action
-        } else if (tool === "bash") {
-          permission.bash = action
+        } else if (ShellToolID.normalize(tool) === ShellToolID.id) {
+          permission.shell = action
         } else {
           permission[tool] = action
         }

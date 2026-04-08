@@ -34,22 +34,14 @@ async function waitForPending(count: number) {
 
 test("fromConfig - string value becomes wildcard rule", () => {
   const result = Permission.fromConfig({ bash: "allow" })
-  expect(result).toEqual([
-    { permission: "bash", pattern: "*", action: "allow" },
-    { permission: "pwsh", pattern: "*", action: "allow" },
-    { permission: "powershell", pattern: "*", action: "allow" },
-  ])
+  expect(result).toEqual([{ permission: "shell", pattern: "*", action: "allow" }])
 })
 
 test("fromConfig - object value converts to rules array", () => {
   const result = Permission.fromConfig({ bash: { "*": "allow", rm: "deny" } })
   expect(result).toEqual([
-    { permission: "bash", pattern: "*", action: "allow" },
-    { permission: "bash", pattern: "rm", action: "deny" },
-    { permission: "pwsh", pattern: "*", action: "allow" },
-    { permission: "pwsh", pattern: "rm", action: "deny" },
-    { permission: "powershell", pattern: "*", action: "allow" },
-    { permission: "powershell", pattern: "rm", action: "deny" },
+    { permission: "shell", pattern: "*", action: "allow" },
+    { permission: "shell", pattern: "rm", action: "deny" },
   ])
 })
 
@@ -60,39 +52,33 @@ test("fromConfig - mixed string and object values", () => {
     webfetch: "ask",
   })
   expect(result).toEqual([
-    { permission: "bash", pattern: "*", action: "allow" },
-    { permission: "bash", pattern: "rm", action: "deny" },
-    { permission: "pwsh", pattern: "*", action: "allow" },
-    { permission: "pwsh", pattern: "rm", action: "deny" },
-    { permission: "powershell", pattern: "*", action: "allow" },
-    { permission: "powershell", pattern: "rm", action: "deny" },
+    { permission: "shell", pattern: "*", action: "allow" },
+    { permission: "shell", pattern: "rm", action: "deny" },
     { permission: "edit", pattern: "*", action: "allow" },
     { permission: "webfetch", pattern: "*", action: "ask" },
   ])
 })
 
-test("fromConfig - explicit pwsh overrides bash regardless of key order", () => {
+test("fromConfig - shell and legacy bash normalize to shell in key order", () => {
   const result = Permission.fromConfig({
-    pwsh: "deny",
+    shell: "deny",
     bash: "allow",
   })
   expect(result).toEqual([
-    { permission: "bash", pattern: "*", action: "allow" },
-    { permission: "pwsh", pattern: "*", action: "allow" },
-    { permission: "powershell", pattern: "*", action: "allow" },
-    { permission: "pwsh", pattern: "*", action: "deny" },
+    { permission: "shell", pattern: "*", action: "deny" },
+    { permission: "shell", pattern: "*", action: "allow" },
   ])
-  expect(Permission.evaluate("pwsh", "ls", result).action).toBe("deny")
   expect(Permission.evaluate("bash", "ls", result).action).toBe("allow")
+  expect(Permission.evaluate("shell", "ls", result).action).toBe("allow")
 })
 
-test("fromConfig - explicit powershell pattern overrides bash pattern regardless of key order", () => {
+test("fromConfig - legacy bash rules coexist with canonical shell rules", () => {
   const result = Permission.fromConfig({
-    powershell: { "rm *": "deny" },
+    shell: { "rm *": "deny" },
     bash: { "*": "allow", "rm *": "ask" },
   })
-  expect(Permission.evaluate("powershell", "rm foo", result).action).toBe("deny")
-  expect(Permission.evaluate("pwsh", "rm foo", result).action).toBe("ask")
+  expect(Permission.evaluate("shell", "rm foo", result).action).toBe("ask")
+  expect(Permission.evaluate("bash", "rm foo", result).action).toBe("ask")
 })
 
 test("fromConfig - empty object", () => {
@@ -231,6 +217,11 @@ test("merge - config ask overrides default allow", () => {
 
 test("evaluate - exact pattern match", () => {
   const result = Permission.evaluate("bash", "rm", [{ permission: "bash", pattern: "rm", action: "deny" }])
+  expect(result.action).toBe("deny")
+})
+
+test("evaluate - shell matches legacy bash rules", () => {
+  const result = Permission.evaluate("shell", "rm", [{ permission: "bash", pattern: "rm", action: "deny" }])
   expect(result.action).toBe("deny")
 })
 

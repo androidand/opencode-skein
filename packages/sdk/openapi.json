@@ -10642,7 +10642,7 @@
               "list": {
                 "$ref": "#/components/schemas/PermissionRuleConfig"
               },
-              "bash": {
+              "shell": {
                 "$ref": "#/components/schemas/PermissionRuleConfig"
               },
               "task": {

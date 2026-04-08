@@ -271,7 +271,7 @@ export type ToolInfo = {
   subtitle?: string
 }
 
-const SHELL = new Set(["bash", "pwsh", "powershell"])
+const SHELL = new Set(["shell"])
 
 function agentTitle(i18n: UiI18n, type?: string) {
   if (!type) return i18n.t("ui.tool.agent.default")
@@ -1822,7 +1822,7 @@ ToolRegistry.register({
 })
 
 ToolRegistry.register({
-  name: "bash",
+  name: "shell",
   render(props) {
     const i18n = useI18n()
     const pending = () => props.status === "pending" || props.status === "running"

@@ -2,7 +2,7 @@ import { spawn } from "child_process"
 import { Shell } from "@/shell/shell"
 import { Tool } from "../tool"
 import { Plugin } from "@/plugin"
-import { ShellTool } from "./id"
+import { ShellKind } from "./id"
 
 const MAX_METADATA_LENGTH = 30_000
 
@@ -27,8 +27,8 @@ exit 1`
     }
   }
 
-  export function launch(shell: string, name: string, command: string, cwd: string, env: NodeJS.ProcessEnv) {
-    if (process.platform === "win32" && ShellTool.powershell(name)) {
+  export function launch(shell: string, kind: ShellKind.ID, command: string, cwd: string, env: NodeJS.ProcessEnv) {
+    if (process.platform === "win32" && ShellKind.powershell(kind)) {
       return spawn(shell, ["-NoLogo", "-NoProfile", "-NonInteractive", "-Command", preserveExitCode(command)], {
         cwd,
         env,
@@ -51,7 +51,7 @@ exit 1`
   export async function run(
     input: {
       shell: string
-      name: string
+      kind: ShellKind.ID
       command: string
       cwd: string
       env: NodeJS.ProcessEnv
@@ -60,7 +60,7 @@ exit 1`
     },
     ctx: Tool.Context,
   ) {
-    const proc = launch(input.shell, input.name, input.command, input.cwd, input.env)
+    const proc = launch(input.shell, input.kind, input.command, input.cwd, input.env)
     let output = ""
     let code: number | null = null
 
@@ -135,7 +135,7 @@ exit 1`
     await wait
 
     const metadata: string[] = []
-    if (expired) metadata.push(`${input.name} tool terminated command after exceeding timeout ${input.timeout} ms`)
+    if (expired) metadata.push(`shell tool terminated command after exceeding timeout ${input.timeout} ms`)
     if (aborted) metadata.push("User aborted the command")
     if (metadata.length > 0) {
       output += "\n\n<shell_metadata>\n" + metadata.join("\n") + "\n</shell_metadata>"

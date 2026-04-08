@@ -40,7 +40,7 @@ import { Permission } from "@/permission"
 import { SessionStatus } from "./status"
 import { LLM } from "./llm"
 import { Shell } from "@/shell/shell"
-import { ShellTool } from "@/tool/shell/id"
+import { ShellToolID } from "@/tool/shell/id"
 import { AppFileSystem } from "@/filesystem"
 import { Truncate } from "@/tool/truncate"
 import { decodeDataUrl } from "@/util/data-url"
@@ -791,13 +791,12 @@ NOTE: At any point in time through this workflow you should feel free to ask the
         yield* sessions.updateMessage(msg)
         const sh = Shell.preferred()
         const name = Shell.name(sh)
-        const tool = ShellTool.from(name)
         const part: MessageV2.ToolPart = {
           type: "tool",
           id: PartID.ascending(),
           messageID: msg.id,
           sessionID: input.sessionID,
-          tool,
+          tool: ShellToolID.id,
           callID: ulid(),
           state: {
             status: "running",

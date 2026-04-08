@@ -470,7 +470,7 @@ describe("session.compaction.prune", () => {
         const session = await Session.create({})
         const a = await user(session.id, "first")
         const b = await assistant(session.id, a.id, tmp.path)
-        await tool(session.id, b.id, "bash", "x".repeat(200_000))
+        await tool(session.id, b.id, "shell", "x".repeat(200_000))
         await user(session.id, "second")
         await user(session.id, "third")
 

@@ -2,10 +2,8 @@ import { describe, expect, test } from "bun:test"
 import os from "os"
 import path from "path"
 import { Shell } from "../../src/shell/shell"
-import { BashTool } from "../../src/tool/shell/bash"
-import { ShellTool } from "../../src/tool/shell/id"
-import { PwshTool } from "../../src/tool/shell/pwsh"
-import { PowershellTool } from "../../src/tool/shell/powershell"
+import { ShellKind, ShellToolID } from "../../src/tool/shell/id"
+import { ShellTool } from "../../src/tool/shell/tool"
 import { ShellRunner } from "../../src/tool/shell/runner"
 import { Instance } from "../../src/project/instance"
 import { Filesystem } from "../../src/util/filesystem"
@@ -49,14 +47,14 @@ const shells = (() => {
     (item, i) => list.findIndex((other) => other.shell.toLowerCase() === item.shell.toLowerCase()) === i,
   )
 })()
-const ps = shells.filter((item) => ShellTool.powershell(item.label))
+const ps = shells.filter((item) => ShellKind.powershell(item.label))
 
 const sh = () => Shell.name(Shell.acceptable())
 const evalarg = (text: string) => (sh() === "cmd" ? quote(text) : squote(text))
 const js = (code: string, ...args: Array<number | string>) => {
   const tail = args.length ? ` ${args.map(String).join(" ")}` : ""
   const text = `${bin} -e ${evalarg(code)}${tail}`
-  if (ShellTool.powershell(sh())) return `& ${text}`
+  if (ShellKind.powershell(sh())) return `& ${text}`
   return text
 }
 
@@ -93,12 +91,10 @@ const withShell = (item: { label: string; shell: string }, fn: () => Promise<voi
   }
 }
 
-const expectedPermission = () => ShellTool.from(sh())
-
-const tools = { bash: BashTool, pwsh: PwshTool, powershell: PowershellTool } as const
+const expectedPermission = () => ShellToolID.id
 
 const getTool = async () => {
-  return await tools[ShellTool.from(sh())].init()
+  return await ShellTool.init()
 }
 
 const each = (name: string, fn: (item: { label: string; shell: string }) => Promise<void>) => {
@@ -158,7 +154,7 @@ describe("tool.shell", () => {
 })
 
 describe("tool.shell permissions", () => {
-  each("asks for bash permission with correct pattern", async () => {
+  each("asks for shell permission with correct pattern", async () => {
     await using tmp = await tmpdir()
     await Instance.provide({
       directory: tmp.path,
@@ -179,7 +175,7 @@ describe("tool.shell permissions", () => {
     })
   })
 
-  each("asks for bash permission with multiple commands", async () => {
+  each("asks for shell permission with multiple commands", async () => {
     await using tmp = await tmpdir()
     await Instance.provide({
       directory: tmp.path,
@@ -256,7 +252,7 @@ describe("tool.shell permissions", () => {
   if (process.platform === "win32") {
     if (bash) {
       test(
-        "asks for nested bash command permissions [bash]",
+        "asks for nested shell command permissions [bash]",
         withShell({ label: "bash", shell: bash }, async () => {
           await using outerTmp = await tmpdir({
             init: async (dir) => {
@@ -863,7 +859,7 @@ describe("tool.shell permissions", () => {
     })
   })
 
-  each("does not ask for bash permission when command is cd only", async () => {
+  each("does not ask for shell permission when command is cd only", async () => {
     await using tmp = await tmpdir()
     await Instance.provide({
       directory: tmp.path,
@@ -974,7 +970,7 @@ describe("tool.shell runtime", () => {
       ShellRunner.run(
         {
           shell: item.shell,
-          name: item.label,
+          kind: ShellKind.from(item.label),
           command: js("setTimeout(()=>{},30000)"),
           cwd: projectRoot,
           env: process.env,
@@ -1007,7 +1003,7 @@ describe("tool.shell runtime", () => {
           ctx,
         )
         expect(result.output).toContain("222")
-        expect(result.output).toContain(`${sh()} tool terminated command after exceeding timeout`)
+        expect(result.output).toContain("shell tool terminated command after exceeding timeout")
       },
     })
   })
@@ -1086,7 +1082,7 @@ describe("tool.shell runtime", () => {
     const result = await ShellRunner.run(
       {
         shell: item.shell,
-        name: item.label,
+        kind: ShellKind.from(item.label),
         command: js(
           "process.stdout.write(Buffer.from([0xF0,0x9F]));setTimeout(()=>process.stdout.write(Buffer.from([0x98,0x80])),20);setTimeout(()=>process.exit(0),40)",
         ),
