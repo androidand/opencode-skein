@@ -3,6 +3,8 @@ import type { GlobalEvent, Event } from "@opencode-ai/sdk/v2"
 import { createSimpleContext } from "./helper"
 import { createGlobalEmitter } from "@solid-primitives/event-bus"
 import { batch, onCleanup, onMount } from "solid-js"
+import { Log } from "@/util/log"
+import { errorData } from "@/util/error"
 
 export type EventSource = {
   subscribe: (handler: (event: GlobalEvent) => void) => Promise<() => void>
@@ -19,13 +21,49 @@ export const { use: useSDK, provider: SDKProvider } = createSimpleContext({
   }) => {
     const abort = new AbortController()
     let sse: AbortController | undefined
+    const log = Log.Default.clone().tag("service", "tui-sdk")
+
+    const raw = props.fetch ?? fetch
+
+    const traced: typeof fetch = async (input, init) => {
+      const req = input instanceof Request ? input : new Request(input, init)
+      const start = Date.now()
+      try {
+        const res = await raw(req)
+        const url = new URL(res.url || req.url)
+        if (!res.ok || url.searchParams.get("workspace")) {
+          const body = await res
+            .clone()
+            .text()
+            .catch(() => "")
+          log.info("sdk fetch", {
+            method: req.method,
+            request: req.url,
+            response: res.url || req.url,
+            status: res.status,
+            duration: Date.now() - start,
+            workspace: url.searchParams.get("workspace"),
+            body: body.slice(0, 1000),
+          })
+        }
+        return res
+      } catch (error) {
+        log.error("sdk fetch failed", {
+          method: req.method,
+          request: req.url,
+          duration: Date.now() - start,
+          error: errorData(error),
+        })
+        throw error
+      }
+    }
 
     function createSDK() {
       return createOpencodeClient({
         baseUrl: props.url,
         signal: abort.signal,
         directory: props.directory,
-        fetch: props.fetch,
+        fetch: traced,
         headers: props.headers,
       })
     }
@@ -109,7 +147,7 @@ export const { use: useSDK, provider: SDKProvider } = createSimpleContext({
       },
       directory: props.directory,
       event: emitter,
-      fetch: props.fetch ?? fetch,
+      fetch: traced,
       url: props.url,
     }
   },

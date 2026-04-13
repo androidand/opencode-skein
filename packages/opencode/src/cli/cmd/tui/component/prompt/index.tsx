@@ -611,8 +611,11 @@ export function Prompt(props: PromptProps) {
     }
 
     let sessionID = props.sessionID
+    console.log("jwl", sessionID)
     if (sessionID == null) {
+      console.log("creating")
       const res = await sdk.client.session.create({
+        workspace: props.workspaceID,
         workspaceID: props.workspaceID,
       })
 

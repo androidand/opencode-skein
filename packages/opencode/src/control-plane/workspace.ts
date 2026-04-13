@@ -1,11 +1,13 @@
 import z from "zod"
 import { setTimeout as sleep } from "node:timers/promises"
 import { fn } from "@/util/fn"
-import { Database, eq } from "@/storage/db"
+import { Database, asc, eq } from "@/storage/db"
 import { Project } from "@/project/project"
 import { BusEvent } from "@/bus/bus-event"
 import { GlobalBus } from "@/bus/global"
 import { SyncEvent } from "@/sync"
+import { EventTable } from "@/sync/event.sql"
+import { EventID } from "@/sync/schema"
 import { Log } from "@/util/log"
 import { Filesystem } from "@/util/filesystem"
 import { ProjectID } from "@/project/schema"
@@ -15,6 +17,10 @@ import { getAdaptor } from "./adaptors"
 import { WorkspaceInfo } from "./types"
 import { WorkspaceID } from "./schema"
 import { parseSSE } from "./sse"
+import { Session } from "@/session"
+import { SessionTable } from "@/session/session.sql"
+import { SessionID } from "@/session/schema"
+import { errorData } from "@/util/error"
 
 export namespace Workspace {
   export const Info = WorkspaceInfo.meta({
@@ -29,6 +35,13 @@ export namespace Workspace {
   })
   export type ConnectionStatus = z.infer<typeof ConnectionStatus>
 
+  const Restore = z.object({
+    workspaceID: WorkspaceID.zod,
+    sessionID: SessionID.zod,
+    total: z.number().int().min(0),
+    step: z.number().int().min(0),
+  })
+
   export const Event = {
     Ready: BusEvent.define(
       "workspace.ready",
@@ -42,6 +55,7 @@ export namespace Workspace {
         message: z.string(),
       }),
     ),
+    Restore: BusEvent.define("workspace.restore", Restore),
     Status: BusEvent.define("workspace.status", ConnectionStatus),
   }
 
@@ -97,9 +111,178 @@ export namespace Workspace {
 
     await adaptor.create(config)
 
+    console.log("starting sync")
     startSync(info)
 
     return info
+  })
+
+  const SessionRestoreInput = z.object({
+    workspaceID: WorkspaceID.zod,
+    sessionID: SessionID.zod,
+  })
+
+  export const sessionRestore = fn(SessionRestoreInput, async (input) => {
+    log.info("session restore requested", {
+      workspaceID: input.workspaceID,
+      sessionID: input.sessionID,
+    })
+    try {
+      const space = await get(input.workspaceID)
+      if (!space) throw new Error(`Workspace not found: ${input.workspaceID}`)
+
+      const adaptor = await getAdaptor(space.projectID, space.type)
+      const target = await adaptor.target(space)
+
+      const rows = Database.use((db) =>
+        db
+          .select({
+            id: EventTable.id,
+            aggregateID: EventTable.aggregate_id,
+            seq: EventTable.seq,
+            type: EventTable.type,
+            data: EventTable.data,
+          })
+          .from(EventTable)
+          .where(eq(EventTable.aggregate_id, input.sessionID))
+          .orderBy(asc(EventTable.seq))
+          .all(),
+      )
+      if (rows.length === 0) throw new Error(`No events found for session: ${input.sessionID}`)
+
+      const next = rows.at(-1)!.seq + 1
+      const all = [
+        ...rows,
+        {
+          id: EventID.ascending(),
+          aggregateID: input.sessionID,
+          seq: next,
+          type: SyncEvent.versionedType(Session.Event.Updated.type, Session.Event.Updated.version),
+          data: {
+            sessionID: input.sessionID,
+            info: {
+              workspaceID: input.workspaceID,
+              time: {
+                updated: Date.now(),
+              },
+            },
+          },
+        },
+      ]
+
+      const size = 10
+      const sets = Array.from({ length: Math.ceil(all.length / size) }, (_, i) => all.slice(i * size, (i + 1) * size))
+      const total = sets.length
+      log.info("session restore prepared", {
+        workspaceID: input.workspaceID,
+        sessionID: input.sessionID,
+        workspaceType: space.type,
+        directory: space.directory,
+        target: target.type === "remote" ? String(route(target.url, "/sync/replay")) : target.directory,
+        events: all.length,
+        batches: total,
+        first: all[0]?.seq,
+        last: all.at(-1)?.seq,
+      })
+      GlobalBus.emit("event", {
+        directory: "global",
+        workspace: input.workspaceID,
+        payload: {
+          type: Event.Restore.type,
+          properties: {
+            workspaceID: input.workspaceID,
+            sessionID: input.sessionID,
+            total,
+            step: 0,
+          },
+        },
+      })
+      for (const [i, events] of sets.entries()) {
+        log.info("session restore batch starting", {
+          workspaceID: input.workspaceID,
+          sessionID: input.sessionID,
+          step: i + 1,
+          total,
+          events: events.length,
+          first: events[0]?.seq,
+          last: events.at(-1)?.seq,
+          target: target.type === "remote" ? String(route(target.url, "/sync/replay")) : target.directory,
+        })
+        if (target.type === "local") {
+          SyncEvent.replayAll(events)
+          log.info("session restore batch replayed locally", {
+            workspaceID: input.workspaceID,
+            sessionID: input.sessionID,
+            step: i + 1,
+            total,
+            events: events.length,
+          })
+        } else {
+          const url = route(target.url, "/sync/replay")
+          const headers = new Headers(target.headers)
+          headers.set("content-type", "application/json")
+          const res = await fetch(url, {
+            method: "POST",
+            headers,
+            body: JSON.stringify({
+              directory: space.directory ?? "",
+              events,
+            }),
+          })
+          if (!res.ok) {
+            const body = await res.text()
+            log.error("session restore batch failed", {
+              workspaceID: input.workspaceID,
+              sessionID: input.sessionID,
+              step: i + 1,
+              total,
+              status: res.status,
+              body,
+            })
+            throw new Error(
+              `Failed to replay session ${input.sessionID} into workspace ${input.workspaceID}: HTTP ${res.status} ${body}`,
+            )
+          }
+          log.info("session restore batch posted", {
+            workspaceID: input.workspaceID,
+            sessionID: input.sessionID,
+            step: i + 1,
+            total,
+            status: res.status,
+          })
+        }
+        GlobalBus.emit("event", {
+          directory: "global",
+          workspace: input.workspaceID,
+          payload: {
+            type: Event.Restore.type,
+            properties: {
+              workspaceID: input.workspaceID,
+              sessionID: input.sessionID,
+              total,
+              step: i + 1,
+            },
+          },
+        })
+      }
+
+      log.info("session restore complete", {
+        workspaceID: input.workspaceID,
+        sessionID: input.sessionID,
+        batches: total,
+      })
+
+      return {
+        total,
+      }
+    } catch (err) {
+      log.error("session restore failed", {
+        workspaceID: input.workspaceID,
+        sessionID: input.sessionID,
+        error: errorData(err),
+      })
+      throw err
+    }
   })
 
   export function list(project: Project.Info) {
@@ -107,6 +290,7 @@ export namespace Workspace {
       db.select().from(WorkspaceTable).where(eq(WorkspaceTable.project_id, project.id)).all(),
     )
     const spaces = rows.map(fromRow).sort((a, b) => a.id.localeCompare(b.id))
+
     for (const space of spaces) startSync(space)
     return spaces
   }
@@ -120,13 +304,25 @@ export namespace Workspace {
   })
 
   export const remove = fn(WorkspaceID.zod, async (id) => {
+    const sessions = Database.use((db) =>
+      db.select({ id: SessionTable.id }).from(SessionTable).where(eq(SessionTable.workspace_id, id)).all(),
+    )
+    for (const session of sessions) {
+      await Session.remove(session.id)
+    }
+
     const row = Database.use((db) => db.select().from(WorkspaceTable).where(eq(WorkspaceTable.id, id)).get())
+
     if (row) {
       stopSync(id)
 
       const info = fromRow(row)
-      const adaptor = await getAdaptor(info.projectID, row.type)
-      adaptor.remove(info)
+      try {
+        const adaptor = await getAdaptor(info.projectID, row.type)
+        await adaptor.remove(info)
+      } catch (err) {
+        log.error("adaptor not available when removing workspace", { type: row.type })
+      }
       Database.use((db) => db.delete(WorkspaceTable).where(eq(WorkspaceTable.id, id)).run())
       return info
     }
@@ -156,47 +352,75 @@ export namespace Workspace {
 
   const log = Log.create({ service: "workspace-sync" })
 
-  async function workspaceEventLoop(space: Info, signal: AbortSignal) {
-    log.info("starting sync: " + space.id)
+  function route(url: string | URL, path: string) {
+    const next = new URL(url)
+    next.pathname = `${next.pathname.replace(/\/$/, "")}${path}`
+    next.search = ""
+    next.hash = ""
+    return next
+  }
 
+  async function globalEventLoop(space: Info, signal: AbortSignal) {
     while (!signal.aborted) {
-      log.info("connecting to sync: " + space.id)
+      console.log("connecting to global sync", { workspace: space.name })
 
-      setStatus(space.id, "connecting")
       const adaptor = await getAdaptor(space.projectID, space.type)
       const target = await adaptor.target(space)
 
       if (target.type === "local") return
 
-      const res = await fetch(target.url + "/sync/event", { method: "GET", signal }).catch((err: unknown) => {
-        setStatus(space.id, "error", String(err))
+      const res = await fetch(route(target.url, "/global/event"), {
+        method: "GET",
+        headers: target.headers,
+        signal,
+      }).catch((err: unknown) => {
+        setStatus(space.id, "error")
+
+        console.log("failed to connect to global sync", {
+          workspace: space.name,
+          error: err,
+        })
         return undefined
       })
-      if (!res || !res.ok || !res.body) {
-        log.info("failed to connect to sync: " + res?.status)
 
-        setStatus(space.id, "error", res ? `HTTP ${res.status}` : "no response")
-        await sleep(1000)
+      if (!res || !res.ok || !res.body) {
+        console.log("failed to connect to global sync", { workspace: space.name })
+        await sleep(50000)
         continue
       }
-      setStatus(space.id, "connected")
-      await parseSSE(res.body, signal, (evt) => {
-        const event = evt as SyncEvent.SerializedEvent
 
+      console.log("global sync connected", { workspace: space.name })
+      setStatus(space.id, "connected")
+
+      await parseSSE(res.body, signal, (evt: any) => {
         try {
-          if (!event.type.startsWith("server.")) {
-            SyncEvent.replay(event)
+          if (!("payload" in evt)) return
+
+          if (!evt.payload.type.startsWith("server.")) {
+            console.log("received workspace sse event", evt)
           }
+
+          if (evt.payload.type === "sync") {
+            // This name -> type is temporary
+            SyncEvent.replay({ ...evt.payload, type: evt.payload.name } as SyncEvent.SerializedEvent)
+          }
+
+          GlobalBus.emit("event", {
+            directory: evt.directory,
+            project: evt.project,
+            workspace: space.id,
+            payload: evt.payload,
+          })
         } catch (err) {
-          log.warn("failed to replay sync event", {
+          console.log("failed to replay global event", {
             workspaceID: space.id,
             error: err,
           })
         }
       })
-      setStatus(space.id, "disconnected")
-      log.info("disconnected to sync: " + space.id)
-      await sleep(250)
+
+      log.info("disconnected from global sync: " + space.id)
+      await sleep(50000)
     }
   }
 
@@ -213,9 +437,9 @@ export namespace Workspace {
     aborts.set(space.id, abort)
     setStatus(space.id, "disconnected")
 
-    void workspaceEventLoop(space, abort.signal).catch((error) => {
+    void globalEventLoop(space, abort.signal).catch((error) => {
       setStatus(space.id, "error", String(error))
-      log.warn("workspace sync listener failed", {
+      log.warn("workspace listener failed", {
         workspaceID: space.id,
         error,
       })

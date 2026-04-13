@@ -29,6 +29,7 @@ import { useExit } from "./exit"
 import { useArgs } from "./args"
 import { batch, createEffect, on } from "solid-js"
 import { Log } from "@/util/log"
+import { errorData } from "@/util/error"
 import { ConsoleState, emptyConsoleState, type ConsoleState as ConsoleStateType } from "@/config/console-state"
 
 export const { use: useSync, provider: SyncProvider } = createSimpleContext({
@@ -107,11 +108,20 @@ export const { use: useSync, provider: SyncProvider } = createSimpleContext({
     const event = useEvent()
     const project = useProject()
     const sdk = useSDK()
+    const log = Log.Default.clone().tag("service", "tui-sync")
 
     event.subscribe((event) => {
       switch (event.type) {
         case "server.instance.disposed":
-          bootstrap()
+          log.info("bootstrap triggered by instance disposal", {
+            workspace: project.workspace.current(),
+          })
+          void bootstrap().catch((error) => {
+            log.error("bootstrap after disposal failed", {
+              workspace: project.workspace.current(),
+              error: errorData(error),
+            })
+          })
           break
         case "permission.replied": {
           const requests = store.permission[event.properties.sessionID]
@@ -351,30 +361,63 @@ export const { use: useSync, provider: SyncProvider } = createSimpleContext({
     const args = useArgs()
 
     async function bootstrap() {
-      console.log("bootstrapping")
       const workspace = project.workspace.current()
       const start = Date.now() - 30 * 24 * 60 * 60 * 1000
+      log.info("bootstrap started", { workspace, path: project.instance.path() })
+
+      function track<T>(name: string, promise: Promise<T>) {
+        return promise
+          .then((value) => {
+            log.debug("bootstrap request ok", { name, workspace })
+            return value
+          })
+          .catch((error) => {
+            log.error("bootstrap request failed", {
+              name,
+              workspace,
+              error: errorData(error),
+            })
+            throw error
+          })
+      }
+
       const sessionListPromise = sdk.client.session
         .list({ start: start })
         .then((x) => (x.data ?? []).toSorted((a, b) => a.id.localeCompare(b.id)))
 
       // blocking - include session.list when continuing a session
-      const providersPromise = sdk.client.config.providers({ workspace }, { throwOnError: true })
-      const providerListPromise = sdk.client.provider.list({ workspace }, { throwOnError: true })
-      const consoleStatePromise = sdk.client.experimental.console
-        .get({ workspace }, { throwOnError: true })
-        .then((x) => ConsoleState.parse(x.data))
-        .catch(() => emptyConsoleState)
-      const agentsPromise = sdk.client.app.agents({ workspace }, { throwOnError: true })
-      const configPromise = sdk.client.config.get({ workspace }, { throwOnError: true })
-      const projectPromise = project.sync()
+      const providersPromise = track(
+        "config.providers",
+        sdk.client.config.providers({ workspace }, { throwOnError: true }),
+      )
+      const providerListPromise = track(
+        "provider.list",
+        sdk.client.provider.list({ workspace }, { throwOnError: true }),
+      )
+      const consoleStatePromise = track(
+        "experimental.console.get",
+        sdk.client.experimental.console
+          .get({ workspace }, { throwOnError: true })
+          .then((x) => ConsoleState.parse(x.data))
+          .catch((error) => {
+            log.warn("console state unavailable", {
+              workspace,
+              error: errorData(error),
+            })
+            return emptyConsoleState
+          }),
+      )
+      const agentsPromise = track("app.agents", sdk.client.app.agents({ workspace }, { throwOnError: true }))
+      const configPromise = track("config.get", sdk.client.config.get({ workspace }, { throwOnError: true }))
+      const projectPromise = track("project.sync", project.sync())
+      const sessionSyncPromise = track("session.list", sessionListPromise)
       const blockingRequests: Promise<unknown>[] = [
         providersPromise,
         providerListPromise,
         agentsPromise,
         configPromise,
         projectPromise,
-        ...(args.continue ? [sessionListPromise] : []),
+        ...(args.continue ? [sessionSyncPromise] : []),
       ]
 
       await Promise.all(blockingRequests)
@@ -384,7 +427,7 @@ export const { use: useSync, provider: SyncProvider } = createSimpleContext({
           const consoleStateResponse = consoleStatePromise
           const agentsResponse = agentsPromise.then((x) => x.data ?? [])
           const configResponse = configPromise.then((x) => x.data!)
-          const sessionListResponse = args.continue ? sessionListPromise : undefined
+          const sessionListResponse = args.continue ? sessionSyncPromise : undefined
 
           return Promise.all([
             providersResponse,
@@ -414,34 +457,57 @@ export const { use: useSync, provider: SyncProvider } = createSimpleContext({
         })
         .then(() => {
           if (store.status !== "complete") setStore("status", "partial")
+          log.info("bootstrap partial", { workspace })
           // non-blocking
           Promise.all([
-            ...(args.continue ? [] : [sessionListPromise.then((sessions) => setStore("session", reconcile(sessions)))]),
-            consoleStatePromise.then((consoleState) => setStore("console_state", reconcile(consoleState))),
-            sdk.client.command.list({ workspace }).then((x) => setStore("command", reconcile(x.data ?? []))),
-            sdk.client.lsp.status({ workspace }).then((x) => setStore("lsp", reconcile(x.data!))),
-            sdk.client.mcp.status({ workspace }).then((x) => setStore("mcp", reconcile(x.data!))),
-            sdk.client.experimental.resource
-              .list({ workspace })
-              .then((x) => setStore("mcp_resource", reconcile(x.data ?? {}))),
-            sdk.client.formatter.status({ workspace }).then((x) => setStore("formatter", reconcile(x.data!))),
-            sdk.client.session.status({ workspace }).then((x) => {
+            ...(args.continue
+              ? []
+              : [
+                  track("session.list.background", sessionListPromise).then((sessions) =>
+                    setStore("session", reconcile(sessions)),
+                  ),
+                ]),
+            track("experimental.console.get.background", consoleStatePromise).then((consoleState) =>
+              setStore("console_state", reconcile(consoleState)),
+            ),
+            track("command.list", sdk.client.command.list({ workspace })).then((x) =>
+              setStore("command", reconcile(x.data ?? [])),
+            ),
+            track("lsp.status", sdk.client.lsp.status({ workspace })).then((x) => setStore("lsp", reconcile(x.data!))),
+            track("mcp.status", sdk.client.mcp.status({ workspace })).then((x) => setStore("mcp", reconcile(x.data!))),
+            track("experimental.resource.list", sdk.client.experimental.resource.list({ workspace })).then((x) =>
+              setStore("mcp_resource", reconcile(x.data ?? {})),
+            ),
+            track("formatter.status", sdk.client.formatter.status({ workspace })).then((x) =>
+              setStore("formatter", reconcile(x.data!)),
+            ),
+            track("session.status", sdk.client.session.status({ workspace })).then((x) => {
               setStore("session_status", reconcile(x.data!))
             }),
-            sdk.client.provider.auth({ workspace }).then((x) => setStore("provider_auth", reconcile(x.data ?? {}))),
-            sdk.client.vcs.get({ workspace }).then((x) => setStore("vcs", reconcile(x.data))),
-            project.workspace.sync(),
-          ]).then(() => {
-            setStore("status", "complete")
-          })
+            track("provider.auth", sdk.client.provider.auth({ workspace })).then((x) =>
+              setStore("provider_auth", reconcile(x.data ?? {})),
+            ),
+            track("vcs.get", sdk.client.vcs.get({ workspace })).then((x) => setStore("vcs", reconcile(x.data))),
+            track("project.workspace.sync", project.workspace.sync()),
+          ])
+            .then(() => {
+              log.info("bootstrap complete", { workspace })
+              setStore("status", "complete")
+            })
+            .catch((error) => {
+              log.error("bootstrap background failed", {
+                workspace,
+                error: errorData(error),
+              })
+              throw error
+            })
         })
-        .catch(async (e) => {
-          Log.Default.error("tui bootstrap failed", {
-            error: e instanceof Error ? e.message : String(e),
-            name: e instanceof Error ? e.name : undefined,
-            stack: e instanceof Error ? e.stack : undefined,
+        .catch((error) => {
+          log.error("bootstrap failed", {
+            workspace,
+            error: errorData(error),
           })
-          await exit(e)
+          throw error
         })
     }
 
@@ -451,7 +517,15 @@ export const { use: useSync, provider: SyncProvider } = createSimpleContext({
         () => project.workspace.current(),
         () => {
           fullSyncedSessions.clear()
-          void bootstrap()
+          log.info("bootstrap triggered by workspace change", {
+            workspace: project.workspace.current(),
+          })
+          void bootstrap().catch((error) => {
+            log.error("bootstrap effect failed", {
+              workspace: project.workspace.current(),
+              error: errorData(error),
+            })
+          })
         },
       ),
     )
@@ -473,6 +547,13 @@ export const { use: useSync, provider: SyncProvider } = createSimpleContext({
           const match = Binary.search(store.session, sessionID, (s) => s.id)
           if (match.found) return store.session[match.index]
           return undefined
+        },
+        async refresh() {
+          const start = Date.now() - 30 * 24 * 60 * 60 * 1000
+          const sessions = await sdk.client.session
+            .list({ start })
+            .then((x) => (x.data ?? []).toSorted((a, b) => a.id.localeCompare(b.id)))
+          setStore("session", reconcile(sessions))
         },
         status(sessionID: string) {
           const session = result.session.get(sessionID)

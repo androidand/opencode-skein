@@ -9,6 +9,7 @@ import { EventTable } from "../../src/sync/event.sql"
 import { Identifier } from "../../src/id/id"
 import { Flag } from "../../src/flag/flag"
 import { initProjectors } from "../../src/server/projectors"
+import { SyncRoutes } from "../../src/server/routes/sync"
 
 const original = Flag.OPENCODE_EXPERIMENTAL_WORKSPACES
 
@@ -185,6 +186,75 @@ describe("SyncEvent", () => {
             data: {},
           }),
         ).toThrow(/Unknown event type/)
+      }),
+    )
+
+    test(
+      "sync route accepts later chunks after the first batch",
+      withInstance(async () => {
+        const { Created } = setup()
+        const app = SyncRoutes()
+        const id = Identifier.descending("message")
+
+        const one = await app.request("/replay", {
+          method: "POST",
+          headers: {
+            "content-type": "application/json",
+          },
+          body: JSON.stringify({
+            directory: "/tmp/test",
+            events: [
+              {
+                id: "evt_1",
+                type: SyncEvent.versionedType(Created.type, Created.version),
+                seq: 0,
+                aggregateID: id,
+                data: { id, name: "first" },
+              },
+              {
+                id: "evt_2",
+                type: SyncEvent.versionedType(Created.type, Created.version),
+                seq: 1,
+                aggregateID: id,
+                data: { id, name: "second" },
+              },
+            ],
+          }),
+        })
+
+        const two = await app.request("/replay", {
+          method: "POST",
+          headers: {
+            "content-type": "application/json",
+          },
+          body: JSON.stringify({
+            directory: "/tmp/test",
+            events: [
+              {
+                id: "evt_3",
+                type: SyncEvent.versionedType(Created.type, Created.version),
+                seq: 2,
+                aggregateID: id,
+                data: { id, name: "third" },
+              },
+              {
+                id: "evt_4",
+                type: SyncEvent.versionedType(Created.type, Created.version),
+                seq: 3,
+                aggregateID: id,
+                data: { id, name: "fourth" },
+              },
+            ],
+          }),
+        })
+
+        expect(one.status).toBe(200)
+        expect(await one.json()).toEqual({ sessionID: id })
+        expect(two.status).toBe(200)
+        expect(await two.json()).toEqual({ sessionID: id })
+
+        const rows = Database.use((db) => db.select().from(EventTable).all())
+        expect(rows.map((row) => row.seq)).toEqual([0, 1, 2, 3])
       }),
     )
   })

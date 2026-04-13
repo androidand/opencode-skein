@@ -11,6 +11,7 @@
     },
   },
   "mcp": {},
+  "plugin": ["../daytonaWorkspacePlugin.ts", "../debugWorkspacePlugin.ts"],
   "tools": {
     "github-triage": false,
     "github-pr-search": false,

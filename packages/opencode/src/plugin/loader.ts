@@ -103,6 +103,7 @@ export namespace PluginLoader {
     } catch (error) {
       return { ok: false, error }
     }
+    console.log('mod', mod)
     if (!mod) return { ok: false, error: new Error(`Plugin ${row.spec} module is empty`) }
     return { ok: true, value: { ...row, mod } }
   }
