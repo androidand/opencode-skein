@@ -50,8 +50,10 @@ const Api = HttpApi.make("question")
     }),
   )
 
-const QuestionLive = Layer.unwrap(
-  Effect.gen(function* () {
+const QuestionLive = HttpApiBuilder.group(
+  Api,
+  "question",
+  Effect.fn("QuestionHttpApi.handlers")(function* (handlers) {
     const svc = yield* Question.Service
 
     const list = Effect.fn("QuestionHttpApi.list")(function* () {
@@ -69,7 +71,7 @@ const QuestionLive = Layer.unwrap(
       return true
     })
 
-    return HttpApiBuilder.group(Api, "question", (handlers) => handlers.handle("list", list).handle("reply", reply))
+    return handlers.handle("list", list).handle("reply", reply)
   }),
 ).pipe(Layer.provide(Question.defaultLayer))
 
