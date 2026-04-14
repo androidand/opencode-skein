@@ -1,0 +1,89 @@
+import {
+  FileFinder,
+  type FileItem,
+  type GrepCursor,
+  type GrepMatch,
+  type GrepResult,
+  type SearchResult,
+} from "@ff-labs/fff-bun"
+
+export namespace Fff {
+  export type Result<T> = { ok: true; value: T } | { ok: false; error: string }
+
+  export interface Init {
+    basePath: string
+    frecencyDbPath?: string
+    historyDbPath?: string
+    aiMode?: boolean
+  }
+
+  export interface Search {
+    items: FileItem[]
+    scores: SearchResult["scores"]
+    totalMatched: number
+    totalFiles: number
+  }
+
+  export type File = FileItem
+  export type Cursor = GrepCursor | null
+  export type Hit = GrepMatch
+
+  export interface Grep {
+    items: GrepResult["items"]
+    totalMatched: number
+    totalFilesSearched: number
+    totalFiles: number
+    filteredFileCount: number
+    nextCursor: Cursor
+    regexFallbackError?: string
+  }
+
+  export interface Picker {
+    destroy(): void
+    waitForScan(timeout?: number): Result<boolean>
+    refreshGitStatus(): Result<number>
+    fileSearch(
+      query: string,
+      opts?: {
+        currentFile?: string
+        pageIndex?: number
+        pageSize?: number
+      },
+    ): Result<Search>
+    grep(
+      query: string,
+      opts?: {
+        mode?: "plain" | "regex" | "fuzzy"
+        maxMatchesPerFile?: number
+        timeBudgetMs?: number
+        beforeContext?: number
+        afterContext?: number
+        cursor?: Cursor
+      },
+    ): Result<Grep>
+    trackQuery(query: string, file: string): Result<boolean>
+    getHistoricalQuery(offset: number): Result<string | null>
+  }
+
+  export function available() {
+    return FileFinder.isAvailable()
+  }
+
+  export function create(opts: Init): Result<Picker> {
+    const made = FileFinder.create(opts)
+    if (!made.ok) return made
+    const pick = made.value
+    return {
+      ok: true,
+      value: {
+        destroy: () => pick.destroy(),
+        waitForScan: (timeout) => pick.waitForScan(timeout),
+        refreshGitStatus: () => pick.refreshGitStatus(),
+        fileSearch: (query, next) => pick.fileSearch(query, next),
+        grep: (query, next) => pick.grep(query, next),
+        trackQuery: (query, file) => pick.trackQuery(query, file),
+        getHistoricalQuery: (offset) => pick.getHistoricalQuery(offset),
+      },
+    }
+  }
+}

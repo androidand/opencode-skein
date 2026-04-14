@@ -33,7 +33,7 @@ import { Effect, Layer, Context } from "effect"
 import { FetchHttpClient, HttpClient } from "effect/unstable/http"
 import { ChildProcessSpawner } from "effect/unstable/process/ChildProcessSpawner"
 import * as CrossSpawnSpawner from "@/effect/cross-spawn-spawner"
-import { Ripgrep } from "../file/ripgrep"
+import { Search } from "../file/search"
 import { Format } from "../format"
 import { InstanceState } from "@/effect/instance-state"
 import { Env } from "../env"
@@ -93,7 +93,7 @@ export namespace ToolRegistry {
     | Bus.Service
     | HttpClient.HttpClient
     | ChildProcessSpawner
-    | Ripgrep.Service
+    | Search.Service
     | Format.Service
     | Truncate.Service
   > = Layer.effect(
@@ -344,7 +344,7 @@ export namespace ToolRegistry {
       Layer.provide(FetchHttpClient.layer),
       Layer.provide(Format.defaultLayer),
       Layer.provide(CrossSpawnSpawner.defaultLayer),
-      Layer.provide(Ripgrep.defaultLayer),
+      Layer.provide(Search.defaultLayer),
       Layer.provide(Truncate.defaultLayer),
     ),
   )
