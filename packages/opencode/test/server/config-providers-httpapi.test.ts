@@ -1,9 +1,14 @@
-import { describe, expect, test } from "bun:test"
+import { afterEach, describe, expect, test } from "bun:test"
+import { Instance } from "../../src/project/instance"
 import { Server } from "../../src/server/server"
 import { Log } from "../../src/util/log"
 import { tmpdir } from "../fixture/fixture"
 
 Log.init({ print: false })
+
+afterEach(async () => {
+  await Instance.disposeAll()
+})
 
 describe("experimental config providers httpapi", () => {
   test("lists config providers and serves docs", async () => {
