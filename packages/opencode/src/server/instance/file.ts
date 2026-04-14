@@ -4,7 +4,7 @@ import { Effect } from "effect"
 import z from "zod"
 import { AppRuntime } from "../../effect/app-runtime"
 import { File } from "../../file"
-import { Ripgrep } from "../../file/ripgrep"
+import { Search } from "../../file/search"
 import { LSP } from "../../lsp"
 import { Instance } from "../../project/instance"
 import { lazy } from "../../util/lazy"
@@ -15,14 +15,14 @@ export const FileRoutes = lazy(() =>
       "/find",
       describeRoute({
         summary: "Find text",
-        description: "Search for text patterns across files in the project using ripgrep.",
+        description: "Search for text patterns across files in the project.",
         operationId: "find.text",
         responses: {
           200: {
             description: "Matches",
             content: {
               "application/json": {
-                schema: resolver(Ripgrep.Match.shape.data.array()),
+                schema: resolver(Search.Match.array()),
               },
             },
           },
@@ -37,7 +37,7 @@ export const FileRoutes = lazy(() =>
       async (c) => {
         const pattern = c.req.valid("query").pattern
         const result = await AppRuntime.runPromise(
-          Ripgrep.Service.use((svc) => svc.search({ cwd: Instance.directory, pattern, limit: 10 })),
+          Search.Service.use((svc) => svc.search({ cwd: Instance.directory, pattern, limit: 10 })),
         )
         return c.json(result.items)
       },

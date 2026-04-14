@@ -4,7 +4,7 @@ import { Cause, Effect, Exit, Layer } from "effect"
 import { GlobTool } from "../../src/tool/glob"
 import { SessionID, MessageID } from "../../src/session/schema"
 import * as CrossSpawnSpawner from "../../src/effect/cross-spawn-spawner"
-import { Ripgrep } from "../../src/file/ripgrep"
+import { Search } from "../../src/file/search"
 import { AppFileSystem } from "../../src/filesystem"
 import { Truncate } from "../../src/tool/truncate"
 import { Agent } from "../../src/agent/agent"
@@ -15,7 +15,7 @@ const it = testEffect(
   Layer.mergeAll(
     CrossSpawnSpawner.defaultLayer,
     AppFileSystem.defaultLayer,
-    Ripgrep.defaultLayer,
+    Search.defaultLayer,
     Truncate.defaultLayer,
     Agent.defaultLayer,
   ),

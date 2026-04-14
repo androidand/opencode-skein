@@ -3,7 +3,7 @@ import z from "zod"
 import { Effect } from "effect"
 import * as Stream from "effect/Stream"
 import { InstanceState } from "@/effect/instance-state"
-import { Ripgrep } from "../file/ripgrep"
+import { Search } from "../file/search"
 import { assertExternalDirectoryEffect } from "./external-directory"
 import DESCRIPTION from "./ls.txt"
 import { Tool } from "./tool"
@@ -40,7 +40,7 @@ const LIMIT = 100
 export const ListTool = Tool.define(
   "list",
   Effect.gen(function* () {
-    const rg = yield* Ripgrep.Service
+    const searchSvc = yield* Search.Service
 
     return {
       description: DESCRIPTION,
@@ -67,7 +67,7 @@ export const ListTool = Tool.define(
           })
 
           const glob = IGNORE_PATTERNS.map((item) => `!${item}*`).concat(params.ignore?.map((item) => `!${item}`) || [])
-          const files = yield* rg.files({ cwd: search, glob, signal: ctx.abort }).pipe(
+          const files = yield* searchSvc.files({ cwd: search, glob, signal: ctx.abort }).pipe(
             Stream.take(LIMIT + 1),
             Stream.runCollect,
             Effect.map((chunk) => [...chunk]),

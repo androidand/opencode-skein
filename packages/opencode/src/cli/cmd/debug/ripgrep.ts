@@ -1,6 +1,6 @@
 import { EOL } from "os"
 import { AppRuntime } from "../../../effect/app-runtime"
-import { Ripgrep } from "../../../file/ripgrep"
+import { Search } from "../../../file/search"
 import { Instance } from "../../../project/instance"
 import { bootstrap } from "../../bootstrap"
 import { cmd } from "../cmd"
@@ -21,7 +21,7 @@ const TreeCommand = cmd({
     }),
   async handler(args) {
     await bootstrap(process.cwd(), async () => {
-      process.stdout.write((await Ripgrep.tree({ cwd: Instance.directory, limit: args.limit })) + EOL)
+      process.stdout.write((await Search.tree({ cwd: Instance.directory, limit: args.limit })) + EOL)
     })
   },
 })
@@ -46,7 +46,7 @@ const FilesCommand = cmd({
   async handler(args) {
     await bootstrap(process.cwd(), async () => {
       const files: string[] = []
-      for await (const file of await Ripgrep.files({
+      for await (const file of await Search.files({
         cwd: Instance.directory,
         glob: args.glob ? [args.glob] : undefined,
       })) {
@@ -79,7 +79,7 @@ const SearchCommand = cmd({
   async handler(args) {
     await bootstrap(process.cwd(), async () => {
       const results = await AppRuntime.runPromise(
-        Ripgrep.Service.use((svc) =>
+        Search.Service.use((svc) =>
           svc.search({
             cwd: Instance.directory,
             pattern: args.pattern,

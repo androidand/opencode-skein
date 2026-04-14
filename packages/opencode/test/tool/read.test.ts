@@ -4,6 +4,7 @@ import path from "path"
 import { Agent } from "../../src/agent/agent"
 import * as CrossSpawnSpawner from "../../src/effect/cross-spawn-spawner"
 import { AppFileSystem } from "../../src/filesystem"
+import { Search } from "../../src/file/search"
 import { FileTime } from "../../src/file/time"
 import { LSP } from "../../src/lsp"
 import { Permission } from "../../src/permission"
@@ -42,6 +43,7 @@ const it = testEffect(
     FileTime.defaultLayer,
     Instruction.defaultLayer,
     LSP.defaultLayer,
+    Search.defaultLayer,
     Truncate.defaultLayer,
   ),
 )

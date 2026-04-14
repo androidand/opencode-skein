@@ -4,7 +4,7 @@ import z from "zod"
 import { Effect } from "effect"
 import * as Stream from "effect/Stream"
 import { EffectLogger } from "@/effect/logger"
-import { Ripgrep } from "../file/ripgrep"
+import { Search } from "../file/search"
 import { Skill } from "../skill"
 import { Tool } from "./tool"
 
@@ -16,7 +16,7 @@ export const SkillTool = Tool.define(
   "skill",
   Effect.gen(function* () {
     const skill = yield* Skill.Service
-    const rg = yield* Ripgrep.Service
+    const searchSvc = yield* Search.Service
 
     return () =>
       Effect.gen(function* () {
@@ -62,7 +62,7 @@ export const SkillTool = Tool.define(
               const dir = path.dirname(info.location)
               const base = pathToFileURL(dir).href
               const limit = 10
-              const files = yield* rg.files({ cwd: dir, follow: false, hidden: true, signal: ctx.abort }).pipe(
+              const files = yield* searchSvc.files({ cwd: dir, follow: false, hidden: true, signal: ctx.abort }).pipe(
                 Stream.filter((file) => !file.includes("SKILL.md")),
                 Stream.map((file) => path.resolve(dir, file)),
                 Stream.take(limit),

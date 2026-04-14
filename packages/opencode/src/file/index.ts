@@ -14,7 +14,7 @@ import { Global } from "../global"
 import { Instance } from "../project/instance"
 import { Log } from "../util/log"
 import { Protected } from "./protected"
-import { Ripgrep } from "./ripgrep"
+import { Search } from "./search"
 
 export namespace File {
   export const Info = z
@@ -344,7 +344,7 @@ export namespace File {
     Service,
     Effect.gen(function* () {
       const appFs = yield* AppFileSystem.Service
-      const rg = yield* Ripgrep.Service
+      const searchSvc = yield* Search.Service
       const git = yield* Git.Service
 
       const state = yield* InstanceState.make<State>(
@@ -384,7 +384,7 @@ export namespace File {
 
           next.dirs = Array.from(dirs).toSorted()
         } else {
-          const files = yield* rg.files({ cwd: Instance.directory }).pipe(
+          const files = yield* searchSvc.files({ cwd: Instance.directory }).pipe(
             Stream.runCollect,
             Effect.map((chunk) => [...chunk]),
           )
@@ -512,6 +512,8 @@ export namespace File {
 
         if (!Instance.containsPath(full)) throw new Error("Access denied: path escapes project directory")
 
+        yield* searchSvc.open({ cwd: Instance.directory, file }).pipe(Effect.ignore)
+
         if (isImageByExtension(file)) {
           const exists = yield* appFs.existsSafe(full)
           if (exists) {
@@ -617,13 +619,25 @@ export namespace File {
         dirs?: boolean
         type?: "file" | "directory"
       }) {
-        yield* ensure()
-        const { cache } = yield* InstanceState.get(state)
-
         const query = input.query.trim()
         const limit = input.limit ?? 100
         const kind = input.type ?? (input.dirs === false ? "file" : "all")
         log.info("search", { query, kind })
+
+        if (query && kind === "file") {
+          const files = yield* searchSvc.file({
+            cwd: Instance.directory,
+            query,
+            limit,
+          })
+          if (files.length) {
+            log.info("search", { query, kind, results: files.length, mode: "fff" })
+            return files
+          }
+        }
+
+        yield* ensure()
+        const { cache } = yield* InstanceState.get(state)
 
         const preferHidden = query.startsWith(".") || query.includes("/.")
 
@@ -649,7 +663,7 @@ export namespace File {
   )
 
   export const defaultLayer = layer.pipe(
-    Layer.provide(Ripgrep.defaultLayer),
+    Layer.provide(Search.defaultLayer),
     Layer.provide(AppFileSystem.defaultLayer),
     Layer.provide(Git.defaultLayer),
   )

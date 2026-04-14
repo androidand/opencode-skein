@@ -8,6 +8,7 @@ import { Tool } from "./tool"
 import { AppFileSystem } from "../filesystem"
 import { LSP } from "../lsp"
 import { FileTime } from "../file/time"
+import { Search } from "../file/search"
 import DESCRIPTION from "./read.txt"
 import { Instance } from "../project/instance"
 import { assertExternalDirectoryEffect } from "./external-directory"
@@ -31,6 +32,7 @@ export const ReadTool = Tool.define(
     const fs = yield* AppFileSystem.Service
     const instruction = yield* Instruction.Service
     const lsp = yield* LSP.Service
+    const search = yield* Search.Service
     const time = yield* FileTime.Service
     const scope = yield* Scope.Scope
 
@@ -76,6 +78,7 @@ export const ReadTool = Tool.define(
     })
 
     const warm = Effect.fn("ReadTool.warm")(function* (filepath: string, sessionID: Tool.Context["sessionID"]) {
+      yield* search.open({ file: filepath }).pipe(Effect.ignore)
       yield* lsp.touchFile(filepath, false).pipe(Effect.ignore, Effect.forkIn(scope))
       yield* time.read(sessionID, filepath)
     })
