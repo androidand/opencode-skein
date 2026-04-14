@@ -58,24 +58,27 @@ const Api = HttpApi.make("file")
     }),
   )
 
-const list = Effect.fn("FileHttpApi.list")(function* (ctx: { query: { path?: string } }) {
-  const svc = yield* File.Service
-  return Schema.decodeUnknownSync(Schema.Array(File.Node))(yield* svc.list(ctx.query.path))
-})
+const FileLive = HttpApiBuilder.group(
+  Api,
+  "file",
+  Effect.fn("FileHttpApi.handlers")(function* (handlers) {
+    const svc = yield* File.Service
 
-const content = Effect.fn("FileHttpApi.content")(function* (ctx: { query: { path: string } }) {
-  const svc = yield* File.Service
-  return Schema.decodeUnknownSync(File.Content)(yield* svc.read(ctx.query.path))
-})
+    const list = Effect.fn("FileHttpApi.list")(function* (ctx: { query: { path?: string } }) {
+      return Schema.decodeUnknownSync(Schema.Array(File.Node))(yield* svc.list(ctx.query.path))
+    })
 
-const status = Effect.fn("FileHttpApi.status")(function* () {
-  const svc = yield* File.Service
-  return Schema.decodeUnknownSync(Schema.Array(File.Info))(yield* svc.status())
-})
+    const content = Effect.fn("FileHttpApi.content")(function* (ctx: { query: { path: string } }) {
+      return Schema.decodeUnknownSync(File.Content)(yield* svc.read(ctx.query.path))
+    })
 
-const FileLive = HttpApiBuilder.group(Api, "file", (handlers) =>
-  handlers.handle("list", list).handle("content", content).handle("status", status),
-)
+    const status = Effect.fn("FileHttpApi.status")(function* () {
+      return Schema.decodeUnknownSync(Schema.Array(File.Info))(yield* svc.status())
+    })
+
+    return handlers.handle("list", list).handle("content", content).handle("status", status)
+  }),
+).pipe(Layer.provide(File.defaultLayer))
 
 const web = lazy(() =>
   HttpRouter.toWebHandler(
