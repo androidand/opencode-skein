@@ -25,7 +25,6 @@ import { Bus } from "@/bus"
 import { TuiEvent } from "@/cli/cmd/tui/event"
 import open from "open"
 import { Effect, Exit, Layer, Option, Context, Stream } from "effect"
-import { EffectLogger } from "@/effect/logger"
 import { InstanceState } from "@/effect/instance-state"
 import { ChildProcess, ChildProcessSpawner } from "effect/unstable/process"
 import * as CrossSpawnSpawner from "@/effect/cross-spawn-spawner"
@@ -444,6 +443,11 @@ export namespace MCP {
         return { mcpClient, status, defs: listed } satisfies CreateResult
       })
       const cfgSvc = yield* Config.Service
+      const ctx = yield* Effect.context()
+
+      const run = {
+        promise: <A, E>(effect: Effect.Effect<A, E>) => Effect.runPromiseWith(ctx)(effect),
+      }
 
       const descendants = Effect.fnUntraced(
         function* (pid: number) {
@@ -476,14 +480,12 @@ export namespace MCP {
           log.info("tools list changed notification received", { server: name })
           if (s.clients[name] !== client || s.status[name]?.status !== "connected") return
 
-          const listed = await Effect.runPromise(defs(name, client, timeout).pipe(Effect.provide(EffectLogger.layer)))
+          const listed = await run.promise(defs(name, client, timeout))
           if (!listed) return
           if (s.clients[name] !== client || s.status[name]?.status !== "connected") return
 
           s.defs[name] = listed
-          await Effect.runPromise(
-            bus.publish(ToolsChanged, { server: name }).pipe(Effect.ignore, Effect.provide(EffectLogger.layer)),
-          )
+          await run.promise(bus.publish(ToolsChanged, { server: name }).pipe(Effect.ignore))
         })
       }
 

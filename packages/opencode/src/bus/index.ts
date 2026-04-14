@@ -1,6 +1,5 @@
 import z from "zod"
 import { Effect, Exit, Layer, PubSub, Scope, Context, Stream } from "effect"
-import { EffectLogger } from "@/effect/logger"
 import { Log } from "../util/log"
 import { BusEvent } from "./bus-event"
 import { GlobalBus } from "./global"
@@ -128,6 +127,7 @@ export namespace Bus {
       function on<T>(pubsub: PubSub.PubSub<T>, type: string, callback: (event: T) => unknown) {
         return Effect.gen(function* () {
           log.info("subscribing", { type })
+          const ctx = yield* Effect.context()
           const scope = yield* Scope.make()
           const subscription = yield* Scope.provide(scope)(PubSub.subscribe(pubsub))
 
@@ -147,7 +147,7 @@ export namespace Bus {
 
           return () => {
             log.info("unsubscribing", { type })
-            Effect.runFork(Scope.close(scope, Exit.void).pipe(Effect.provide(EffectLogger.layer)))
+            Effect.runForkWith(ctx)(Scope.close(scope, Exit.void))
           }
         })
       }
