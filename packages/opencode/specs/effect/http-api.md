@@ -197,7 +197,8 @@ Use the same sequence for each route group.
 5. Implement handlers by yielding the existing service from context.
 6. Mount the new surface in parallel under an experimental prefix.
 7. Add one end-to-end test and one OpenAPI-focused test.
-8. Compare ergonomics before migrating the next endpoint.
+8. Regenerate OpenAPI and SDK output and inspect the diff.
+9. Compare ergonomics before migrating the next endpoint.
 
 Rule of thumb:
 
@@ -260,6 +261,9 @@ Each route-group spike should follow the same shape.
 - call the experimental endpoints
 - assert that the service behavior is unchanged
 - assert that the generated OpenAPI contains the migrated paths and schemas
+- compare generated OpenAPI before vs after for the migrated routes
+- regenerate the SDK and check whether the generated diff reflects a real contract change or only naming / component churn
+- prefer no meaningful SDK or OpenAPI contract diff for the migrated endpoints; if there is churn, document exactly why it is acceptable
 
 ## Boundary composition
 
