@@ -261,6 +261,50 @@ Each route-group spike should follow the same shape.
 - assert that the service behavior is unchanged
 - assert that the generated OpenAPI contains the migrated paths and schemas
 
+## Boundary composition
+
+The first slices should keep the existing outer server composition and only replace the route contract and handler layer.
+
+### Auth
+
+- keep `AuthMiddleware` at the outer Hono app level
+- do not duplicate auth checks inside each `HttpApi` group for the first parallel slices
+- treat auth as an already-satisfied transport concern before the request reaches the `HttpApi` handler
+
+Practical rule:
+
+- if a route is currently protected by the shared server middleware stack, the experimental `HttpApi` route should stay mounted behind that same stack
+
+### Instance and workspace lookup
+
+- keep `WorkspaceRouterMiddleware` as the source of truth for resolving `directory`, `workspace`, and session-derived workspace context
+- let that middleware provide `Instance.current` and `WorkspaceContext` before the request reaches the `HttpApi` handler
+- keep the `HttpApi` handlers unaware of path-to-instance lookup details when the existing Hono middleware already handles them
+
+Practical rule:
+
+- `HttpApi` handlers should yield services from context and assume the correct instance has already been provided
+- only move instance lookup into the `HttpApi` layer if we later decide to migrate the outer middleware boundary itself
+
+### Error mapping
+
+- keep domain and service errors typed in the service layer
+- declare typed transport errors on the endpoint only when the route can actually return them intentionally
+- prefer explicit endpoint-level error schemas over relying on the outer Hono `ErrorMiddleware` for expected route behavior
+
+Practical rule:
+
+- request decoding failures should remain transport-level `400`s
+- storage or lookup failures that are part of the route contract should be declared as typed endpoint errors
+- unexpected defects can still fall through to the outer error middleware while the slice is experimental
+
+For the current parallel slices, this means:
+
+- auth still composes outside `HttpApi`
+- instance selection still composes outside `HttpApi`
+- success payloads should be schema-defined from canonical Effect schemas
+- known route errors should be modeled at the endpoint boundary incrementally instead of all at once
+
 ## Exit criteria for the spike
 
 The first slice is successful if:
