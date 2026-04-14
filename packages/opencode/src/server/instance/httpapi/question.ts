@@ -50,26 +50,28 @@ const Api = HttpApi.make("question")
     }),
   )
 
-const list = Effect.fn("QuestionHttpApi.list")(function* () {
-  const svc = yield* Question.Service
-  return yield* svc.list()
-})
+const QuestionLive = Layer.unwrap(
+  Effect.gen(function* () {
+    const svc = yield* Question.Service
 
-const reply = Effect.fn("QuestionHttpApi.reply")(function* (ctx: {
-  params: { requestID: QuestionID }
-  payload: Question.Reply
-}) {
-  const svc = yield* Question.Service
-  yield* svc.reply({
-    requestID: ctx.params.requestID,
-    answers: ctx.payload.answers,
-  })
-  return true
-})
+    const list = Effect.fn("QuestionHttpApi.list")(function* () {
+      return yield* svc.list()
+    })
 
-const QuestionLive = HttpApiBuilder.group(Api, "question", (handlers) =>
-  handlers.handle("list", list).handle("reply", reply),
-)
+    const reply = Effect.fn("QuestionHttpApi.reply")(function* (ctx: {
+      params: { requestID: QuestionID }
+      payload: Question.Reply
+    }) {
+      yield* svc.reply({
+        requestID: ctx.params.requestID,
+        answers: ctx.payload.answers,
+      })
+      return true
+    })
+
+    return HttpApiBuilder.group(Api, "question", (handlers) => handlers.handle("list", list).handle("reply", reply))
+  }),
+).pipe(Layer.provide(Question.defaultLayer))
 
 const web = lazy(() =>
   HttpRouter.toWebHandler(
