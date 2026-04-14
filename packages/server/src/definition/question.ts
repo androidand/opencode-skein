@@ -1,7 +1,7 @@
 import { Schema } from "effect"
 import { HttpApi, HttpApiEndpoint, HttpApiGroup, OpenApi } from "effect/unstable/httpapi"
 
-const root = "/experimental/httpapi/question"
+export const questionRoot = "/experimental/httpapi/question"
 
 // Temporary transport-local schemas until canonical question schemas move into packages/core.
 export const QuestionID = Schema.String.annotate({ identifier: "QuestionID" })
@@ -64,7 +64,7 @@ export class QuestionReply extends Schema.Class<QuestionReply>("QuestionReply")(
 export const questionApi = HttpApi.make("question").add(
   HttpApiGroup.make("question")
     .add(
-      HttpApiEndpoint.get("list", root, {
+      HttpApiEndpoint.get("list", questionRoot, {
         success: Schema.Array(QuestionRequest),
       }).annotateMerge(
         OpenApi.annotations({
@@ -73,7 +73,7 @@ export const questionApi = HttpApi.make("question").add(
           description: "Get all pending question requests across all sessions.",
         }),
       ),
-      HttpApiEndpoint.post("reply", `${root}/:requestID/reply`, {
+      HttpApiEndpoint.post("reply", `${questionRoot}/:requestID/reply`, {
         params: { requestID: QuestionID },
         payload: QuestionReply,
         success: Schema.Boolean,
