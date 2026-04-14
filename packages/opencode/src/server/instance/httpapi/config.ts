@@ -134,20 +134,27 @@ const Api = HttpApi.make("config")
     }),
   )
 
-const providers = Effect.fn("ConfigHttpApi.providers")(function* () {
-  const svc = yield* Provider.Service
-  const all = mapValues(yield* svc.list(), (item) => item)
-  return Schema.decodeUnknownSync(Providers)(
-    JSON.parse(
-      JSON.stringify({
-        providers: Object.values(all),
-        default: mapValues(all, (item) => Provider.sort(Object.values(item.models))[0].id),
-      }),
-    ),
-  )
-})
+const ConfigLive = HttpApiBuilder.group(
+  Api,
+  "config",
+  Effect.fn("ConfigHttpApi.handlers")(function* (handlers) {
+    const svc = yield* Provider.Service
 
-const ConfigLive = HttpApiBuilder.group(Api, "config", (handlers) => handlers.handle("providers", providers))
+    const providers = Effect.fn("ConfigHttpApi.providers")(function* () {
+      const all = mapValues(yield* svc.list(), (item) => item)
+      return Schema.decodeUnknownSync(Providers)(
+        JSON.parse(
+          JSON.stringify({
+            providers: Object.values(all),
+            default: mapValues(all, (item) => Provider.sort(Object.values(item.models))[0].id),
+          }),
+        ),
+      )
+    })
+
+    return handlers.handle("providers", providers)
+  }),
+).pipe(Layer.provide(Provider.defaultLayer))
 
 const web = lazy(() =>
   HttpRouter.toWebHandler(
