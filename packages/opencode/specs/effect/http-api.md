@@ -253,6 +253,8 @@ Each route-group spike should follow the same shape.
 - mount under an experimental prefix such as `/experimental/httpapi`
 - keep existing Hono routes unchanged
 - expose separate OpenAPI output for the experimental slice first
+- prefer serving the parallel experimental slice through an Effect-native server boundary (`HttpRouter.serve(...)`) instead of optimizing around Hono interop
+- treat `HttpRouter.toWebHandler(...)` as the adapter path for embedding into the existing Hono server, not as the long-term target shape
 
 ### 4. Verification
 

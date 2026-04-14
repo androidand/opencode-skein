@@ -10,7 +10,7 @@ import type { Handler } from "hono"
 
 const root = "/experimental/httpapi/question"
 
-const Api = HttpApi.make("question")
+export const QuestionApi = HttpApi.make("question")
   .add(
     HttpApiGroup.make("question")
       .add(
@@ -50,8 +50,8 @@ const Api = HttpApi.make("question")
     }),
   )
 
-const QuestionLive = HttpApiBuilder.group(
-  Api,
+export const QuestionLive = HttpApiBuilder.group(
+  QuestionApi,
   "question",
   Effect.fn("QuestionHttpApi.handlers")(function* (handlers) {
     const svc = yield* Question.Service
@@ -79,7 +79,7 @@ const web = lazy(() =>
   HttpRouter.toWebHandler(
     Layer.mergeAll(
       AppLayer,
-      HttpApiBuilder.layer(Api, { openapiPath: `${root}/doc` }).pipe(
+      HttpApiBuilder.layer(QuestionApi, { openapiPath: `${root}/doc` }).pipe(
         Layer.provide(QuestionLive),
         Layer.provide(HttpServer.layerServices),
       ),
