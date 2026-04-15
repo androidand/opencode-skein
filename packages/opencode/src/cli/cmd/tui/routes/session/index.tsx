@@ -75,7 +75,6 @@ import stripAnsi from "strip-ansi"
 import { usePromptRef } from "../../context/prompt"
 import { useExit } from "../../context/exit"
 import { Global } from "@/global"
-import { AppRuntime } from "@/effect/app-runtime"
 import { AppFileSystem } from "@opencode-ai/shared/filesystem"
 import { PermissionPrompt } from "./permission"
 import { QuestionPrompt } from "./question"
@@ -88,7 +87,6 @@ import { getScrollAcceleration } from "../../util/scroll"
 import { TuiPluginRuntime } from "../../plugin"
 import { DialogGoUpsell } from "../../component/dialog-go-upsell"
 import { SessionRetry } from "@/session/retry"
-import { Effect } from "effect"
 
 addDefaultParsers(parsers.parsers)
 
@@ -917,20 +915,13 @@ export function Session() {
             const exportDir = process.cwd()
             const filename = options.filename.trim()
             const filepath = path.join(exportDir, filename)
-            const write = (content: string) =>
-              AppRuntime.runPromise(
-                Effect.gen(function* () {
-                  const fs = yield* AppFileSystem.Service
-                  yield* fs.writeWithDirs(filepath, content)
-                }),
-              )
 
-            await write(transcript)
+            await Bun.write(filepath, transcript)
 
             // Open with EDITOR if available
             const result = await Editor.open({ value: transcript, renderer })
             if (result !== undefined) {
-              await write(result)
+              await Bun.write(filepath, result)
             }
 
             toast.show({ message: `Session exported to ${filename}`, variant: "success" })

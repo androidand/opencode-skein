@@ -1,14 +1,11 @@
 import { createStore } from "solid-js/store"
 import { batch, createEffect, createMemo } from "solid-js"
-import { Effect } from "effect"
 import { useSync } from "@tui/context/sync"
 import { useTheme } from "@tui/context/theme"
 import { uniqueBy } from "remeda"
 import path from "path"
 import { Global } from "@/global"
-import { AppRuntime } from "@/effect/app-runtime"
 import { iife } from "@/util/iife"
-import { AppFileSystem } from "@opencode-ai/shared/filesystem"
 import { createSimpleContext } from "./helper"
 import { useToast } from "../ui/toast"
 import { Provider } from "@/provider/provider"
@@ -126,20 +123,6 @@ export const { use: useLocal, provider: LocalProvider } = createSimpleContext({
       const state = {
         pending: false,
       }
-      const read = () =>
-        AppRuntime.runPromise(
-          Effect.gen(function* () {
-            const fs = yield* AppFileSystem.Service
-            return yield* fs.readJson(filePath)
-          }),
-        )
-      const write = (data: unknown) =>
-        AppRuntime.runPromise(
-          Effect.gen(function* () {
-            const fs = yield* AppFileSystem.Service
-            yield* fs.writeJson(filePath, data)
-          }),
-        )
 
       function save() {
         if (!modelStore.ready) {
@@ -147,14 +130,22 @@ export const { use: useLocal, provider: LocalProvider } = createSimpleContext({
           return
         }
         state.pending = false
-        write({
-          recent: modelStore.recent,
-          favorite: modelStore.favorite,
-          variant: modelStore.variant,
-        })
+        void Bun.write(
+          filePath,
+          JSON.stringify(
+            {
+              recent: modelStore.recent,
+              favorite: modelStore.favorite,
+              variant: modelStore.variant,
+            },
+            null,
+            2,
+          ),
+        )
       }
 
-      read()
+      Bun.file(filePath)
+        .json()
         .then((x: any) => {
           if (Array.isArray(x.recent)) setModelStore("recent", x.recent)
           if (Array.isArray(x.favorite)) setModelStore("favorite", x.favorite)
