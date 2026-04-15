@@ -1,9 +1,32 @@
+import { Effect } from "effect"
+import { AppFileSystem } from "@opencode-ai/shared/filesystem"
 import { Npm } from "../npm"
 import { Instance } from "../project/instance"
-import { Filesystem } from "../util/filesystem"
 import { Process } from "../util/process"
 import { which } from "../util/which"
+import { AppRuntime } from "@/effect/app-runtime"
 import { Flag } from "@/flag/flag"
+
+async function withFs<A>(fn: (fs: AppFileSystem.Interface) => Effect.Effect<A, AppFileSystem.Error>) {
+  return AppRuntime.runPromise(
+    Effect.gen(function* () {
+      const fs = yield* AppFileSystem.Service
+      return yield* fn(fs)
+    }),
+  )
+}
+
+async function find(target: string) {
+  return withFs((fs) => fs.findUp(target, Instance.directory, Instance.worktree))
+}
+
+async function readJson<T>(file: string) {
+  return withFs((fs) => fs.readJson(file).pipe(Effect.map((json) => json as T)))
+}
+
+async function readText(file: string) {
+  return withFs((fs) => fs.readFileString(file))
+}
 
 export interface Info {
   name: string
@@ -66,9 +89,9 @@ export const prettier: Info = {
     ".gql",
   ],
   async enabled() {
-    const items = await Filesystem.findUp("package.json", Instance.directory, Instance.worktree)
+    const items = await find("package.json")
     for (const item of items) {
-      const json = await Filesystem.readJson<{
+      const json = await readJson<{
         dependencies?: Record<string, string>
         devDependencies?: Record<string, string>
       }>(item)
@@ -89,9 +112,9 @@ export const oxfmt: Info = {
   extensions: [".js", ".jsx", ".mjs", ".cjs", ".ts", ".tsx", ".mts", ".cts"],
   async enabled() {
     if (!Flag.OPENCODE_EXPERIMENTAL_OXFMT) return false
-    const items = await Filesystem.findUp("package.json", Instance.directory, Instance.worktree)
+    const items = await find("package.json")
     for (const item of items) {
-      const json = await Filesystem.readJson<{
+      const json = await readJson<{
         dependencies?: Record<string, string>
         devDependencies?: Record<string, string>
       }>(item)
@@ -140,7 +163,7 @@ export const biome: Info = {
   async enabled() {
     const configs = ["biome.json", "biome.jsonc"]
     for (const config of configs) {
-      const found = await Filesystem.findUp(config, Instance.directory, Instance.worktree)
+      const found = await find(config)
       if (found.length > 0) {
         const bin = await Npm.which("@biomejs/biome")
         if (bin) return [bin, "format", "--write", "$FILE"]
@@ -164,7 +187,7 @@ export const clang: Info = {
   name: "clang-format",
   extensions: [".c", ".cc", ".cpp", ".cxx", ".c++", ".h", ".hh", ".hpp", ".hxx", ".h++", ".ino", ".C", ".H"],
   async enabled() {
-    const items = await Filesystem.findUp(".clang-format", Instance.directory, Instance.worktree)
+    const items = await find(".clang-format")
     if (items.length > 0) {
       const match = which("clang-format")
       if (match) return [match, "-i", "$FILE"]
@@ -190,10 +213,10 @@ export const ruff: Info = {
     if (!which("ruff")) return false
     const configs = ["pyproject.toml", "ruff.toml", ".ruff.toml"]
     for (const config of configs) {
-      const found = await Filesystem.findUp(config, Instance.directory, Instance.worktree)
+      const found = await find(config)
       if (found.length > 0) {
         if (config === "pyproject.toml") {
-          const content = await Filesystem.readText(found[0])
+          const content = await readText(found[0])
           if (content.includes("[tool.ruff]")) return ["ruff", "format", "$FILE"]
         } else {
           return ["ruff", "format", "$FILE"]
@@ -202,9 +225,9 @@ export const ruff: Info = {
     }
     const deps = ["requirements.txt", "pyproject.toml", "Pipfile"]
     for (const dep of deps) {
-      const found = await Filesystem.findUp(dep, Instance.directory, Instance.worktree)
+      const found = await find(dep)
       if (found.length > 0) {
-        const content = await Filesystem.readText(found[0])
+        const content = await readText(found[0])
         if (content.includes("ruff")) return ["ruff", "format", "$FILE"]
       }
     }
@@ -288,7 +311,7 @@ export const ocamlformat: Info = {
   extensions: [".ml", ".mli"],
   async enabled() {
     if (!which("ocamlformat")) return false
-    const items = await Filesystem.findUp(".ocamlformat", Instance.directory, Instance.worktree)
+    const items = await find(".ocamlformat")
     if (items.length > 0) return ["ocamlformat", "-i", "$FILE"]
     return false
   },
@@ -358,9 +381,9 @@ export const pint: Info = {
   name: "pint",
   extensions: [".php"],
   async enabled() {
-    const items = await Filesystem.findUp("composer.json", Instance.directory, Instance.worktree)
+    const items = await find("composer.json")
     for (const item of items) {
-      const json = await Filesystem.readJson<{
+      const json = await readJson<{
         require?: Record<string, string>
         "require-dev"?: Record<string, string>
       }>(item)

@@ -2,30 +2,74 @@ import path from "path"
 import os from "os"
 import z from "zod"
 import { type ParseError as JsoncParseError, parse as parseJsonc, printParseErrorCode } from "jsonc-parser"
+import { Effect } from "effect"
+import { AppFileSystem } from "@opencode-ai/shared/filesystem"
 import { NamedError } from "@opencode-ai/shared/util/error"
-import { Filesystem } from "@/util/filesystem"
 import { Flag } from "@/flag/flag"
 import { Global } from "@/global"
+import { AppRuntime } from "@/effect/app-runtime"
+
+async function withFs<A>(fn: (fs: AppFileSystem.Interface) => Effect.Effect<A, AppFileSystem.Error>) {
+  return AppRuntime.runPromise(
+    Effect.gen(function* () {
+      const fs = yield* AppFileSystem.Service
+      return yield* fn(fs)
+    }),
+  )
+}
+
+function missing(err: unknown) {
+  if (typeof err !== "object" || err === null) return false
+  if ("code" in err && err.code === "ENOENT") return true
+  return (
+    "reason" in err &&
+    typeof err.reason === "object" &&
+    err.reason !== null &&
+    "_tag" in err.reason &&
+    err.reason._tag === "NotFound"
+  )
+}
 
 export namespace ConfigPaths {
   export async function projectFiles(name: string, directory: string, worktree: string) {
-    return Filesystem.findUp([`${name}.json`, `${name}.jsonc`], directory, worktree, { rootFirst: true })
+    return withFs(
+      Effect.fn("ConfigPaths.projectFiles")(function* (fs) {
+        const dirs = [directory]
+        let dir = directory
+        while (true) {
+          if (worktree === dir) break
+          const parent = path.dirname(dir)
+          if (parent === dir) break
+          dirs.push(parent)
+          dir = parent
+        }
+
+        const out: string[] = []
+        for (const dir of dirs.toReversed()) {
+          for (const target of [`${name}.json`, `${name}.jsonc`]) {
+            const file = path.join(dir, target)
+            if (yield* fs.existsSafe(file)) out.push(file)
+          }
+        }
+        return out
+      }),
+    )
   }
 
   export async function directories(directory: string, worktree: string) {
     return [
       Global.Path.config,
       ...(!Flag.OPENCODE_DISABLE_PROJECT_CONFIG
-        ? await Array.fromAsync(
-            Filesystem.up({
+        ? await withFs((fs) =>
+            fs.up({
               targets: [".opencode"],
               start: directory,
               stop: worktree,
             }),
           )
         : []),
-      ...(await Array.fromAsync(
-        Filesystem.up({
+      ...(await withFs((fs) =>
+        fs.up({
           targets: [".opencode"],
           start: Global.Path.home,
           stop: Global.Path.home,
@@ -58,8 +102,8 @@ export namespace ConfigPaths {
 
   /** Read a config file, returning undefined for missing files and throwing JsonError for other failures. */
   export async function readFile(filepath: string) {
-    return Filesystem.readText(filepath).catch((err: NodeJS.ErrnoException) => {
-      if (err.code === "ENOENT") return
+    return withFs((fs) => fs.readFileString(filepath)).catch((err: unknown) => {
+      if (missing(err)) return
       throw new JsonError({ path: filepath }, { cause: err })
     })
   }
@@ -108,11 +152,11 @@ export namespace ConfigPaths {
 
       const resolvedPath = path.isAbsolute(filePath) ? filePath : path.resolve(configDir, filePath)
       const fileContent = (
-        await Filesystem.readText(resolvedPath).catch((error: NodeJS.ErrnoException) => {
+        await withFs((fs) => fs.readFileString(resolvedPath)).catch((error: unknown) => {
           if (missing === "empty") return ""
 
           const errMsg = `bad file reference: "${token}"`
-          if (error.code === "ENOENT") {
+          if (missing(error)) {
             throw new InvalidError(
               {
                 path: configSource,
