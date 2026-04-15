@@ -22,7 +22,7 @@ export namespace File {
     path: Schema.String,
     added: Schema.Number,
     removed: Schema.Number,
-    status: Schema.Union([Schema.Literal("added"), Schema.Literal("deleted"), Schema.Literal("modified")]),
+    status: Schema.Literals(["added", "deleted", "modified"]),
   }) {
     static readonly zod = zod(this)
   }
@@ -31,7 +31,7 @@ export namespace File {
     name: Schema.String,
     path: Schema.String,
     absolute: Schema.String,
-    type: Schema.Union([Schema.Literal("file"), Schema.Literal("directory")]),
+    type: Schema.Literals(["file", "directory"]),
     ignored: Schema.Boolean,
   }) {
     static readonly zod = zod(this)
@@ -59,7 +59,7 @@ export namespace File {
   }
 
   export class Content extends Schema.Class<Content>("FileContent")({
-    type: Schema.Union([Schema.Literal("text"), Schema.Literal("binary")]),
+    type: Schema.Literals(["text", "binary"]),
     content: Schema.String,
     diff: Schema.optional(Schema.String),
     patch: Schema.optional(Patch),
