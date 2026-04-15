@@ -1,4 +1,4 @@
-import { GlobalBus } from "@/bus/global"
+import { GlobalBus, type GlobalEvent } from "@/bus/global"
 
 export function waitEvent(input: { timeout: number; signal?: AbortSignal; fn: (event: GlobalEvent) => boolean }) {
   if (input.signal?.aborted) return Promise.reject(input.signal.reason ?? new Error("Request aborted"))
