@@ -10,6 +10,8 @@ import {
   type TuiSlotPlugin,
   type TuiTheme,
 } from "@opencode-ai/plugin/tui"
+import { AppFileSystem } from "@opencode-ai/shared/filesystem"
+import { Effect, Option } from "effect"
 import path from "path"
 import { fileURLToPath } from "url"
 
@@ -32,7 +34,6 @@ import { PluginMeta } from "@/plugin/meta"
 import { installPlugin as installModulePlugin, patchPluginConfig, readPluginManifest } from "@/plugin/install"
 import { hasTheme, upsertTheme } from "../context/theme"
 import { Global } from "@/global"
-import { Filesystem } from "@/util/filesystem"
 import { Process } from "@/util/process"
 import { Flock } from "@/util/flock"
 import { Flag } from "@/flag/flag"
@@ -85,6 +86,10 @@ const DISPOSE_TIMEOUT_MS = 5000
 const KV_KEY = "plugin_enabled"
 const EMPTY_TUI: TuiPluginModule = {
   tui: async () => {},
+}
+
+function io<T>(fn: (fs: AppFileSystem.Interface) => Effect.Effect<T, AppFileSystem.Error>) {
+  return Effect.runPromise(AppFileSystem.Service.use(fn).pipe(Effect.provide(AppFileSystem.defaultLayer)))
 }
 
 function fail(message: string, data: Record<string, unknown>) {
@@ -163,13 +168,13 @@ function createThemeInstaller(
         : path.join(source_dir, ".opencode", "themes")
     const dest_dir = meta.scope === "local" ? local_dir : path.join(Global.Path.config, "themes")
     const dest = path.join(dest_dir, `${name}.json`)
-    const stat = await Filesystem.statAsync(src)
-    const mtime = stat ? Math.floor(typeof stat.mtimeMs === "bigint" ? Number(stat.mtimeMs) : stat.mtimeMs) : undefined
-    const size = stat ? (typeof stat.size === "bigint" ? Number(stat.size) : stat.size) : undefined
+    const stat = await io((fs) => fs.stat(src)).catch(() => undefined)
+    const mtime = stat ? Option.getOrUndefined(stat.mtime)?.getTime() : undefined
+    const size = stat ? Number(stat.size) : undefined
     const info = {
       src,
       dest,
-      mtime,
+      mtime: mtime === undefined ? undefined : Math.floor(mtime),
       size,
     }
 
@@ -191,7 +196,7 @@ function createThemeInstaller(
       const prev = plugin.themes[name]
       if (exists) {
         if (plugin.meta.state !== "updated") {
-          if (!prev && (await Filesystem.exists(dest))) {
+          if (!prev && (await io((fs) => fs.existsSafe(dest)))) {
             await save()
           }
           return
@@ -199,7 +204,7 @@ function createThemeInstaller(
         if (prev?.dest === dest && prev.mtime === mtime && prev.size === size) return
       }
 
-      const text = await Filesystem.readText(src).catch((error) => {
+      const text = await io((fs) => fs.readFileString(src)).catch((error) => {
         log.warn("failed to read tui plugin theme", { path: spec, theme: src, error })
         return
       })
@@ -219,8 +224,8 @@ function createThemeInstaller(
         return
       }
 
-      if (exists || !(await Filesystem.exists(dest))) {
-        await Filesystem.write(dest, text).catch((error) => {
+      if (exists || !(await io((fs) => fs.existsSafe(dest)))) {
+        await io((fs) => fs.writeWithDirs(dest, text)).catch((error) => {
           log.warn("failed to persist tui plugin theme", { path: spec, theme: src, dest, error })
         })
       }

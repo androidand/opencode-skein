@@ -2,10 +2,12 @@ import { Global } from "../global"
 import { Log } from "../util/log"
 import path from "path"
 import z from "zod"
+import { statSync } from "fs"
+import { AppFileSystem } from "@opencode-ai/shared/filesystem"
+import { Effect } from "effect"
 import { Installation } from "../installation"
 import { Flag } from "../flag/flag"
 import { lazy } from "@/util/lazy"
-import { Filesystem } from "../util/filesystem"
 import { Flock } from "@/util/flock"
 import { Hash } from "@/util/hash"
 
@@ -23,6 +25,10 @@ export namespace ModelsDev {
   const ttl = 5 * 60 * 1000
 
   type JsonValue = string | number | boolean | null | { [key: string]: JsonValue } | JsonValue[]
+
+  function file<T>(fn: (fs: AppFileSystem.Interface) => Effect.Effect<T, AppFileSystem.Error>) {
+    return Effect.runPromise(AppFileSystem.Service.use(fn).pipe(Effect.provide(AppFileSystem.defaultLayer)))
+  }
 
   const JsonValue: z.ZodType<JsonValue> = z.lazy(() =>
     z.union([z.string(), z.number(), z.boolean(), z.null(), z.array(JsonValue), z.record(z.string(), JsonValue)]),
@@ -113,7 +119,7 @@ export namespace ModelsDev {
   }
 
   function fresh() {
-    return Date.now() - Number(Filesystem.stat(filepath)?.mtimeMs ?? 0) < ttl
+    return Date.now() - Number(statSync(filepath, { throwIfNoEntry: false })?.mtimeMs ?? 0) < ttl
   }
 
   function skip(force: boolean) {
@@ -129,7 +135,7 @@ export namespace ModelsDev {
   }
 
   export const Data = lazy(async () => {
-    const result = await Filesystem.readJson(Flag.OPENCODE_MODELS_PATH ?? filepath).catch(() => {})
+    const result = await file((fs) => fs.readJson(Flag.OPENCODE_MODELS_PATH ?? filepath)).catch(() => {})
     if (result) return result
     // @ts-ignore
     const snapshot = await import("./models-snapshot.js")
@@ -138,11 +144,11 @@ export namespace ModelsDev {
     if (snapshot) return snapshot
     if (Flag.OPENCODE_DISABLE_MODELS_FETCH) return {}
     return Flock.withLock(`models-dev:${filepath}`, async () => {
-      const result = await Filesystem.readJson(Flag.OPENCODE_MODELS_PATH ?? filepath).catch(() => {})
+      const result = await file((fs) => fs.readJson(Flag.OPENCODE_MODELS_PATH ?? filepath)).catch(() => {})
       if (result) return result
       const result2 = await fetchApi()
       if (result2.ok) {
-        await Filesystem.write(filepath, result2.text).catch((e) => {
+        await file((fs) => fs.writeWithDirs(filepath, result2.text)).catch((e) => {
           log.error("Failed to write models cache", { error: e })
         })
       }
@@ -161,7 +167,7 @@ export namespace ModelsDev {
       if (skip(force)) return ModelsDev.Data.reset()
       const result = await fetchApi()
       if (!result.ok) return
-      await Filesystem.write(filepath, result.text)
+      await file((fs) => fs.writeWithDirs(filepath, result.text))
       ModelsDev.Data.reset()
     }).catch((e) => {
       log.error("Failed to fetch models.dev", {

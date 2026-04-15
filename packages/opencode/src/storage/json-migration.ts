@@ -1,5 +1,7 @@
 import type { SQLiteBunDatabase } from "drizzle-orm/bun-sqlite"
 import type { NodeSQLiteDatabase } from "drizzle-orm/node-sqlite"
+import { AppFileSystem } from "@opencode-ai/shared/filesystem"
+import { Effect } from "effect"
 import { Global } from "../global"
 import { Log } from "../util/log"
 import { ProjectTable } from "../project/project.sql"
@@ -7,11 +9,14 @@ import { SessionTable, MessageTable, PartTable, TodoTable, PermissionTable } fro
 import { SessionShareTable } from "../share/share.sql"
 import path from "path"
 import { existsSync } from "fs"
-import { Filesystem } from "../util/filesystem"
 import { Glob } from "@opencode-ai/shared/util/glob"
 
 export namespace JsonMigration {
   const log = Log.create({ service: "json-migration" })
+
+  function file<T>(fn: (fs: AppFileSystem.Interface) => Effect.Effect<T, AppFileSystem.Error>) {
+    return Effect.runPromise(AppFileSystem.Service.use(fn).pipe(Effect.provide(AppFileSystem.defaultLayer)))
+  }
 
   export type Progress = {
     current: number
@@ -79,7 +84,7 @@ export namespace JsonMigration {
       const count = end - start
       const tasks = new Array(count)
       for (let i = 0; i < count; i++) {
-        tasks[i] = Filesystem.readJson(files[start + i])
+        tasks[i] = file((fs) => fs.readJson(files[start + i]))
       }
       const results = await Promise.allSettled(tasks)
       const items = new Array(count)

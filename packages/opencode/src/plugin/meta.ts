@@ -1,14 +1,19 @@
 import path from "path"
 import { fileURLToPath } from "url"
+import { AppFileSystem } from "@opencode-ai/shared/filesystem"
+import { Effect, Option } from "effect"
 
 import { Flag } from "@/flag/flag"
 import { Global } from "@/global"
-import { Filesystem } from "@/util/filesystem"
 import { Flock } from "@/util/flock"
 
 import { parsePluginSpecifier, pluginSource } from "./shared"
 
 export namespace PluginMeta {
+  function io<T>(fn: (fs: AppFileSystem.Interface) => Effect.Effect<T, AppFileSystem.Error>) {
+    return Effect.runPromise(AppFileSystem.Service.use(fn).pipe(Effect.provide(AppFileSystem.defaultLayer)))
+  }
+
   type Source = "file" | "npm"
 
   export type Theme = {
@@ -61,10 +66,11 @@ export namespace PluginMeta {
   }
 
   async function modifiedAt(file: string) {
-    const stat = await Filesystem.statAsync(file)
+    const stat = await io((fs) => fs.stat(file)).catch(() => undefined)
     if (!stat) return
-    const mtime = stat.mtimeMs
-    return Math.floor(typeof mtime === "bigint" ? Number(mtime) : mtime)
+    const mtime = Option.getOrUndefined(stat.mtime)?.getTime()
+    if (mtime === undefined) return
+    return Math.floor(mtime)
   }
 
   function resolvedTarget(target: string) {
@@ -74,9 +80,10 @@ export namespace PluginMeta {
 
   async function npmVersion(target: string) {
     const resolved = resolvedTarget(target)
-    const stat = await Filesystem.statAsync(resolved)
-    const dir = stat?.isDirectory() ? resolved : path.dirname(resolved)
-    return Filesystem.readJson<{ version?: string }>(path.join(dir, "package.json"))
+    const stat = await io((fs) => fs.stat(resolved)).catch(() => undefined)
+    const dir = stat?.type === "Directory" ? resolved : path.dirname(resolved)
+    return io((fs) => fs.readJson(path.join(dir, "package.json")))
+      .then((item) => item as { version?: string })
       .then((item) => item.version)
       .catch(() => undefined)
   }
@@ -112,7 +119,9 @@ export namespace PluginMeta {
   }
 
   async function read(file: string): Promise<Store> {
-    return Filesystem.readJson<Store>(file).catch(() => ({}) as Store)
+    return io((fs) => fs.readJson(file))
+      .then((item) => item as Store)
+      .catch(() => ({}) as Store)
   }
 
   async function row(item: Touch): Promise<Row> {
@@ -154,7 +163,7 @@ export namespace PluginMeta {
         store[item.id] = hit.entry
         out.push(hit)
       }
-      await Filesystem.writeJson(file, store)
+      await io((fs) => fs.writeWithDirs(file, JSON.stringify(store, null, 2)))
       return out
     })
   }
@@ -177,7 +186,7 @@ export namespace PluginMeta {
         ...(entry.themes ?? {}),
         [name]: theme,
       }
-      await Filesystem.writeJson(file, store)
+      await io((fs) => fs.writeWithDirs(file, JSON.stringify(store, null, 2)))
     })
   }
 

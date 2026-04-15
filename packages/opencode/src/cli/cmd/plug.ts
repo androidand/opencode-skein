@@ -1,5 +1,7 @@
 import { intro, log, outro, spinner } from "@clack/prompts"
 import type { Argv } from "yargs"
+import { AppFileSystem } from "@opencode-ai/shared/filesystem"
+import { Effect } from "effect"
 
 import { ConfigPaths } from "../../config/paths"
 import { Global } from "../../global"
@@ -7,7 +9,6 @@ import { installPlugin, patchPluginConfig, readPluginManifest } from "../../plug
 import { resolvePluginTarget } from "../../plugin/shared"
 import { Instance } from "../../project/instance"
 import { errorMessage } from "../../util/error"
-import { Filesystem } from "../../util/filesystem"
 import { Process } from "../../util/process"
 import { UI } from "../ui"
 import { cmd } from "./cmd"
@@ -44,6 +45,10 @@ export type PlugCtx = {
   directory: string
 }
 
+function file<T>(fn: (fs: AppFileSystem.Interface) => Effect.Effect<T, AppFileSystem.Error>) {
+  return Effect.runPromise(AppFileSystem.Service.use(fn).pipe(Effect.provide(AppFileSystem.defaultLayer)))
+}
+
 const defaultPlugDeps: PlugDeps = {
   spinner: () => spinner(),
   log: {
@@ -52,11 +57,9 @@ const defaultPlugDeps: PlugDeps = {
     success: (msg) => log.success(msg),
   },
   resolve: (spec) => resolvePluginTarget(spec),
-  readText: (file) => Filesystem.readText(file),
-  write: async (file, text) => {
-    await Filesystem.write(file, text)
-  },
-  exists: (file) => Filesystem.exists(file),
+  readText: (path) => file((fs) => fs.readFileString(path)),
+  write: (path, text) => file((fs) => fs.writeWithDirs(path, text)),
+  exists: (path) => file((fs) => fs.existsSafe(path)),
   files: (dir, name) => ConfigPaths.fileInDirectory(dir, name),
   global: Global.Path.config,
 }

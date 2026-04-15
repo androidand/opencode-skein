@@ -6,10 +6,11 @@ import {
   parse as parseJsonc,
   printParseErrorCode,
 } from "jsonc-parser"
+import { AppFileSystem } from "@opencode-ai/shared/filesystem"
+import { Effect } from "effect"
 
 import { ConfigPaths } from "@/config/paths"
 import { Global } from "@/global"
-import { Filesystem } from "@/util/filesystem"
 import { Flock } from "@/util/flock"
 import { isRecord } from "@/util/record"
 
@@ -79,12 +80,14 @@ const defaultInstallDeps: InstallDeps = {
   resolve: (spec) => resolvePluginTarget(spec),
 }
 
+function file<T>(fn: (fs: AppFileSystem.Interface) => Effect.Effect<T, AppFileSystem.Error>) {
+  return Effect.runPromise(AppFileSystem.Service.use(fn).pipe(Effect.provide(AppFileSystem.defaultLayer)))
+}
+
 const defaultPatchDeps: PatchDeps = {
-  readText: (file) => Filesystem.readText(file),
-  write: async (file, text) => {
-    await Filesystem.write(file, text)
-  },
-  exists: (file) => Filesystem.exists(file),
+  readText: (path) => file((fs) => fs.readFileString(path)),
+  write: (path, text) => file((fs) => fs.writeWithDirs(path, text)),
+  exists: (path) => file((fs) => fs.existsSafe(path)),
   files: (dir, name) => ConfigPaths.fileInDirectory(dir, name),
 }
 
@@ -344,7 +347,7 @@ function patchName(kind: Kind): "opencode" | "tui" {
 
 async function patchOne(dir: string, target: Target, spec: string, force: boolean, dep: PatchDeps): Promise<PatchOne> {
   const name = patchName(target.kind)
-  await using _ = await Flock.acquire(`plug-config:${Filesystem.resolve(path.join(dir, name))}`)
+  await using _ = await Flock.acquire(`plug-config:${AppFileSystem.resolve(path.join(dir, name))}`)
 
   const files = dep.files(dir, name)
   let cfg = files[0]

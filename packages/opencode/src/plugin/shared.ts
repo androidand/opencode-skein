@@ -2,8 +2,9 @@ import path from "path"
 import { fileURLToPath, pathToFileURL } from "url"
 import npa from "npm-package-arg"
 import semver from "semver"
+import { AppFileSystem } from "@opencode-ai/shared/filesystem"
+import { Effect } from "effect"
 import { Npm } from "../npm"
-import { Filesystem } from "@/util/filesystem"
 import { isRecord } from "@/util/record"
 
 // Old npm package names for plugins that are now built-in
@@ -53,6 +54,10 @@ export type PluginEntry = {
 
 const INDEX_FILES = ["index.ts", "index.tsx", "index.js", "index.mjs", "index.cjs"]
 
+function io<T>(fn: (fs: AppFileSystem.Interface) => Effect.Effect<T, AppFileSystem.Error>) {
+  return Effect.runPromise(AppFileSystem.Service.use(fn).pipe(Effect.provide(AppFileSystem.defaultLayer)))
+}
+
 export function pluginSource(spec: string): PluginSource {
   if (isPathPluginSpec(spec)) return "file"
   return "npm"
@@ -88,9 +93,9 @@ function packageMain(pkg: PluginPackage) {
 
 function resolvePackageFile(spec: string, raw: string, kind: string, pkg: PluginPackage) {
   const resolved = resolveExportPath(raw, pkg.dir)
-  const root = Filesystem.resolve(pkg.dir)
-  const next = Filesystem.resolve(resolved)
-  if (!Filesystem.contains(root, next)) {
+  const root = AppFileSystem.resolve(pkg.dir)
+  const next = AppFileSystem.resolve(resolved)
+  if (!AppFileSystem.contains(root, next)) {
     throw new Error(`Plugin ${spec} resolved ${kind} entry outside plugin directory`)
   }
   return next
@@ -121,15 +126,15 @@ function targetPath(target: string) {
 async function resolveDirectoryIndex(dir: string) {
   for (const name of INDEX_FILES) {
     const file = path.join(dir, name)
-    if (await Filesystem.exists(file)) return file
+    if (await io((fs) => fs.existsSafe(file))) return file
   }
 }
 
 async function resolveTargetDirectory(target: string) {
   const file = targetPath(target)
   if (!file) return
-  const stat = await Filesystem.statAsync(file)
-  if (!stat?.isDirectory()) return
+  const stat = await io((fs) => fs.stat(file)).catch(() => undefined)
+  if (stat?.type !== "Directory") return
   return file
 }
 
@@ -175,13 +180,13 @@ export function isPathPluginSpec(spec: string) {
 export async function resolvePathPluginTarget(spec: string) {
   const raw = spec.startsWith("file://") ? fileURLToPath(spec) : spec
   const file = path.isAbsolute(raw) || /^[A-Za-z]:[\\/]/.test(raw) ? raw : path.resolve(raw)
-  const stat = await Filesystem.statAsync(file)
-  if (!stat?.isDirectory()) {
+  const stat = await io((fs) => fs.stat(file)).catch(() => undefined)
+  if (stat?.type !== "Directory") {
     if (spec.startsWith("file://")) return spec
     return pathToFileURL(file).href
   }
 
-  if (await Filesystem.exists(path.join(file, "package.json"))) {
+  if (await io((fs) => fs.existsSafe(path.join(file, "package.json")))) {
     return pathToFileURL(file).href
   }
 
@@ -214,10 +219,10 @@ export async function resolvePluginTarget(spec: string) {
 
 export async function readPluginPackage(target: string): Promise<PluginPackage> {
   const file = target.startsWith("file://") ? fileURLToPath(target) : target
-  const stat = await Filesystem.statAsync(file)
-  const dir = stat?.isDirectory() ? file : path.dirname(file)
+  const stat = await io((fs) => fs.stat(file)).catch(() => undefined)
+  const dir = stat?.type === "Directory" ? file : path.dirname(file)
   const pkg = path.join(dir, "package.json")
-  const json = await Filesystem.readJson<Record<string, unknown>>(pkg)
+  const json = await io((fs) => fs.readJson(pkg)).then((item) => item as Record<string, unknown>)
   return { dir, pkg, json }
 }
 

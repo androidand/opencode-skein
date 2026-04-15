@@ -1,17 +1,32 @@
 import semver from "semver"
 import z from "zod"
 import { NamedError } from "@opencode-ai/shared/util/error"
+import { AppFileSystem } from "@opencode-ai/shared/filesystem"
+import { Effect } from "effect"
 import { Global } from "../global"
 import { Log } from "../util/log"
 import path from "path"
 import { readdir, rm } from "fs/promises"
-import { Filesystem } from "@/util/filesystem"
 import { Flock } from "@/util/flock"
 import { Arborist } from "@npmcli/arborist"
 
 export namespace Npm {
   const log = Log.create({ service: "npm" })
   const illegal = process.platform === "win32" ? new Set(["<", ">", ":", '"', "|", "?", "*"]) : undefined
+  type Deps = Record<string, string>
+  type Manifest = {
+    dependencies?: Deps
+    devDependencies?: Deps
+    peerDependencies?: Deps
+    optionalDependencies?: Deps
+  }
+  type Lock = {
+    packages?: Record<string, Manifest>
+  }
+
+  function file<T>(fn: (fs: AppFileSystem.Interface) => Effect.Effect<T, AppFileSystem.Error>) {
+    return Effect.runPromise(AppFileSystem.Service.use(fn).pipe(Effect.provide(AppFileSystem.defaultLayer)))
+  }
 
   export const InstallFailedError = NamedError.create(
     "NpmInstallFailedError",
@@ -63,7 +78,7 @@ export namespace Npm {
 
   export async function add(pkg: string) {
     const dir = directory(pkg)
-    await using _ = await Flock.acquire(`npm-install:${Filesystem.resolve(dir)}`)
+    await using _ = await Flock.acquire(`npm-install:${AppFileSystem.resolve(dir)}`)
     log.info("installing package", {
       pkg,
     })
@@ -118,14 +133,18 @@ export namespace Npm {
       await arb.reify().catch(() => {})
     }
 
-    if (!(await Filesystem.exists(path.join(dir, "node_modules")))) {
+    if (!(await file((fs) => fs.existsSafe(path.join(dir, "node_modules"))))) {
       log.info("node_modules missing, reifying")
       await reify()
       return
     }
 
-    const pkg = await Filesystem.readJson(path.join(dir, "package.json")).catch(() => ({}))
-    const lock = await Filesystem.readJson(path.join(dir, "package-lock.json")).catch(() => ({}))
+    const pkg = await file((fs) => fs.readJson(path.join(dir, "package.json")))
+      .then((item) => item as Manifest)
+      .catch(() => ({}))
+    const lock = await file((fs) => fs.readJson(path.join(dir, "package-lock.json")))
+      .then((item) => item as Lock)
+      .catch(() => ({}))
 
     const declared = new Set([
       ...Object.keys(pkg.dependencies || {}),
@@ -162,9 +181,9 @@ export namespace Npm {
       if (files.length === 0) return undefined
       if (files.length === 1) return files[0]
       // Multiple binaries — resolve from package.json bin field like npx does
-      const pkgJson = await Filesystem.readJson<{ bin?: string | Record<string, string> }>(
-        path.join(dir, "node_modules", pkg, "package.json"),
-      ).catch(() => undefined)
+      const pkgJson = await file((fs) => fs.readJson(path.join(dir, "node_modules", pkg, "package.json")))
+        .then((item) => item as { bin?: string | Record<string, string> })
+        .catch(() => undefined)
       if (pkgJson?.bin) {
         const unscoped = pkg.startsWith("@") ? pkg.split("/")[1] : pkg
         const bin = pkgJson.bin
