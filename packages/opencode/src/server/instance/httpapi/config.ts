@@ -25,7 +25,7 @@ const Mode = Schema.Struct({
 const Interleaved = Schema.Union([
   Schema.Boolean,
   Schema.Struct({
-    field: Schema.Union([Schema.Literal("reasoning_content"), Schema.Literal("reasoning_details")]),
+    field: Schema.Literals(["reasoning_content", "reasoning_details"]),
   }),
 ]).annotate({ identifier: "ConfigProvidersModelInterleaved" })
 
