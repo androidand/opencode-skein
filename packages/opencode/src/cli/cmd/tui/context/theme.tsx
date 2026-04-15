@@ -1,10 +1,9 @@
 import { CliRenderEvents, SyntaxStyle, RGBA, type TerminalColors } from "@opentui/core"
 import path from "path"
-import { Effect } from "effect"
+import { existsSync } from "fs"
 import { createEffect, createMemo, onCleanup, onMount } from "solid-js"
 import { createSimpleContext } from "./helper"
 import { Glob } from "@opencode-ai/shared/util/glob"
-import { AppFileSystem } from "@opencode-ai/shared/filesystem"
 import aura from "./theme/aura.json" with { type: "json" }
 import ayu from "./theme/ayu.json" with { type: "json" }
 import catppuccin from "./theme/catppuccin.json" with { type: "json" }
@@ -41,7 +40,6 @@ import carbonfox from "./theme/carbonfox.json" with { type: "json" }
 import { useKV } from "./kv"
 import { useRenderer } from "@opentui/solid"
 import { createStore, produce } from "solid-js/store"
-import { AppRuntime } from "@/effect/app-runtime"
 import { Global } from "@/global"
 import { useTuiConfig } from "./tui-config"
 import { isRecord } from "@/util/record"
@@ -479,18 +477,19 @@ export const { use: useTheme, provider: ThemeProvider } = createSimpleContext({
 })
 
 async function getCustomThemes() {
-  const directories = [
-    Global.Path.config,
-    ...(await AppRuntime.runPromise(
-      Effect.gen(function* () {
-        const fs = yield* AppFileSystem.Service
-        return yield* fs.up({
-          targets: [".opencode"],
-          start: process.cwd(),
-        })
-      }),
-    )),
-  ]
+  const ups = (start: string) => {
+    const out: string[] = []
+    let dir = start
+    while (true) {
+      const next = path.join(dir, ".opencode")
+      if (existsSync(next)) out.push(next)
+      const parent = path.dirname(dir)
+      if (parent === dir) return out
+      dir = parent
+    }
+  }
+
+  const directories = [Global.Path.config, ...ups(process.cwd())]
 
   const result: Record<string, ThemeJson> = {}
   for (const dir of directories) {
@@ -501,12 +500,7 @@ async function getCustomThemes() {
       symlink: true,
     })) {
       const name = path.basename(item, ".json")
-      result[name] = (await AppRuntime.runPromise(
-        Effect.gen(function* () {
-          const fs = yield* AppFileSystem.Service
-          return yield* fs.readJson(item)
-        }),
-      )) as ThemeJson
+      result[name] = (await Bun.file(item).json()) as ThemeJson
     }
   }
   return result
