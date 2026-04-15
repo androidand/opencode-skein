@@ -1131,9 +1131,6 @@ describe("session.llm.stream", () => {
               {
                 type: "text",
                 text: "I checked your home directory and looked for PDF files.",
-                cache_control: {
-                  type: "ephemeral",
-                },
               },
               {
                 type: "tool_use",
@@ -1146,6 +1143,9 @@ describe("session.llm.stream", () => {
                 id: "toolu_01APxrADs7VozN8uWzw9WwHr",
                 name: "glob",
                 input: { pattern: "**/*.pdf", path: "/root" },
+                cache_control: {
+                  type: "ephemeral",
+                },
               },
             ],
           },

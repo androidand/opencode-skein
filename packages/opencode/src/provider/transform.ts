@@ -75,7 +75,7 @@ export namespace ProviderTransform {
 
     if (model.api.id.includes("claude")) {
       const scrub = (id: string) => id.replace(/[^a-zA-Z0-9_-]/g, "_")
-      return msgs.map((msg) => {
+      msgs = msgs.map((msg) => {
         if (msg.role === "assistant" && Array.isArray(msg.content)) {
           return {
             ...msg,
@@ -99,6 +99,20 @@ export namespace ProviderTransform {
           }
         }
         return msg
+      })
+    }
+    if (model.api.npm === "@ai-sdk/anthropic") {
+      msgs = msgs.flatMap((msg) => {
+        if (msg.role !== "assistant" || !Array.isArray(msg.content)) return [msg]
+
+        const parts = msg.content
+        const first = parts.findIndex((part) => part.type === "tool-call")
+        if (first === -1) return [msg]
+        if (!parts.slice(first).some((part) => part.type !== "tool-call")) return [msg]
+        return [
+          { ...msg, content: parts.filter((part) => part.type !== "tool-call") },
+          { ...msg, content: parts.filter((part) => part.type === "tool-call") },
+        ]
       })
     }
     if (
