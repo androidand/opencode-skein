@@ -1,5 +1,7 @@
 import { Global } from "@/global"
-import { Filesystem } from "@/util/filesystem"
+import { AppRuntime } from "@/effect/app-runtime"
+import { AppFileSystem } from "@opencode-ai/shared/filesystem"
+import { Effect } from "effect"
 import { createSignal, type Setter } from "solid-js"
 import { createStore } from "solid-js/store"
 import { createSimpleContext } from "./helper"
@@ -11,10 +13,24 @@ export const { use: useKV, provider: KVProvider } = createSimpleContext({
     const [ready, setReady] = createSignal(false)
     const [store, setStore] = createStore<Record<string, any>>()
     const filePath = path.join(Global.Path.state, "kv.json")
+    const read = () =>
+      AppRuntime.runPromise(
+        Effect.gen(function* () {
+          const fs = yield* AppFileSystem.Service
+          return yield* fs.readJson(filePath)
+        }),
+      )
+    const write = (data: unknown) =>
+      AppRuntime.runPromise(
+        Effect.gen(function* () {
+          const fs = yield* AppFileSystem.Service
+          yield* fs.writeJson(filePath, data)
+        }),
+      )
 
-    Filesystem.readJson(filePath)
+    read()
       .then((x) => {
-        setStore(x)
+        if (typeof x === "object" && x !== null) setStore(x as Record<string, any>)
       })
       .catch(() => {})
       .finally(() => {
@@ -44,7 +60,7 @@ export const { use: useKV, provider: KVProvider } = createSimpleContext({
       },
       set(key: string, value: any) {
         setStore(key, value)
-        Filesystem.writeJson(filePath, store)
+        write(store)
       },
     }
     return result

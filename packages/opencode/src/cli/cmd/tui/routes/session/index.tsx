@@ -74,8 +74,9 @@ import { Editor } from "../../util/editor"
 import stripAnsi from "strip-ansi"
 import { usePromptRef } from "../../context/prompt"
 import { useExit } from "../../context/exit"
-import { Filesystem } from "@/util/filesystem"
 import { Global } from "@/global"
+import { AppRuntime } from "@/effect/app-runtime"
+import { AppFileSystem } from "@opencode-ai/shared/filesystem"
 import { PermissionPrompt } from "./permission"
 import { QuestionPrompt } from "./question"
 import { DialogExportOptions } from "../../ui/dialog-export-options"
@@ -87,6 +88,7 @@ import { getScrollAcceleration } from "../../util/scroll"
 import { TuiPluginRuntime } from "../../plugin"
 import { DialogGoUpsell } from "../../component/dialog-go-upsell"
 import { SessionRetry } from "@/session/retry"
+import { Effect } from "effect"
 
 addDefaultParsers(parsers.parsers)
 
@@ -915,13 +917,20 @@ export function Session() {
             const exportDir = process.cwd()
             const filename = options.filename.trim()
             const filepath = path.join(exportDir, filename)
+            const write = (content: string) =>
+              AppRuntime.runPromise(
+                Effect.gen(function* () {
+                  const fs = yield* AppFileSystem.Service
+                  yield* fs.writeWithDirs(filepath, content)
+                }),
+              )
 
-            await Filesystem.write(filepath, transcript)
+            await write(transcript)
 
             // Open with EDITOR if available
             const result = await Editor.open({ value: transcript, renderer })
             if (result !== undefined) {
-              await Filesystem.write(filepath, result)
+              await write(result)
             }
 
             toast.show({ message: `Session exported to ${filename}`, variant: "success" })
@@ -2236,7 +2245,7 @@ function Skill(props: ToolProps<typeof SkillTool>) {
 function Diagnostics(props: { diagnostics?: Record<string, Record<string, any>[]>; filePath: string }) {
   const { theme } = useTheme()
   const errors = createMemo(() => {
-    const normalized = Filesystem.normalizePath(props.filePath)
+    const normalized = AppFileSystem.normalizePath(props.filePath)
     const arr = props.diagnostics?.[normalized] ?? []
     return arr.filter((x) => x.severity === 1).slice(0, 3)
   })

@@ -1,10 +1,12 @@
 import { platform, release } from "os"
 import clipboardy from "clipboardy"
+import { AppRuntime } from "@/effect/app-runtime"
+import { AppFileSystem } from "@opencode-ai/shared/filesystem"
+import { Effect } from "effect"
 import { lazy } from "../../../../util/lazy.js"
 import { tmpdir } from "os"
 import path from "path"
 import fs from "fs/promises"
-import { Filesystem } from "../../../../util/filesystem"
 import { Process } from "../../../../util/process"
 import { which } from "../../../../util/which"
 
@@ -58,8 +60,13 @@ export namespace Clipboard {
           ],
           { nothrow: true },
         )
-        const buffer = await Filesystem.readBytes(tmpfile)
-        return { data: buffer.toString("base64"), mime: "image/png" }
+        const buffer = await AppRuntime.runPromise(
+          Effect.gen(function* () {
+            const fs = yield* AppFileSystem.Service
+            return yield* fs.readFile(tmpfile)
+          }),
+        )
+        return { data: Buffer.from(buffer).toString("base64"), mime: "image/png" }
       } catch {
       } finally {
         await fs.rm(tmpfile, { force: true }).catch(() => {})

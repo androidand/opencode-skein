@@ -1,10 +1,12 @@
 import path from "path"
 import { Global } from "@/global"
-import { Filesystem } from "@/util/filesystem"
+import { AppRuntime } from "@/effect/app-runtime"
+import { AppFileSystem } from "@opencode-ai/shared/filesystem"
+import { Effect } from "effect"
 import { onMount } from "solid-js"
 import { createStore, produce, unwrap } from "solid-js/store"
 import { createSimpleContext } from "../../context/helper"
-import { appendFile, writeFile } from "fs/promises"
+import { appendFile } from "fs/promises"
 import type { AgentPart, FilePart, TextPart } from "@opencode-ai/sdk/v2"
 
 export type PromptInfo = {
@@ -31,8 +33,22 @@ export const { use: usePromptHistory, provider: PromptHistoryProvider } = create
   name: "PromptHistory",
   init: () => {
     const historyPath = path.join(Global.Path.state, "prompt-history.jsonl")
+    const read = () =>
+      AppRuntime.runPromise(
+        Effect.gen(function* () {
+          const fs = yield* AppFileSystem.Service
+          return yield* fs.readFileString(historyPath)
+        }),
+      )
+    const write = (content: string) =>
+      AppRuntime.runPromise(
+        Effect.gen(function* () {
+          const fs = yield* AppFileSystem.Service
+          yield* fs.writeWithDirs(historyPath, content)
+        }),
+      )
     onMount(async () => {
-      const text = await Filesystem.readText(historyPath).catch(() => "")
+      const text = await read().catch(() => "")
       const lines = text
         .split("\n")
         .filter(Boolean)
@@ -51,7 +67,7 @@ export const { use: usePromptHistory, provider: PromptHistoryProvider } = create
       // Rewrite file with only valid entries to self-heal corruption
       if (lines.length > 0) {
         const content = lines.map((line) => JSON.stringify(line)).join("\n") + "\n"
-        writeFile(historyPath, content).catch(() => {})
+        write(content).catch(() => {})
       }
     })
 
@@ -97,7 +113,7 @@ export const { use: usePromptHistory, provider: PromptHistoryProvider } = create
 
         if (trimmed) {
           const content = store.history.map((line) => JSON.stringify(line)).join("\n") + "\n"
-          writeFile(historyPath, content).catch(() => {})
+          write(content).catch(() => {})
           return
         }
 
