@@ -91,11 +91,15 @@ export namespace Snapshot {
           const args = (cmd: string[]) => ["--git-dir", state.gitdir, "--work-tree", state.worktree, ...cmd]
 
           const git = Effect.fnUntraced(
-            function* (cmd: string[], opts?: { cwd?: string; env?: Record<string, string> }) {
+            function* (
+              cmd: string[],
+              opts?: { cwd?: string; env?: Record<string, string>; stdin?: Stream.Stream<Uint8Array> },
+            ) {
               const proc = ChildProcess.make("git", cmd, {
                 cwd: opts?.cwd,
                 env: opts?.env,
                 extendEnv: true,
+                stdin: opts?.stdin ?? "ignore",
               })
               const handle = yield* spawner.spawn(proc)
               const [text, stderr] = yield* Effect.all(
@@ -150,65 +154,26 @@ export namespace Snapshot {
 
           const add = Effect.fnUntraced(function* () {
             yield* sync()
-            const [diff, other] = yield* Effect.all(
+            const list = yield* git(
               [
-                git([...quote, ...args(["diff-files", "--name-only", "-z", "--", "."])], {
-                  cwd: state.directory,
-                }),
-                git([...quote, ...args(["ls-files", "--others", "--exclude-standard", "-z", "--", "."])], {
-                  cwd: state.directory,
-                }),
+                ...quote,
+                ...args(["ls-files", "--modified", "--deleted", "--others", "--exclude-standard", "-z", "--", "."]),
               ],
-              { concurrency: 2 },
+              { cwd: state.directory },
             )
-            if (diff.code !== 0 || other.code !== 0) {
+            if (list.code !== 0) {
               log.warn("failed to list snapshot files", {
-                diffCode: diff.code,
-                diffStderr: diff.stderr,
-                otherCode: other.code,
-                otherStderr: other.stderr,
+                exitCode: list.code,
+                stderr: list.stderr,
               })
               return
             }
 
-            const tracked = diff.text.split("\0").filter(Boolean)
-            const untracked = other.text.split("\0").filter(Boolean)
-            const all = Array.from(new Set([...tracked, ...untracked]))
-            if (!all.length) return
-
-            // Filter out files that are now gitignored even if previously tracked
-            // Files may have been tracked before being gitignored, so we need to check
-            // against the source project's current gitignore rules
-            // Use --no-index to check purely against patterns (ignoring whether file is tracked)
-            const checkArgs = [
-              ...quote,
-              "--git-dir",
-              path.join(state.worktree, ".git"),
-              "--work-tree",
-              state.worktree,
-              "check-ignore",
-              "--no-index",
-              "--",
-              ...all,
-            ]
-            const check = yield* git(checkArgs, { cwd: state.directory })
-            const ignored =
-              check.code === 0 ? new Set(check.text.trim().split("\n").filter(Boolean)) : new Set<string>()
-            const filtered = all.filter((item) => !ignored.has(item))
-
-            // Remove newly-ignored files from snapshot index to prevent re-adding
-            if (ignored.size > 0) {
-              const ignoredFiles = Array.from(ignored)
-              log.info("removing gitignored files from snapshot", { count: ignoredFiles.length })
-              yield* git([...cfg, ...args(["rm", "--cached", "-f", "--", ...ignoredFiles])], {
-                cwd: state.directory,
-              })
-            }
-
-            if (!filtered.length) return
+            const files = list.text.split("\0").filter(Boolean)
+            if (!files.length) return
 
             const large = (yield* Effect.all(
-              filtered.map((item) =>
+              files.map((item) =>
                 fs
                   .stat(path.join(state.directory, item))
                   .pipe(Effect.catch(() => Effect.void))
@@ -223,11 +188,44 @@ export namespace Snapshot {
               { concurrency: 8 },
             )).filter((item): item is string => Boolean(item))
             yield* sync(large)
-            const result = yield* git([...cfg, ...args(["add", "--sparse", "."])], { cwd: state.directory })
+
+            // Snapshot the current index before git add mutates it.
+            // Tracked files that are now ignored still get staged by git add;
+            // we reset just those entries back to this tree afterward.
+            const [prev, keep] = yield* Effect.all(
+              [
+                git(args(["write-tree"]), { cwd: state.directory }),
+                git([...quote, ...args(["ls-files", "-ci", "--exclude-standard", "-z", "--", "."])], {
+                  cwd: state.directory,
+                }),
+              ],
+              { concurrency: 2 },
+            )
+
+            const result = yield* git([...cfg, ...args(["add", "--all", "--sparse", "."])], { cwd: state.directory })
             if (result.code !== 0) {
               log.warn("failed to add snapshot files", {
                 exitCode: result.code,
                 stderr: result.stderr,
+              })
+              return
+            }
+
+            const base = prev.code === 0 ? prev.text.trim() : ""
+            const cached = keep.code === 0 ? keep.text : ""
+            if (!base || !cached) return
+
+            const reset = yield* git(
+              [...cfg, ...args(["reset", "-q", "--pathspec-from-file=-", "--pathspec-file-nul", base])],
+              {
+                cwd: state.directory,
+                stdin: Stream.make(new TextEncoder().encode(cached)),
+              },
+            )
+            if (reset.code !== 0) {
+              log.warn("failed to reset ignored snapshot files", {
+                exitCode: reset.code,
+                stderr: reset.stderr,
               })
             }
           })
@@ -294,30 +292,6 @@ export namespace Snapshot {
                   .split("\n")
                   .map((x) => x.trim())
                   .filter(Boolean)
-
-                // Filter out files that are now gitignored
-                if (files.length > 0) {
-                  const checkArgs = [
-                    ...quote,
-                    "--git-dir",
-                    path.join(state.worktree, ".git"),
-                    "--work-tree",
-                    state.worktree,
-                    "check-ignore",
-                    "--no-index",
-                    "--",
-                    ...files,
-                  ]
-                  const check = yield* git(checkArgs, { cwd: state.directory })
-                  if (check.code === 0) {
-                    const ignored = new Set(check.text.trim().split("\n").filter(Boolean))
-                    const filtered = files.filter((item) => !ignored.has(item))
-                    return {
-                      hash,
-                      files: filtered.map((x) => path.join(state.worktree, x).replaceAll("\\", "/")),
-                    }
-                  }
-                }
 
                 return {
                   hash,
@@ -671,29 +645,6 @@ export namespace Snapshot {
                       } satisfies Row,
                     ]
                   })
-
-                // Filter out files that are now gitignored
-                if (rows.length > 0) {
-                  const files = rows.map((r) => r.file)
-                  const checkArgs = [
-                    ...quote,
-                    "--git-dir",
-                    path.join(state.worktree, ".git"),
-                    "--work-tree",
-                    state.worktree,
-                    "check-ignore",
-                    "--no-index",
-                    "--",
-                    ...files,
-                  ]
-                  const check = yield* git(checkArgs, { cwd: state.directory })
-                  if (check.code === 0) {
-                    const ignored = new Set(check.text.trim().split("\n").filter(Boolean))
-                    const filtered = rows.filter((r) => !ignored.has(r.file))
-                    rows.length = 0
-                    rows.push(...filtered)
-                  }
-                }
 
                 const step = 100
                 const patch = (file: string, before: string, after: string) =>
