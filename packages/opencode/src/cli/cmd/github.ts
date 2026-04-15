@@ -1,6 +1,5 @@
 import path from "path"
 import { exec } from "child_process"
-import { Filesystem } from "../../util/filesystem"
 import * as prompts from "@clack/prompts"
 import { map, pipe, sortBy, values } from "remeda"
 import { Octokit } from "@octokit/rest"
@@ -34,6 +33,7 @@ import { Git } from "@/git"
 import { setTimeout as sleep } from "node:timers/promises"
 import { Process } from "@/util/process"
 import { Effect } from "effect"
+import { AppFileSystem } from "@opencode-ai/shared/filesystem"
 
 type GitHubAuthor = {
   login: string
@@ -381,9 +381,11 @@ export const GithubInstallCommand = cmd({
                 ? ""
                 : `\n        env:${providers[provider].env.map((e) => `\n          ${e}: \${{ secrets.${e} }}`).join("")}`
 
-            await Filesystem.write(
-              path.join(app.root, WORKFLOW_FILE),
-              `name: opencode
+            await AppRuntime.runPromise(
+              AppFileSystem.Service.use((fs) =>
+                fs.writeWithDirs(
+                  path.join(app.root, WORKFLOW_FILE),
+                  `name: opencode
 
 on:
   issue_comment:
@@ -414,6 +416,8 @@ jobs:
         uses: anomalyco/opencode/github@latest${envStr}
         with:
           model: ${provider}/${model}`,
+                ),
+              ),
             )
 
             prompts.log.success(`Added workflow file: "${WORKFLOW_FILE}"`)

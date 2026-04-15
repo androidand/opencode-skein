@@ -1,7 +1,8 @@
 import { NamedError } from "@opencode-ai/shared/util/error"
+import { AppFileSystem } from "@opencode-ai/shared/filesystem"
 import matter from "gray-matter"
 import { z } from "zod"
-import { Filesystem } from "../util/filesystem"
+import { AppRuntime } from "@/effect/app-runtime"
 
 export namespace ConfigMarkdown {
   export const FILE_REGEX = /(?<![\w`])@(\.?[^\s`,.]*(?:\.[^\s`,.]+)*)/g
@@ -69,7 +70,7 @@ export namespace ConfigMarkdown {
   }
 
   export async function parse(filePath: string) {
-    const template = await Filesystem.readText(filePath)
+    const template = await AppRuntime.runPromise(AppFileSystem.Service.use((fs) => fs.readFileString(filePath)))
 
     try {
       const md = matter(template)

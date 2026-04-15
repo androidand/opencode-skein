@@ -7,11 +7,11 @@ import { Agent } from "../../agent/agent"
 import { Provider } from "../../provider/provider"
 import path from "path"
 import fs from "fs/promises"
-import { Filesystem } from "../../util/filesystem"
 import matter from "gray-matter"
 import { Instance } from "../../project/instance"
 import { EOL } from "os"
 import type { Argv } from "yargs"
+import { AppFileSystem } from "@opencode-ai/shared/filesystem"
 
 type AgentMode = "all" | "primary" | "subagent"
 
@@ -194,7 +194,7 @@ const AgentCreateCommand = cmd({
 
         await fs.mkdir(targetPath, { recursive: true })
 
-        if (await Filesystem.exists(filePath)) {
+        if (await AppRuntime.runPromise(AppFileSystem.Service.use((fs) => fs.existsSafe(filePath)))) {
           if (isFullyNonInteractive) {
             console.error(`Error: Agent file already exists: ${filePath}`)
             process.exit(1)
@@ -203,7 +203,7 @@ const AgentCreateCommand = cmd({
           throw new UI.CancelledError()
         }
 
-        await Filesystem.write(filePath, content)
+        await AppRuntime.runPromise(AppFileSystem.Service.use((fs) => fs.writeWithDirs(filePath, content)))
 
         if (isFullyNonInteractive) {
           console.log(filePath)

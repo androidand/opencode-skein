@@ -13,10 +13,10 @@ import { Installation } from "../../installation"
 import path from "path"
 import { Global } from "../../global"
 import { modify, applyEdits } from "jsonc-parser"
-import { Filesystem } from "../../util/filesystem"
 import { Bus } from "../../bus"
 import { AppRuntime } from "../../effect/app-runtime"
 import { Effect } from "effect"
+import { AppFileSystem } from "@opencode-ai/shared/filesystem"
 
 function getAuthStatusIcon(status: MCP.AuthStatus): string {
   switch (status) {
@@ -416,7 +416,7 @@ async function resolveConfigPath(baseDir: string, global = false) {
   }
 
   for (const candidate of candidates) {
-    if (await Filesystem.exists(candidate)) {
+    if (await AppRuntime.runPromise(AppFileSystem.Service.use((fs) => fs.existsSafe(candidate)))) {
       return candidate
     }
   }
@@ -427,8 +427,8 @@ async function resolveConfigPath(baseDir: string, global = false) {
 
 async function addMcpToConfig(name: string, mcpConfig: Config.Mcp, configPath: string) {
   let text = "{}"
-  if (await Filesystem.exists(configPath)) {
-    text = await Filesystem.readText(configPath)
+  if (await AppRuntime.runPromise(AppFileSystem.Service.use((fs) => fs.existsSafe(configPath)))) {
+    text = await AppRuntime.runPromise(AppFileSystem.Service.use((fs) => fs.readFileString(configPath)))
   }
 
   // Use jsonc-parser to modify while preserving comments
@@ -437,7 +437,7 @@ async function addMcpToConfig(name: string, mcpConfig: Config.Mcp, configPath: s
   })
   const result = applyEdits(text, edits)
 
-  await Filesystem.write(configPath, result)
+  await AppRuntime.runPromise(AppFileSystem.Service.use((fs) => fs.writeWithDirs(configPath, result)))
 
   return configPath
 }

@@ -1,11 +1,11 @@
 import fs from "fs/promises"
 import path from "path"
 import { fileURLToPath } from "url"
+import { AppFileSystem } from "@opencode-ai/shared/filesystem"
 import z from "zod"
 import { Cause, Context, Effect, Layer, Queue, Stream } from "effect"
 import { ripgrep } from "ripgrep"
 import { makeRuntime } from "@/effect/run-service"
-import { Filesystem } from "@/util/filesystem"
 import { Log } from "@/util/log"
 
 export namespace Ripgrep {
@@ -275,10 +275,11 @@ export namespace Ripgrep {
       return Effect.succeed(OPENCODE_RIPGREP_WORKER_PATH)
     }
     const js = new URL("./ripgrep.worker.js", import.meta.url)
-    return Effect.tryPromise({
-      try: () => Filesystem.exists(fileURLToPath(js)),
-      catch: toError,
-    }).pipe(Effect.map((exists) => (exists ? js : new URL("./ripgrep.worker.ts", import.meta.url))))
+    return Effect.gen(function* () {
+      const fs = yield* AppFileSystem.Service
+      const exists = yield* fs.exists(fileURLToPath(js)).pipe(Effect.orElseSucceed(() => false))
+      return exists ? js : new URL("./ripgrep.worker.ts", import.meta.url)
+    })
   }
 
   function worker() {

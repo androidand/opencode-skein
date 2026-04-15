@@ -1,12 +1,12 @@
 import type { Argv } from "yargs"
 import path from "path"
 import { pathToFileURL } from "url"
+import { AppFileSystem } from "@opencode-ai/shared/filesystem"
 import { UI } from "../ui"
 import { cmd } from "./cmd"
 import { Flag } from "../../flag/flag"
 import { bootstrap } from "../bootstrap"
 import { EOL } from "os"
-import { Filesystem } from "../../util/filesystem"
 import { createOpencodeClient, type OpencodeClient, type ToolPart } from "@opencode-ai/sdk/v2"
 import { Server } from "../../server/server"
 import { Provider } from "../../provider/provider"
@@ -332,12 +332,14 @@ export const RunCommand = cmd({
 
       for (const filePath of list) {
         const resolvedPath = path.resolve(process.cwd(), filePath)
-        if (!(await Filesystem.exists(resolvedPath))) {
+        if (!(await AppRuntime.runPromise(AppFileSystem.Service.use((fs) => fs.existsSafe(resolvedPath))))) {
           UI.error(`File not found: ${filePath}`)
           process.exit(1)
         }
 
-        const mime = (await Filesystem.isDir(resolvedPath)) ? "application/x-directory" : "text/plain"
+        const mime = (await AppRuntime.runPromise(AppFileSystem.Service.use((fs) => fs.isDir(resolvedPath))))
+          ? "application/x-directory"
+          : "text/plain"
 
         files.push({
           type: "file",

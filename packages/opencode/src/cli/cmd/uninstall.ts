@@ -7,8 +7,8 @@ import { Global } from "../../global"
 import fs from "fs/promises"
 import path from "path"
 import os from "os"
-import { Filesystem } from "../../util/filesystem"
 import { Process } from "../../util/process"
+import { AppFileSystem } from "@opencode-ai/shared/filesystem"
 
 interface UninstallArgs {
   keepConfig: boolean
@@ -266,7 +266,9 @@ async function getShellConfigFile(): Promise<string | null> {
       .catch(() => false)
     if (!exists) continue
 
-    const content = await Filesystem.readText(file).catch(() => "")
+    const content = await AppRuntime.runPromise(AppFileSystem.Service.use((fs) => fs.readFileString(file))).catch(
+      () => "",
+    )
     if (content.includes("# opencode") || content.includes(".opencode/bin")) {
       return file
     }
@@ -276,7 +278,7 @@ async function getShellConfigFile(): Promise<string | null> {
 }
 
 async function cleanShellConfig(file: string) {
-  const content = await Filesystem.readText(file)
+  const content = await AppRuntime.runPromise(AppFileSystem.Service.use((fs) => fs.readFileString(file)))
   const lines = content.split("\n")
 
   const filtered: string[] = []
@@ -312,7 +314,7 @@ async function cleanShellConfig(file: string) {
   }
 
   const output = filtered.join("\n") + "\n"
-  await Filesystem.write(file, output)
+  await AppRuntime.runPromise(AppFileSystem.Service.use((fs) => fs.writeWithDirs(file, output)))
 }
 
 async function getDirectorySize(dir: string): Promise<number> {

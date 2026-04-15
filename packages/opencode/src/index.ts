@@ -11,10 +11,10 @@ import { UninstallCommand } from "./cli/cmd/uninstall"
 import { ModelsCommand } from "./cli/cmd/models"
 import { UI } from "./cli/ui"
 import { Installation } from "./installation"
+import { AppFileSystem } from "@opencode-ai/shared/filesystem"
 import { NamedError } from "@opencode-ai/shared/util/error"
 import { FormatError } from "./cli/error"
 import { ServeCommand } from "./cli/cmd/serve"
-import { Filesystem } from "./util/filesystem"
 import { DebugCommand } from "./cli/cmd/debug"
 import { StatsCommand } from "./cli/cmd/stats"
 import { McpCommand } from "./cli/cmd/mcp"
@@ -37,6 +37,7 @@ import { errorMessage } from "./util/error"
 import { PluginCommand } from "./cli/cmd/plug"
 import { Heap } from "./cli/heap"
 import { drizzle } from "drizzle-orm/bun-sqlite"
+import { AppRuntime } from "@/effect/app-runtime"
 
 process.on("unhandledRejection", (e) => {
   Log.Default.error("rejection", {
@@ -110,7 +111,7 @@ const cli = yargs(args)
     })
 
     const marker = path.join(Global.Path.data, "opencode.db")
-    if (!(await Filesystem.exists(marker))) {
+    if (!(await AppRuntime.runPromise(AppFileSystem.Service.use((fs) => fs.existsSafe(marker))))) {
       const tty = process.stderr.isTTY
       process.stderr.write("Performing one time database migration, may take a few minutes..." + EOL)
       const width = 36

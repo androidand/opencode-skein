@@ -9,8 +9,8 @@ import { SessionTable, MessageTable, PartTable } from "../../session/session.sql
 import { Instance } from "../../project/instance"
 import { ShareNext } from "../../share/share-next"
 import { EOL } from "os"
-import { Filesystem } from "../../util/filesystem"
 import { AppRuntime } from "@/effect/app-runtime"
+import { AppFileSystem } from "@opencode-ai/shared/filesystem"
 
 /** Discriminated union returned by the ShareNext API (GET /api/shares/:id/data) */
 export type ShareData =
@@ -140,7 +140,9 @@ export const ImportCommand = cmd({
 
         exportData = transformed
       } else {
-        exportData = await Filesystem.readJson<NonNullable<typeof exportData>>(args.file).catch(() => undefined)
+        exportData = (await AppRuntime.runPromise(AppFileSystem.Service.use((fs) => fs.readJson(args.file))).catch(
+          () => undefined,
+        )) as NonNullable<typeof exportData> | undefined
         if (!exportData) {
           process.stdout.write(`File not found: ${args.file}`)
           process.stdout.write(EOL)

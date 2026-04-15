@@ -9,9 +9,9 @@ import { SyncEvent } from "@/sync"
 import { EventTable } from "@/sync/event.sql"
 import { Flag } from "@/flag/flag"
 import { Log } from "@/util/log"
-import { Filesystem } from "@/util/filesystem"
 import { ProjectID } from "@/project/schema"
 import { Slug } from "@opencode-ai/shared/util/slug"
+import { AppFileSystem } from "@opencode-ai/shared/filesystem"
 import { WorkspaceTable } from "./workspace.sql"
 import { getAdaptor } from "./adaptors"
 import { WorkspaceInfo } from "./types"
@@ -418,7 +418,7 @@ export namespace Workspace {
     if (!Flag.OPENCODE_EXPERIMENTAL_WORKSPACES) return
 
     if (space.type === "worktree") {
-      void Filesystem.exists(space.directory!).then((exists) => {
+      void AppRuntime.runPromise(AppFileSystem.Service.use((fs) => fs.existsSafe(space.directory!))).then((exists) => {
         setStatus(space.id, exists ? "connected" : "error", exists ? undefined : "directory does not exist")
       })
       return

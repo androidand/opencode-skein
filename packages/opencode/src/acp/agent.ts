@@ -33,7 +33,6 @@ import {
 
 import { Log } from "../util/log"
 import { pathToFileURL } from "url"
-import { Filesystem } from "../util/filesystem"
 import { Hash } from "../util/hash"
 import { ACPSessionManager } from "./session"
 import type { ACPConfig } from "./types"
@@ -48,7 +47,9 @@ import { Todo } from "@/session/todo"
 import { z } from "zod"
 import { LoadAPIKeyError } from "ai"
 import type { AssistantMessage, Event, OpencodeClient, SessionMessageResponse, ToolPart } from "@opencode-ai/sdk/v2"
+import { AppFileSystem } from "@opencode-ai/shared/filesystem"
 import { applyPatch } from "diff"
+import { Effect } from "effect"
 
 type ModeOption = { id: string; name: string; description?: string }
 type ModelOption = { modelId: string; name: string }
@@ -238,7 +239,13 @@ export namespace ACP {
                 const metadata = permission.metadata || {}
                 const filepath = typeof metadata["filepath"] === "string" ? metadata["filepath"] : ""
                 const diff = typeof metadata["diff"] === "string" ? metadata["diff"] : ""
-                const content = (await Filesystem.exists(filepath)) ? await Filesystem.readText(filepath) : ""
+                const content = await AppRuntime.runPromise(
+                  AppFileSystem.Service.use((fs) =>
+                    fs
+                      .existsSafe(filepath)
+                      .pipe(Effect.flatMap((exists) => (exists ? fs.readFileString(filepath) : Effect.succeed("")))),
+                  ),
+                )
                 const newContent = getNewContent(content, diff)
 
                 if (newContent) {

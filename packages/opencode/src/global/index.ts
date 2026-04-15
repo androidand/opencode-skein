@@ -1,8 +1,9 @@
 import fs from "fs/promises"
+import { AppFileSystem } from "@opencode-ai/shared/filesystem"
 import { xdgData, xdgCache, xdgConfig, xdgState } from "xdg-basedir"
 import path from "path"
 import os from "os"
-import { Filesystem } from "../util/filesystem"
+import { Effect } from "effect"
 
 const app = "opencode"
 
@@ -36,7 +37,11 @@ await Promise.all([
 
 const CACHE_VERSION = "21"
 
-const version = await Filesystem.readText(path.join(Global.Path.cache, "version")).catch(() => "0")
+const version = await Effect.runPromise(
+  AppFileSystem.Service.use((fs) => fs.readFileString(path.join(Global.Path.cache, "version"))).pipe(
+    Effect.provide(AppFileSystem.defaultLayer),
+  ),
+).catch(() => "0")
 
 if (version !== CACHE_VERSION) {
   try {
@@ -50,5 +55,9 @@ if (version !== CACHE_VERSION) {
       ),
     )
   } catch (e) {}
-  await Filesystem.write(path.join(Global.Path.cache, "version"), CACHE_VERSION)
+  await Effect.runPromise(
+    AppFileSystem.Service.use((fs) => fs.writeWithDirs(path.join(Global.Path.cache, "version"), CACHE_VERSION)).pipe(
+      Effect.provide(AppFileSystem.defaultLayer),
+    ),
+  )
 }
