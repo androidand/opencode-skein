@@ -101,7 +101,18 @@ export namespace ProviderTransform {
         return msg
       })
     }
-    if (model.api.npm === "@ai-sdk/anthropic") {
+    if (["@ai-sdk/anthropic", "@ai-sdk/google-vertex/anthropic"].includes(model.api.npm)) {
+      // Anthropic rejects assistant turns where tool_use blocks are followed by non-tool
+      // content, e.g. [tool_use, tool_use, text], with:
+      // `tool_use` ids were found without `tool_result` blocks immediately after...
+      //
+      // Reorder that invalid shape into [text] + [tool_use, tool_use]. Consecutive
+      // assistant messages are later merged by the provider/SDK, so preserving the
+      // original [tool_use...] then [text] order still produces the invalid payload.
+      //
+      // The root cause appears to be somewhere upstream where the stream is originally
+      // processed. We were unable to locate an exact narrower reproduction elsewhere,
+      // so we keep this transform in place for the time being.
       msgs = msgs.flatMap((msg) => {
         if (msg.role !== "assistant" || !Array.isArray(msg.content)) return [msg]
 
