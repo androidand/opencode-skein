@@ -47,6 +47,23 @@ import { Installation } from "@/installation"
 import { ShareNext } from "@/share"
 import { SessionShare } from "@/share"
 import { Npm } from "@opencode-ai/shared/npm"
+import * as Effect from "effect/Effect"
+
+// Adjusts the default Config layer to ensure that plugins are always initialised before
+// any other layers read the current config
+const PluginPriorityConfigLayer = Layer.unwrap(
+  Effect.gen(function* () {
+    const configSvc = yield* Config.Service
+    const pluginSvc = yield* Plugin.Service
+
+    return Layer.succeed(Config.Service, {
+      ...configSvc,
+      get: () => Effect.andThen(pluginSvc.init(), configSvc.get),
+      getGlobal: () => Effect.andThen(pluginSvc.init(), configSvc.getGlobal),
+      getConsoleState: () => Effect.andThen(pluginSvc.init(), configSvc.getConsoleState),
+    })
+  }),
+).pipe(Layer.provideMerge(Layer.merge(Plugin.defaultLayer, Config.defaultLayer)))
 
 export const AppLayer = Layer.mergeAll(
   Npm.defaultLayer,
@@ -54,7 +71,7 @@ export const AppLayer = Layer.mergeAll(
   Bus.defaultLayer,
   Auth.defaultLayer,
   Account.defaultLayer,
-  Config.defaultLayer,
+  PluginPriorityConfigLayer,
   Git.defaultLayer,
   Ripgrep.defaultLayer,
   File.defaultLayer,
