@@ -26,7 +26,7 @@ import { WorkspaceID } from "../control-plane/schema"
 import { SessionID, MessageID, PartID } from "./schema"
 
 import type { Provider } from "@/provider"
-import { Permission } from "@/permission"
+import { Permission } from "@/permission/permission"
 import { Global } from "@/global"
 import { Effect, Layer, Option, Context } from "effect"
 

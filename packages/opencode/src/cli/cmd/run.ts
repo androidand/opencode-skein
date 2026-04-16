@@ -11,7 +11,7 @@ import { createOpencodeClient, type OpencodeClient, type ToolPart } from "@openc
 import { Server } from "../../server/server"
 import { Provider } from "../../provider"
 import { Agent } from "../../agent/agent"
-import { Permission } from "../../permission"
+import { Permission } from "../../permission/permission"
 import { Tool } from "../../tool"
 import { GlobTool } from "../../tool/glob"
 import { GrepTool } from "../../tool/grep"

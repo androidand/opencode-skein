@@ -45,7 +45,7 @@ import { AppFileSystem } from "@opencode-ai/shared/filesystem"
 import { Bus } from "../bus"
 import { Agent } from "../agent/agent"
 import { Skill } from "../skill"
-import { Permission } from "@/permission"
+import { Permission } from "@/permission/permission"
 
 const log = Log.create({ service: "tool.registry" })
 

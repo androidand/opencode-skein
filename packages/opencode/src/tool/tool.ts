@@ -1,7 +1,7 @@
 import z from "zod"
 import { Effect } from "effect"
 import type { MessageV2 } from "../session/message-v2"
-import type { Permission } from "../permission"
+import type { Permission } from "../permission/permission"
 import type { SessionID, MessageID } from "../session/schema"
 import * as Truncate from "./truncate"
 import { Agent } from "@/agent/agent"

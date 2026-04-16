@@ -6,7 +6,7 @@ import { Instance } from "../../src/project/instance"
 import { assertExternalDirectory } from "../../src/tool/external-directory"
 import { Filesystem } from "../../src/util"
 import { tmpdir } from "../fixture/fixture"
-import type { Permission } from "../../src/permission"
+import type { Permission } from "../../src/permission/permission"
 import { SessionID, MessageID } from "../../src/session/schema"
 
 const baseCtx: Omit<Tool.Context, "ask"> = {

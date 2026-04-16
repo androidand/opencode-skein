@@ -13,7 +13,7 @@ import PROMPT_CODEX from "./prompt/codex.txt"
 import PROMPT_TRINITY from "./prompt/trinity.txt"
 import type { Provider } from "@/provider"
 import type { Agent } from "@/agent/agent"
-import { Permission } from "@/permission"
+import { Permission } from "@/permission/permission"
 import { Skill } from "@/skill"
 
 export namespace SystemPrompt {
