@@ -7,7 +7,7 @@ import { tmpdir } from "../fixture/fixture"
 import { Process } from "../../src/util"
 import { Filesystem } from "../../src/util"
 
-const { PluginMeta } = await import("../../src/plugin/meta")
+const PluginMeta = await import("../../src/plugin/meta")
 const root = path.join(import.meta.dir, "../..")
 const worker = path.join(import.meta.dir, "../fixture/plugin-meta-worker.ts")
 

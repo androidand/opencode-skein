@@ -1,5 +1,5 @@
 import { afterEach, expect, mock, test } from "bun:test"
-import { CopilotModels } from "@/plugin/github-copilot/models"
+import { CopilotModels } from "@/plugin/github-copilot"
 import { CopilotAuthPlugin } from "@/plugin/github-copilot/copilot"
 
 const originalFetch = globalThis.fetch

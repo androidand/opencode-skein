@@ -24,8 +24,8 @@ import {
   type PluginPackage,
   type PluginSource,
 } from "@/plugin/shared"
-import { PluginLoader } from "@/plugin/loader"
-import { PluginMeta } from "@/plugin/meta"
+import { PluginLoader } from "@/plugin"
+import { PluginMeta } from "@/plugin"
 import { installPlugin as installModulePlugin, patchPluginConfig, readPluginManifest } from "@/plugin/install"
 import { hasTheme, upsertTheme } from "../context/theme"
 import { Global } from "@/global"
