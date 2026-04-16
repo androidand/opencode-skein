@@ -3,7 +3,7 @@ import { Effect, Layer, Context } from "effect"
 import { Bus } from "@/bus"
 import { Snapshot } from "@/snapshot"
 import { Storage } from "@/storage"
-import * as Session from "./session"
+import * as Session from "."
 import { MessageV2 } from "./message-v2"
 import { SessionID, MessageID } from "./schema"
 

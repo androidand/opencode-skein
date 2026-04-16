@@ -1,6 +1,6 @@
 import { BusEvent } from "@/bus/bus-event"
 import { Bus } from "@/bus"
-import * as Session from "./session"
+import * as Session from "."
 import { SessionID, MessageID, PartID } from "./schema"
 import { Provider } from "../provider"
 import { MessageV2 } from "./message-v2"
