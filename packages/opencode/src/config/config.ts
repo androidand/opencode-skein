@@ -1583,4 +1583,3 @@ export const defaultLayer = layer.pipe(
   Layer.provide(Account.defaultLayer),
   Layer.provide(Npm.defaultLayer),
 )
-export * as Config from "./config"

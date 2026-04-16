@@ -1,7 +1,7 @@
 import { test, expect, describe, mock, afterEach, beforeEach, spyOn } from "bun:test"
 import { Deferred, Effect, Fiber, Layer, Option } from "effect"
 import { NodeFileSystem, NodePath } from "@effect/platform-node"
-import { Config } from "../../src/config/config"
+import { Config } from "../../src/config"
 import { EffectFlock } from "@opencode-ai/shared/util/effect-flock"
 
 import { Instance } from "../../src/project/instance"
