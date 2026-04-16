@@ -1,5 +1,5 @@
 import { Bus } from "@/bus"
-import { BusEvent } from "@/bus/bus-event"
+import { BusEvent } from "@/bus"
 import { Config } from "@/config"
 import { InstanceState } from "@/effect"
 import { ProjectID } from "@/project/schema"

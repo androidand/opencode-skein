@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, test } from "bun:test"
 import z from "zod"
 import { Bus } from "../../src/bus"
-import { BusEvent } from "../../src/bus/bus-event"
+import { BusEvent } from "../../src/bus"
 import { Instance } from "../../src/project/instance"
 import { tmpdir } from "../fixture/fixture"
 

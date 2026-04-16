@@ -1,4 +1,4 @@
-import { BusEvent } from "@/bus/bus-event"
+import { BusEvent } from "@/bus"
 import { Bus } from "@/bus"
 import { InstanceState } from "@/effect"
 import { SessionID } from "./schema"

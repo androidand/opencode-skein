@@ -1,4 +1,4 @@
-import { BusEvent } from "@/bus/bus-event"
+import { BusEvent } from "@/bus"
 import { InstanceState } from "@/effect"
 
 import { AppFileSystem } from "@opencode-ai/shared/filesystem"

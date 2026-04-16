@@ -1,4 +1,4 @@
-import { BusEvent } from "@/bus/bus-event"
+import { BusEvent } from "@/bus"
 import { InstanceState } from "@/effect"
 import { EffectBridge } from "@/effect"
 import type { InstanceContext } from "@/project/instance"

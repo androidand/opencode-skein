@@ -1,4 +1,4 @@
-import { BusEvent } from "@/bus/bus-event"
+import { BusEvent } from "@/bus"
 import { Bus } from "@/bus"
 import { Log } from "../util"
 import * as LSPClient from "./client"

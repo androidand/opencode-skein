@@ -5,7 +5,7 @@ import { withTransientReadRetry } from "@/util/effect-http-client"
 import { ChildProcess, ChildProcessSpawner } from "effect/unstable/process"
 import path from "path"
 import z from "zod"
-import { BusEvent } from "@/bus/bus-event"
+import { BusEvent } from "@/bus"
 import { Flag } from "../flag/flag"
 import { Log } from "../util"
 

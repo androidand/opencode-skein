@@ -1,4 +1,4 @@
-import { BusEvent } from "@/bus/bus-event"
+import { BusEvent } from "@/bus"
 import { SessionID, MessageID, PartID } from "./schema"
 import z from "zod"
 import { NamedError } from "@opencode-ai/shared/util/error"

@@ -3,7 +3,7 @@ import { Hono } from "hono"
 import { describeRoute, resolver } from "hono-openapi"
 import { streamSSE } from "hono/streaming"
 import { Log } from "@/util"
-import { BusEvent } from "@/bus/bus-event"
+import { BusEvent } from "@/bus"
 import { Bus } from "@/bus"
 import { AsyncQueue } from "../../util/queue"
 
