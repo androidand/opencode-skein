@@ -1,21 +1,26 @@
 #!/usr/bin/env bun
 /**
- * Unwrap a TypeScript `export namespace` into flat exports + barrel.
+ * Unwrap a TypeScript `export namespace` into flat exports with self-reexport.
  *
  * Usage:
- *   bun script/unwrap-namespace.ts src/bus/index.ts
- *   bun script/unwrap-namespace.ts src/bus/index.ts --dry-run
- *   bun script/unwrap-namespace.ts src/pty/index.ts --name service   # avoid collision with pty.ts
+ *   bun script/unwrap-namespace.ts src/session/session.ts           # convert namespace
+ *   bun script/unwrap-namespace.ts src/session/session.ts --dry-run
+ *   bun script/unwrap-namespace.ts src/pty/index.ts --name service  # avoid filename collision
+ *   bun script/unwrap-namespace.ts src/config/config.ts --retrofit  # already flat, add self-reexport
  *
- * What it does:
- *   1. Reads the file and finds the `export namespace Foo { ... }` block
- *      (uses ast-grep for accurate AST-based boundary detection)
- *   2. Removes the namespace wrapper and dedents the body
- *   3. Fixes self-references (e.g. Config.PermissionAction → PermissionAction)
- *   4. If the file is index.ts, renames it to <lowercase-name>.ts
- *   5. Creates/updates index.ts with `export * as Foo from "./<file>"`
- *   6. Rewrites import paths across src/, test/, and script/
- *   7. Fixes sibling imports within the same directory
+ * Default mode:
+ *   1. Finds `export namespace Foo { ... }` (ast-grep)
+ *   2. Removes wrapper, dedents body, fixes self-references
+ *   3. Appends `export * as Foo from "./file"` to the file (self-reexport)
+ *   4. Rewrites consumer imports to point at the file directly
+ *
+ * Retrofit mode (--retrofit):
+ *   File already has flat exports (from previous barrel migration).
+ *   1. Reads the barrel index.ts to find the namespace name
+ *   2. Adds `export * as Foo from "./file"` to the source file
+ *   3. Rewrites consumers from barrel import to direct file import
+ *
+ * Does NOT create barrel index.ts files.
  *
  * Requires: ast-grep (`brew install ast-grep` or `cargo install ast-grep`)
  */
@@ -25,11 +30,12 @@ import fs from "fs"
 
 const args = process.argv.slice(2)
 const dryRun = args.includes("--dry-run")
+const retrofit = args.includes("--retrofit")
 const nameFlag = args.find((a, i) => args[i - 1] === "--name")
 const filePath = args.find((a) => !a.startsWith("--") && args[args.indexOf(a) - 1] !== "--name")
 
 if (!filePath) {
-  console.error("Usage: bun script/unwrap-namespace.ts <file> [--dry-run] [--name <impl-name>]")
+  console.error("Usage: bun script/unwrap-namespace.ts <file> [--dry-run] [--name <impl>] [--retrofit]")
   process.exit(1)
 }
 
@@ -39,11 +45,76 @@ if (!fs.existsSync(absPath)) {
   process.exit(1)
 }
 
+const srcRoot = path.resolve("src")
+const dir = path.dirname(absPath)
+const basename = path.basename(absPath, ".ts")
+
+// ---------------------------------------------------------------------------
+// Barrel map: parse an index.ts to get namespace→file mapping
+// ---------------------------------------------------------------------------
+
+function parseBarrelMap(indexPath: string): Record<string, string> {
+  const map: Record<string, string> = {}
+  if (!fs.existsSync(indexPath)) return map
+  const content = fs.readFileSync(indexPath, "utf-8")
+  const re = /export\s+\*\s+as\s+(\w+)\s+from\s+["']\.\/([^"']+)["']/g
+  for (const m of content.matchAll(re)) {
+    map[m[1]] = m[2].replace(/\.ts$/, "")
+  }
+  return map
+}
+
+// ---------------------------------------------------------------------------
+// Retrofit mode: file is already flat, just add self-reexport + fix imports
+// ---------------------------------------------------------------------------
+
+if (retrofit) {
+  const indexFile = path.join(dir, "index.ts")
+  const barrelMap = parseBarrelMap(indexFile)
+
+  // Find this file's namespace name from the barrel
+  const relName = basename
+  let nsName: string | undefined
+  for (const [ns, file] of Object.entries(barrelMap)) {
+    if (file === relName) {
+      nsName = ns
+      break
+    }
+  }
+
+  if (!nsName) {
+    console.error(`Could not find namespace for ${basename}.ts in ${indexFile}`)
+    console.error("Barrel map:", barrelMap)
+    process.exit(1)
+  }
+
+  console.log(`Retrofit: ${basename}.ts → add self-reexport as ${nsName}`)
+
+  // Check if self-reexport already exists
+  const content = fs.readFileSync(absPath, "utf-8")
+  const selfReexport = `export * as ${nsName} from "./${basename}"`
+  if (content.includes(selfReexport)) {
+    console.log("Self-reexport already present, skipping file modification")
+  } else if (!dryRun) {
+    const trimmed = content.endsWith("\n") ? content : content + "\n"
+    fs.writeFileSync(absPath, trimmed + selfReexport + "\n")
+    console.log(`Added: ${selfReexport}`)
+  } else {
+    console.log(`Would add: ${selfReexport}`)
+  }
+
+  // Now rewrite consumers (same logic as default mode, below)
+  rewriteConsumers(nsName, absPath, basename, dir)
+  process.exit(0)
+}
+
+// ---------------------------------------------------------------------------
+// Default mode: unwrap namespace
+// ---------------------------------------------------------------------------
+
 const src = fs.readFileSync(absPath, "utf-8")
 const lines = src.split("\n")
 
-// Use ast-grep to find the namespace boundaries accurately.
-// This avoids false matches from braces in strings, templates, comments, etc.
 const astResult = Bun.spawnSync(
   ["ast-grep", "run", "--pattern", "export namespace $NAME { $$$BODY }", "--lang", "typescript", "--json", absPath],
   { stdout: "pipe", stderr: "pipe" },
@@ -61,34 +132,29 @@ const matches = JSON.parse(astResult.stdout.toString()) as Array<{
 }>
 
 if (matches.length === 0) {
-  console.error("No `export namespace Foo { ... }` found in file")
+  console.error("No `export namespace Foo { ... }` found. Use --retrofit for already-converted files.")
   process.exit(1)
 }
 
 if (matches.length > 1) {
   console.error(`Found ${matches.length} namespaces — this script handles one at a time`)
-  console.error("Namespaces found:")
   for (const m of matches) console.error(`  ${m.metaVariables.single.NAME.text} (line ${m.range.start.line + 1})`)
   process.exit(1)
 }
 
 const match = matches[0]
 const nsName = match.metaVariables.single.NAME.text
-const nsLine = match.range.start.line // 0-indexed
-const closeLine = match.range.end.line // 0-indexed, the line with closing `}`
+const nsLine = match.range.start.line
+const closeLine = match.range.end.line
 
 console.log(`Found: export namespace ${nsName} { ... }`)
 console.log(`  Lines ${nsLine + 1}–${closeLine + 1} (${closeLine - nsLine + 1} lines)`)
 
-// Build the new file content:
-// 1. Everything before the namespace declaration (imports, etc.)
-// 2. The namespace body, dedented by one level (2 spaces)
-// 3. Everything after the closing brace (rare, but possible)
+// Unwrap: remove namespace wrapper, dedent body
 const before = lines.slice(0, nsLine)
 const body = lines.slice(nsLine + 1, closeLine)
 const after = lines.slice(closeLine + 1)
 
-// Dedent: remove exactly 2 leading spaces from each line
 const dedented = body.map((line) => {
   if (line === "") return ""
   if (line.startsWith("  ")) return line.slice(2)
@@ -97,9 +163,7 @@ const dedented = body.map((line) => {
 
 let newContent = [...before, ...dedented, ...after].join("\n")
 
-// --- Fix self-references ---
-// After unwrapping, references like `Config.PermissionAction` inside the same file
-// need to become just `PermissionAction`. Only fix code positions, not strings.
+// Fix self-references (Foo.Bar → Bar when Bar is exported from this file)
 const exportedNames = new Set<string>()
 const exportRegex = /export\s+(?:const|function|class|interface|type|enum|abstract\s+class)\s+(\w+)/g
 for (const line of dedented) {
@@ -122,7 +186,6 @@ for (const line of dedented) {
 let selfRefCount = 0
 if (exportedNames.size > 0) {
   const fixedLines = newContent.split("\n").map((line) => {
-    // Split line into string-literal and code segments to avoid replacing inside strings
     const segments: Array<{ text: string; isString: boolean }> = []
     let i = 0
     let current = ""
@@ -186,120 +249,199 @@ if (exportedNames.size > 0) {
   newContent = fixedLines.join("\n")
 }
 
-// Figure out file naming
-const dir = path.dirname(absPath)
-const basename = path.basename(absPath, ".ts")
+// Handle index.ts rename
 const isIndex = basename === "index"
 const implName = nameFlag ?? (isIndex ? nsName.replace(/([a-z])([A-Z])/g, "$1-$2").toLowerCase() : basename)
-const implFile = path.join(dir, `${implName}.ts`)
-const indexFile = path.join(dir, "index.ts")
-const barrelLine = `export * as ${nsName} from "./${implName}"\n`
+const implFile = isIndex ? path.join(dir, `${implName}.ts`) : absPath
+
+// Add self-reexport at the bottom
+const selfReexport = `export * as ${nsName} from "./${implName}"`
+if (!newContent.endsWith("\n")) newContent += "\n"
+newContent += selfReexport + "\n"
 
 console.log("")
 if (isIndex) {
-  console.log(`Plan: rename ${basename}.ts → ${implName}.ts, create new index.ts barrel`)
+  console.log(`Plan: rename index.ts → ${implName}.ts, add self-reexport`)
 } else {
-  console.log(`Plan: rewrite ${basename}.ts in place, create index.ts barrel`)
+  console.log(`Plan: unwrap in place, add self-reexport`)
 }
 if (selfRefCount > 0) console.log(`Fixed ${selfRefCount} self-reference(s) (${nsName}.X → X)`)
-console.log("")
 
 if (dryRun) {
+  console.log("")
   console.log("--- DRY RUN ---")
   console.log("")
-  console.log(`=== ${implName}.ts (first 30 lines) ===`)
+  console.log(`=== ${implName}.ts (first 20 lines) ===`)
   newContent
     .split("\n")
-    .slice(0, 30)
+    .slice(0, 20)
     .forEach((l, i) => console.log(`  ${i + 1}: ${l}`))
   console.log("  ...")
   console.log("")
-  console.log(`=== index.ts ===`)
-  console.log(`  ${barrelLine.trim()}`)
+  console.log(`=== last 5 lines ===`)
+  const allLines = newContent.split("\n")
+  allLines.slice(-5).forEach((l, i) => console.log(`  ${allLines.length - 4 + i}: ${l}`))
   console.log("")
-  if (!isIndex) {
-    const relDir = path.relative(path.resolve("src"), dir)
-    console.log(`=== Import rewrites (would apply) ===`)
-    console.log(`  ${relDir}/${basename}" → ${relDir}" across src/, test/, script/`)
-  } else {
-    console.log("No import rewrites needed (was index.ts)")
-  }
+  rewriteConsumers(nsName, implFile, implName, dir)
 } else {
   if (isIndex) {
     fs.writeFileSync(implFile, newContent)
-    fs.writeFileSync(indexFile, barrelLine)
-    console.log(`Wrote ${implName}.ts (${newContent.split("\n").length} lines)`)
-    console.log(`Wrote index.ts (barrel)`)
+    fs.unlinkSync(absPath)
+    console.log(`Renamed to ${implName}.ts (${newContent.split("\n").length} lines)`)
   } else {
     fs.writeFileSync(absPath, newContent)
-    if (fs.existsSync(indexFile)) {
-      const existing = fs.readFileSync(indexFile, "utf-8")
-      if (!existing.includes(`export * as ${nsName}`)) {
-        fs.appendFileSync(indexFile, barrelLine)
-        console.log(`Appended to existing index.ts`)
-      } else {
-        console.log(`index.ts already has ${nsName} export`)
-      }
-    } else {
-      fs.writeFileSync(indexFile, barrelLine)
-      console.log(`Wrote index.ts (barrel)`)
-    }
     console.log(`Rewrote ${basename}.ts (${newContent.split("\n").length} lines)`)
   }
-
-  // --- Rewrite import paths across src/, test/, script/ ---
-  const relDir = path.relative(path.resolve("src"), dir)
-  if (!isIndex) {
-    const oldTail = `${relDir}/${basename}`
-    const searchDirs = ["src", "test", "script"].filter((d) => fs.existsSync(d))
-    const rgResult = Bun.spawnSync(["rg", "-l", `from.*${oldTail}"`, ...searchDirs], {
-      stdout: "pipe",
-      stderr: "pipe",
-    })
-    const filesToRewrite = rgResult.stdout
-      .toString()
-      .trim()
-      .split("\n")
-      .filter((f) => f.length > 0)
-
-    if (filesToRewrite.length > 0) {
-      console.log(`\nRewriting imports in ${filesToRewrite.length} file(s)...`)
-      for (const file of filesToRewrite) {
-        const content = fs.readFileSync(file, "utf-8")
-        fs.writeFileSync(file, content.replaceAll(`${oldTail}"`, `${relDir}"`))
-      }
-      console.log(`  Done: ${oldTail}" → ${relDir}"`)
-    } else {
-      console.log("\nNo import rewrites needed")
-    }
-  } else {
-    console.log("\nNo import rewrites needed (was index.ts)")
-  }
-
-  // --- Fix sibling imports within the same directory ---
-  const siblingFiles = fs.readdirSync(dir).filter((f) => {
-    if (!f.endsWith(".ts")) return false
-    if (f === "index.ts" || f === `${implName}.ts`) return false
-    return true
-  })
-
-  let siblingFixCount = 0
-  for (const sibFile of siblingFiles) {
-    const sibPath = path.join(dir, sibFile)
-    const content = fs.readFileSync(sibPath, "utf-8")
-    const pattern = new RegExp(`from\\s+["']\\./${basename}["']`, "g")
-    if (pattern.test(content)) {
-      fs.writeFileSync(sibPath, content.replace(pattern, `from "."`))
-      siblingFixCount++
-    }
-  }
-  if (siblingFixCount > 0) {
-    console.log(`Fixed ${siblingFixCount} sibling import(s) in ${path.basename(dir)}/ (./${basename} → .)`)
-  }
+  rewriteConsumers(nsName, implFile, implName, dir)
 }
 
-console.log("")
-console.log("=== Verify ===")
-console.log("")
-console.log("bunx --bun tsgo --noEmit   # typecheck")
-console.log("bun run test               # run tests")
+// ---------------------------------------------------------------------------
+// Consumer import rewriting (shared by default + retrofit mode)
+// ---------------------------------------------------------------------------
+
+function rewriteConsumers(nsName: string, implFile: string, implName: string, dir: string) {
+  const relImplFromSrc = path.relative(srcRoot, implFile).replace(/\.ts$/, "")
+  const barrelMap = parseBarrelMap(path.join(dir, "index.ts"))
+
+  // Find all files that reference the namespace name
+  const searchDirs = ["src", "test", "script"].filter((d) => fs.existsSync(d))
+  const rgResult = Bun.spawnSync(["rg", "-l", nsName, ...searchDirs, "--type", "ts"], {
+    stdout: "pipe",
+    stderr: "pipe",
+  })
+  const candidates = rgResult.stdout
+    .toString()
+    .trim()
+    .split("\n")
+    .filter((f) => f.length > 0)
+
+  let totalChanges = 0
+  const changedFiles: string[] = []
+
+  for (const file of candidates) {
+    const absFile = path.resolve(file)
+    if (absFile === path.resolve(implFile) || absFile === path.resolve(absPath)) continue
+
+    let content = fs.readFileSync(file, "utf-8")
+    let changes = 0
+
+    // Match: import { Foo } or import { Foo, Bar } or import type { Foo }
+    const importRe = /^(import\s+(?:type\s+)?)\{\s*([^}]+)\}\s*from\s*["']([^"']+)["']/gm
+
+    content = content.replace(importRe, (original, prefix: string, names: string, importPath: string) => {
+      const nameList = names
+        .split(",")
+        .map((n) => n.trim())
+        .filter(Boolean)
+
+      // Check if this namespace is among the imported names
+      const nsEntry = nameList.find((n) => n.split(/\s+as\s+/)[0].trim() === nsName)
+      if (!nsEntry) return original
+
+      // Check if this import resolves to our directory (barrel) or our file
+      const resolved = resolveImportPath(importPath, file)
+      if (!resolved) return original
+
+      const resolvedAbs = path.resolve(resolved)
+      const isBarrelImport =
+        resolvedAbs === dir || resolvedAbs === path.join(dir, "index.ts") || resolvedAbs === path.join(dir, "index")
+      const isDirectImport = resolvedAbs === implFile.replace(/\.ts$/, "") || resolvedAbs === implFile
+
+      if (!isBarrelImport && !isDirectImport) return original
+
+      // If it's already a direct import with just this name, nothing to change
+      if (isDirectImport && nameList.length === 1) return original
+
+      // Build the correct import path for the impl file
+      const newImportPath = computeImportPath(file, implFile)
+
+      if (nameList.length === 1) {
+        // Simple: just repoint to the file
+        changes++
+        return `${prefix}{ ${nsEntry} } from "${newImportPath}"`
+      }
+
+      // Multi-import: split into separate lines
+      const newLines: string[] = []
+      for (const n of nameList) {
+        const imported = n.split(/\s+as\s+/)[0].trim()
+
+        if (imported === nsName) {
+          newLines.push(`${prefix}{ ${n} } from "${newImportPath}"`)
+          changes++
+        } else if (barrelMap[imported]) {
+          // Another namespace from the same barrel
+          const otherFile = path.join(dir, barrelMap[imported] + ".ts")
+          const otherPath = computeImportPath(file, otherFile)
+          newLines.push(`${prefix}{ ${n} } from "${otherPath}"`)
+          changes++
+        } else {
+          // Unknown — keep original path
+          newLines.push(`${prefix}{ ${n} } from "${importPath}"`)
+        }
+      }
+      return newLines.join("\n")
+    })
+
+    // Fix dynamic imports: const { Foo } = await import("...")
+    const dynRe = new RegExp(
+      `(const|let|var)\\s+\\{\\s*${nsName}\\s*\\}\\s*=\\s*await\\s+import\\(\\s*["']([^"']+)["']\\s*\\)`,
+      "g",
+    )
+    content = content.replace(dynRe, (original, decl, importPath) => {
+      const resolved = resolveImportPath(importPath, file)
+      if (!resolved) return original
+      const resolvedAbs = path.resolve(resolved)
+      const isTarget =
+        resolvedAbs === dir ||
+        resolvedAbs === path.join(dir, "index.ts") ||
+        resolvedAbs === path.join(dir, "index") ||
+        resolvedAbs === implFile.replace(/\.ts$/, "") ||
+        resolvedAbs === implFile
+      if (!isTarget) return original
+      const newPath = computeImportPath(file, implFile)
+      changes++
+      return `${decl} ${nsName} = await import("${newPath}")`
+    })
+
+    if (changes > 0) {
+      if (!dryRun) fs.writeFileSync(file, content)
+      changedFiles.push(file)
+      totalChanges += changes
+    }
+  }
+
+  console.log("")
+  if (totalChanges > 0) {
+    console.log(`${dryRun ? "Would rewrite" : "Rewrote"} ${totalChanges} import(s) in ${changedFiles.length} file(s):`)
+    for (const f of changedFiles) console.log(`  ${f}`)
+  } else {
+    console.log("No import rewrites needed")
+  }
+
+  console.log("")
+  console.log("=== Verify ===")
+  console.log("")
+  console.log("bunx --bun tsgo --noEmit                                # typecheck")
+  console.log("bun run --conditions=browser ./src/index.ts generate    # circular import check")
+}
+
+// ---------------------------------------------------------------------------
+// Path utilities
+// ---------------------------------------------------------------------------
+
+function resolveImportPath(importPath: string, fromFile: string): string | null {
+  if (importPath.startsWith("@/")) return path.join(srcRoot, importPath.slice(2))
+  if (importPath.startsWith(".")) return path.resolve(path.dirname(fromFile), importPath)
+  return null
+}
+
+function computeImportPath(fromFile: string, toFile: string): string {
+  const fromAbs = path.resolve(fromFile)
+  if (fromAbs.startsWith(srcRoot + "/")) {
+    return `@/${path.relative(srcRoot, toFile).replace(/\.ts$/, "")}`
+  }
+  let rel = path.relative(path.dirname(fromAbs), toFile).replace(/\.ts$/, "")
+  if (!rel.startsWith(".")) rel = "./" + rel
+  return rel
+}
