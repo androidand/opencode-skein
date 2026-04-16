@@ -1,7 +1,7 @@
 import { describe, test, expect } from "bun:test"
 import { Effect, Layer, ManagedRuntime } from "effect"
 import z from "zod"
-import { Agent } from "../../src/agent/agent"
+import { Agent } from "../../src/agent"
 import { Tool } from "../../src/tool"
 import { Truncate } from "../../src/tool"
 

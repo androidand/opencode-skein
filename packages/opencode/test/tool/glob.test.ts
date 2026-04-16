@@ -7,7 +7,7 @@ import * as CrossSpawnSpawner from "../../src/effect/cross-spawn-spawner"
 import { Ripgrep } from "../../src/file/ripgrep"
 import { AppFileSystem } from "@opencode-ai/shared/filesystem"
 import { Truncate } from "../../src/tool"
-import { Agent } from "../../src/agent/agent"
+import { Agent } from "../../src/agent"
 import { provideTmpdirInstance } from "../fixture/fixture"
 import { testEffect } from "../lib/effect"
 

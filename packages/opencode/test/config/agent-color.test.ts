@@ -4,7 +4,7 @@ import path from "path"
 import { provideInstance, tmpdir } from "../fixture/fixture"
 import { Instance } from "../../src/project/instance"
 import { Config } from "../../src/config"
-import { Agent as AgentSvc } from "../../src/agent/agent"
+import { Agent as AgentSvc } from "../../src/agent"
 import { Color } from "../../src/util"
 import { AppRuntime } from "../../src/effect/app-runtime"
 

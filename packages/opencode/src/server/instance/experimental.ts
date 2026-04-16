@@ -17,7 +17,7 @@ import { errors } from "../error"
 import { lazy } from "../../util/lazy"
 import { Effect, Option } from "effect"
 import { WorkspaceRoutes } from "./workspace"
-import { Agent } from "@/agent/agent"
+import { Agent } from "@/agent"
 
 const ConsoleOrgOption = z.object({
   accountID: z.string(),

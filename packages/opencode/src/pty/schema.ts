@@ -1,7 +1,7 @@
 import { Schema } from "effect"
 import z from "zod"
 
-import { Identifier } from "@/id/id"
+import { Identifier } from "@/id"
 import { ZodOverride } from "@/util/effect-zod"
 import { withStatics } from "@/util/schema"
 

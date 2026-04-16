@@ -3,7 +3,7 @@ import { Effect } from "effect"
 import path from "path"
 import { provideInstance, tmpdir } from "../fixture/fixture"
 import { Instance } from "../../src/project/instance"
-import { Agent } from "../../src/agent/agent"
+import { Agent } from "../../src/agent"
 import { Permission } from "../../src/permission"
 
 // Helper to evaluate permission for a tool with wildcard pattern

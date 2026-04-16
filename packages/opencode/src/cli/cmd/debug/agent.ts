@@ -1,7 +1,7 @@
 import { EOL } from "os"
 import { basename } from "path"
 import { Effect } from "effect"
-import { Agent } from "../../../agent/agent"
+import { Agent } from "../../../agent"
 import { Provider } from "../../../provider"
 import { Session } from "../../../session"
 import type { MessageV2 } from "../../../session/message-v2"

@@ -43,7 +43,7 @@ import { FileTime } from "../file/time"
 import { Instruction } from "../session/instruction"
 import { AppFileSystem } from "@opencode-ai/shared/filesystem"
 import { Bus } from "../bus"
-import { Agent } from "../agent/agent"
+import { Agent } from "../agent"
 import { Skill } from "../skill"
 import { Permission } from "@/permission"
 

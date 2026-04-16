@@ -1,4 +1,4 @@
-import { Identifier } from "@/id/id"
+import { Identifier } from "@/id"
 import { withStatics } from "@/util/schema"
 import * as DateTime from "effect/DateTime"
 import { Schema } from "effect"

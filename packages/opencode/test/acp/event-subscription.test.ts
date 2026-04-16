@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test"
-import { ACP } from "../../src/acp/agent"
+import { ACP } from "../../src/acp"
 import type { AgentSideConnection } from "@agentclientprotocol/sdk"
 import type { Event, EventMessagePartUpdated, ToolStatePending, ToolStateRunning } from "@opencode-ai/sdk/v2"
 import { Instance } from "../../src/project/instance"

@@ -3,7 +3,7 @@ import { AppRuntime } from "../../src/effect/app-runtime"
 import { Effect } from "effect"
 import { Instance } from "../../src/project/instance"
 import { Pty } from "../../src/pty"
-import { Shell } from "../../src/shell/shell"
+import { Shell } from "../../src/shell"
 import { tmpdir } from "../fixture/fixture"
 
 Shell.preferred.reset()

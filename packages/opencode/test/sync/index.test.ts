@@ -6,7 +6,7 @@ import { Instance } from "../../src/project/instance"
 import { SyncEvent } from "../../src/sync"
 import { Database } from "../../src/storage"
 import { EventTable } from "../../src/sync/event.sql"
-import { Identifier } from "../../src/id/id"
+import { Identifier } from "../../src/id"
 import { Flag } from "../../src/flag/flag"
 import { initProjectors } from "../../src/server/projectors"
 

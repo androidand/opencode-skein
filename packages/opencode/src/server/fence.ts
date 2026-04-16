@@ -1,7 +1,7 @@
 import type { MiddlewareHandler } from "hono"
 import { Database, inArray } from "@/storage"
 import { EventSequenceTable } from "@/sync/event.sql"
-import { Workspace } from "@/control-plane/workspace"
+import { Workspace } from "@/control-plane"
 import type { WorkspaceID } from "@/control-plane/schema"
 import { Log } from "@/util"
 

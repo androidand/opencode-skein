@@ -9,7 +9,7 @@ process.env.OPENCODE_DISABLE_DEFAULT_PLUGINS = "1"
 
 const { Flag } = await import("../../src/flag/flag")
 const { Plugin } = await import("../../src/plugin/index")
-const { Workspace } = await import("../../src/control-plane/workspace")
+const { Workspace } = await import("../../src/control-plane")
 const { Instance } = await import("../../src/project/instance")
 
 const experimental = Flag.OPENCODE_EXPERIMENTAL_WORKSPACES

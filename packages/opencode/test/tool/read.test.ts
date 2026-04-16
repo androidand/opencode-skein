@@ -1,7 +1,7 @@
 import { afterEach, describe, expect } from "bun:test"
 import { Cause, Effect, Exit, Layer } from "effect"
 import path from "path"
-import { Agent } from "../../src/agent/agent"
+import { Agent } from "../../src/agent"
 import * as CrossSpawnSpawner from "../../src/effect/cross-spawn-spawner"
 import { AppFileSystem } from "@opencode-ai/shared/filesystem"
 import { FileTime } from "../../src/file/time"

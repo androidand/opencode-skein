@@ -29,7 +29,7 @@ import { TestLLMServer } from "../lib/llm-server"
 
 // Same layer setup as prompt-effect.test.ts
 import { NodeFileSystem } from "@effect/platform-node"
-import { Agent as AgentSvc } from "../../src/agent/agent"
+import { Agent as AgentSvc } from "../../src/agent"
 import { Bus } from "../../src/bus"
 import { Command } from "../../src/command"
 import { Config } from "../../src/config"
