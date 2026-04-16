@@ -3,7 +3,7 @@ import fs from "fs/promises"
 import path from "path"
 import { Cause, Deferred, Effect, Exit, Fiber, Layer } from "effect"
 import * as CrossSpawnSpawner from "../../src/effect/cross-spawn-spawner"
-import { FileTime } from "../../src/file/time"
+import { FileTime } from "../../src/file"
 import { Instance } from "../../src/project/instance"
 import { SessionID } from "../../src/session/schema"
 import { Filesystem } from "../../src/util"
@@ -43,7 +43,7 @@ const fail = Effect.fn("FileTimeTest.fail")(function* <A, E, R>(self: Effect.Eff
   throw new Error("expected file time effect to fail")
 })
 
-describe("file/time", () => {
+describe("file", () => {
   describe("read() and get()", () => {
     it.live("stores read timestamp", () =>
       provideTmpdirInstance((dir) =>

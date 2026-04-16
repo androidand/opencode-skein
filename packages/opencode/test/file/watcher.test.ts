@@ -6,7 +6,7 @@ import { ConfigProvider, Deferred, Effect, Layer, ManagedRuntime, Option } from 
 import { tmpdir } from "../fixture/fixture"
 import { Bus } from "../../src/bus"
 import { Config } from "../../src/config"
-import { FileWatcher } from "../../src/file/watcher"
+import { FileWatcher } from "../../src/file"
 import { Git } from "../../src/git"
 import { Instance } from "../../src/project/instance"
 

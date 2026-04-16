@@ -9,7 +9,7 @@ import { Bus } from "../bus"
 import { Command } from "../command"
 import { Instance } from "./instance"
 import { Log } from "@/util"
-import { FileWatcher } from "@/file/watcher"
+import { FileWatcher } from "@/file"
 import { ShareNext } from "@/share"
 import * as Effect from "effect/Effect"
 

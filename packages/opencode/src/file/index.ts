@@ -1,1 +1,6 @@
 export * as File from "./file"
+export * as Protected from "./protected"
+export * as FileIgnore from "./ignore"
+export * as FileWatcher from "./watcher"
+export * as FileTime from "./time"
+export * as Ripgrep from "./ripgrep"

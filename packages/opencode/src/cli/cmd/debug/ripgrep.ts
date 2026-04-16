@@ -1,7 +1,7 @@
 import { EOL } from "os"
 import { Effect, Stream } from "effect"
 import { AppRuntime } from "../../../effect/app-runtime"
-import { Ripgrep } from "../../../file/ripgrep"
+import { Ripgrep } from "../../../file"
 import { Instance } from "../../../project/instance"
 import { bootstrap } from "../../bootstrap"
 import { cmd } from "../cmd"

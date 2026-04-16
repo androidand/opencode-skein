@@ -13,8 +13,8 @@ import z from "zod"
 import { Global } from "../global"
 import { Instance } from "../project/instance"
 import { Log } from "../util"
-import { Protected } from "./protected"
-import { Ripgrep } from "./ripgrep"
+import * as Protected from "./protected"
+import * as Ripgrep from "./ripgrep"
 
 export const Info = z
   .object({

@@ -5,7 +5,7 @@ import { Effect, Layer, ManagedRuntime } from "effect"
 import { EditTool } from "../../src/tool/edit"
 import { Instance } from "../../src/project/instance"
 import { tmpdir } from "../fixture/fixture"
-import { FileTime } from "../../src/file/time"
+import { FileTime } from "../../src/file"
 import { LSP } from "../../src/lsp"
 import { AppFileSystem } from "@opencode-ai/shared/filesystem"
 import { Format } from "../../src/format"
@@ -138,7 +138,7 @@ describe("tool.edit", () => {
       await Instance.provide({
         directory: tmp.path,
         fn: async () => {
-          const { FileWatcher } = await import("../../src/file/watcher")
+          const { FileWatcher } = await import("../../src/file")
 
           const updated = await onceBus(FileWatcher.Event.Updated)
 
@@ -371,7 +371,7 @@ describe("tool.edit", () => {
         fn: async () => {
           await readFileTime(ctx.sessionID, filepath)
 
-          const { FileWatcher } = await import("../../src/file/watcher")
+          const { FileWatcher } = await import("../../src/file")
 
           const updated = await onceBus(FileWatcher.Event.Updated)
 

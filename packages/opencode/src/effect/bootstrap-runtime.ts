@@ -3,7 +3,7 @@ import { memoMap } from "./run-service"
 
 import { Plugin } from "@/plugin"
 import { LSP } from "@/lsp"
-import { FileWatcher } from "@/file/watcher"
+import { FileWatcher } from "@/file"
 import { Format } from "@/format"
 import { ShareNext } from "@/share"
 import { File } from "@/file"

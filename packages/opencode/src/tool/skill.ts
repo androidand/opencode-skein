@@ -4,7 +4,7 @@ import z from "zod"
 import { Effect } from "effect"
 import * as Stream from "effect/Stream"
 import { EffectLogger } from "@/effect"
-import { Ripgrep } from "../file/ripgrep"
+import { Ripgrep } from "../file"
 import { Skill } from "../skill"
 import { Tool } from "./tool"
 

@@ -4,7 +4,7 @@ import * as Stream from "effect/Stream"
 import fs from "fs/promises"
 import path from "path"
 import { tmpdir } from "../fixture/fixture"
-import { Ripgrep } from "../../src/file/ripgrep"
+import { Ripgrep } from "../../src/file"
 
 const run = <A>(effect: Effect.Effect<A, unknown, Ripgrep.Service>) =>
   effect.pipe(Effect.provide(Ripgrep.defaultLayer), Effect.runPromise)
