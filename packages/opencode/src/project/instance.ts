@@ -4,7 +4,7 @@ import { makeRuntime } from "@/effect/run-service"
 import { AppFileSystem } from "@opencode-ai/shared/filesystem"
 import { iife } from "@/util/iife"
 import { Log } from "@/util/log"
-import { LocalContext } from "../util/local-context"
+import { LocalContext } from "../util"
 import { Project } from "./project"
 import { WorkspaceContext } from "@/control-plane/workspace-context"
 
