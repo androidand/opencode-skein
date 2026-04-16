@@ -1,10 +1,10 @@
-import { Slug } from "@opencode-ai/util/slug"
+import { Slug } from "@opencode-ai/shared/util/slug"
 import path from "path"
 import { BusEvent } from "@/bus/bus-event"
 import { Bus } from "@/bus"
 import { Decimal } from "decimal.js"
 import z from "zod"
-import { type ProviderMetadata } from "ai"
+import { type ProviderMetadata, type LanguageModelUsage } from "ai"
 import { Flag } from "../flag/flag"
 import { Installation } from "../installation"
 
@@ -19,7 +19,6 @@ import { updateSchema } from "../util/update-schema"
 import { MessageV2 } from "./message-v2"
 import { Instance } from "../project/instance"
 import { InstanceState } from "@/effect/instance-state"
-import { fn } from "@/util/fn"
 import { Snapshot } from "@/snapshot"
 import { ProjectID } from "../project/schema"
 import { WorkspaceID } from "../control-plane/schema"
@@ -28,9 +27,7 @@ import { SessionID, MessageID, PartID } from "./schema"
 import type { Provider } from "@/provider/provider"
 import { Permission } from "@/permission"
 import { Global } from "@/global"
-import type { LanguageModelV2Usage } from "@ai-sdk/provider"
 import { Effect, Layer, Option, Context } from "effect"
-import { makeRuntime } from "@/effect/run-service"
 
 export namespace Session {
   const log = Log.create({ service: "session" })
@@ -147,7 +144,7 @@ export namespace Session {
         compacting: z.number().optional(),
         archived: z.number().optional(),
       }),
-      permission: Permission.Ruleset.optional(),
+      permission: Permission.Ruleset.zod.optional(),
       revert: z
         .object({
           messageID: MessageID.zod,
@@ -179,6 +176,30 @@ export namespace Session {
     ref: "GlobalSession",
   })
   export type GlobalInfo = z.output<typeof GlobalInfo>
+
+  export const CreateInput = z
+    .object({
+      parentID: SessionID.zod.optional(),
+      title: z.string().optional(),
+      permission: Info.shape.permission,
+      workspaceID: WorkspaceID.zod.optional(),
+    })
+    .optional()
+  export type CreateInput = z.output<typeof CreateInput>
+
+  export const ForkInput = z.object({ sessionID: SessionID.zod, messageID: MessageID.zod.optional() })
+  export const GetInput = SessionID.zod
+  export const ChildrenInput = SessionID.zod
+  export const RemoveInput = SessionID.zod
+  export const SetTitleInput = z.object({ sessionID: SessionID.zod, title: z.string() })
+  export const SetArchivedInput = z.object({ sessionID: SessionID.zod, time: z.number().optional() })
+  export const SetPermissionInput = z.object({ sessionID: SessionID.zod, permission: Permission.Ruleset.zod })
+  export const SetRevertInput = z.object({
+    sessionID: SessionID.zod,
+    revert: Info.shape.revert,
+    summary: Info.shape.summary,
+  })
+  export const MessagesInput = z.object({ sessionID: SessionID.zod, limit: z.number().optional() })
 
   export const Event = {
     Created: SyncEvent.define({
@@ -240,7 +261,7 @@ export namespace Session {
 
   export const getUsage = (input: {
     model: Provider.Model
-    usage: LanguageModelV2Usage
+    usage: LanguageModelUsage
     metadata?: ProviderMetadata
   }) => {
     const safe = (value: number) => {
@@ -249,11 +270,14 @@ export namespace Session {
     }
     const inputTokens = safe(input.usage.inputTokens ?? 0)
     const outputTokens = safe(input.usage.outputTokens ?? 0)
-    const reasoningTokens = safe(input.usage.reasoningTokens ?? 0)
+    const reasoningTokens = safe(input.usage.outputTokenDetails?.reasoningTokens ?? input.usage.reasoningTokens ?? 0)
 
-    const cacheReadInputTokens = safe(input.usage.cachedInputTokens ?? 0)
+    const cacheReadInputTokens = safe(
+      input.usage.inputTokenDetails?.cacheReadTokens ?? input.usage.cachedInputTokens ?? 0,
+    )
     const cacheWriteInputTokens = safe(
-      (input.metadata?.["anthropic"]?.["cacheCreationInputTokens"] ??
+      (input.usage.inputTokenDetails?.cacheWriteTokens ??
+        input.metadata?.["anthropic"]?.["cacheCreationInputTokens"] ??
         // google-vertex-anthropic returns metadata under "vertex" key
         // (AnthropicMessagesLanguageModel custom provider key from 'vertex.anthropic.messages')
         input.metadata?.["vertex"]?.["cacheCreationInputTokens"] ??
@@ -274,7 +298,7 @@ export namespace Session {
     const tokens = {
       total,
       input: adjustedInputTokens,
-      output: outputTokens - reasoningTokens,
+      output: safe(outputTokens - reasoningTokens),
       reasoning: reasoningTokens,
       cache: {
         write: cacheWriteInputTokens,
@@ -680,48 +704,6 @@ export namespace Session {
 
   export const defaultLayer = layer.pipe(Layer.provide(Bus.layer), Layer.provide(Storage.defaultLayer))
 
-  const { runPromise } = makeRuntime(Service, defaultLayer)
-
-  export const create = fn(
-    z
-      .object({
-        parentID: SessionID.zod.optional(),
-        title: z.string().optional(),
-        permission: Info.shape.permission,
-        workspaceID: WorkspaceID.zod.optional(),
-      })
-      .optional(),
-    (input) => runPromise((svc) => svc.create(input)),
-  )
-
-  export const fork = fn(z.object({ sessionID: SessionID.zod, messageID: MessageID.zod.optional() }), (input) =>
-    runPromise((svc) => svc.fork(input)),
-  )
-
-  export const get = fn(SessionID.zod, (id) => runPromise((svc) => svc.get(id)))
-
-  export const setTitle = fn(z.object({ sessionID: SessionID.zod, title: z.string() }), (input) =>
-    runPromise((svc) => svc.setTitle(input)),
-  )
-
-  export const setArchived = fn(z.object({ sessionID: SessionID.zod, time: z.number().optional() }), (input) =>
-    runPromise((svc) => svc.setArchived(input)),
-  )
-
-  export const setPermission = fn(z.object({ sessionID: SessionID.zod, permission: Permission.Ruleset }), (input) =>
-    runPromise((svc) => svc.setPermission(input)),
-  )
-
-  export const setRevert = fn(
-    z.object({ sessionID: SessionID.zod, revert: Info.shape.revert, summary: Info.shape.summary }),
-    (input) =>
-      runPromise((svc) => svc.setRevert({ sessionID: input.sessionID, revert: input.revert, summary: input.summary })),
-  )
-
-  export const messages = fn(z.object({ sessionID: SessionID.zod, limit: z.number().optional() }), (input) =>
-    runPromise((svc) => svc.messages(input)),
-  )
-
   export function* list(input?: {
     directory?: string
     workspaceID?: WorkspaceID
@@ -832,26 +814,5 @@ export namespace Session {
       const project = projects.get(row.project_id) ?? null
       yield { ...fromRow(row), project }
     }
-  }
-
-  export const children = fn(SessionID.zod, (id) => runPromise((svc) => svc.children(id)))
-  export const remove = fn(SessionID.zod, (id) => runPromise((svc) => svc.remove(id)))
-  export async function updateMessage<T extends MessageV2.Info>(msg: T): Promise<T> {
-    MessageV2.Info.parse(msg)
-    return runPromise((svc) => svc.updateMessage(msg))
-  }
-
-  export const removeMessage = fn(z.object({ sessionID: SessionID.zod, messageID: MessageID.zod }), (input) =>
-    runPromise((svc) => svc.removeMessage(input)),
-  )
-
-  export const removePart = fn(
-    z.object({ sessionID: SessionID.zod, messageID: MessageID.zod, partID: PartID.zod }),
-    (input) => runPromise((svc) => svc.removePart(input)),
-  )
-
-  export async function updatePart<T extends MessageV2.Part>(part: T): Promise<T> {
-    MessageV2.Part.parse(part)
-    return runPromise((svc) => svc.updatePart(part))
   }
 }
