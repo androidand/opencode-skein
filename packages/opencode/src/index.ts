@@ -1,41 +1,19 @@
 import yargs from "yargs"
 import { hideBin } from "yargs/helpers"
-import { RunCommand } from "./cli/cmd/run"
-import { GenerateCommand } from "./cli/cmd/generate"
+import { lazyCmd } from "./cli/cmd/cmd"
 import { Log } from "./util"
-import { ConsoleCommand } from "./cli/cmd/account"
-import { ProvidersCommand } from "./cli/cmd/providers"
-import { AgentCommand } from "./cli/cmd/agent"
-import { UpgradeCommand } from "./cli/cmd/upgrade"
-import { UninstallCommand } from "./cli/cmd/uninstall"
-import { ModelsCommand } from "./cli/cmd/models"
 import { UI } from "./cli/ui"
 import { Installation } from "./installation"
 import { InstallationVersion } from "./installation/version"
 import { NamedError } from "@opencode-ai/shared/util/error"
 import { FormatError } from "./cli/error"
-import { ServeCommand } from "./cli/cmd/serve"
 import { Filesystem } from "./util"
-import { DebugCommand } from "./cli/cmd/debug"
-import { StatsCommand } from "./cli/cmd/stats"
-import { McpCommand } from "./cli/cmd/mcp"
-import { GithubCommand } from "./cli/cmd/github"
-import { ExportCommand } from "./cli/cmd/export"
-import { ImportCommand } from "./cli/cmd/import"
-import { AttachCommand } from "./cli/cmd/tui/attach"
-import { TuiThreadCommand } from "./cli/cmd/tui/thread"
-import { AcpCommand } from "./cli/cmd/acp"
 import { EOL } from "os"
-import { WebCommand } from "./cli/cmd/web"
-import { PrCommand } from "./cli/cmd/pr"
-import { SessionCommand } from "./cli/cmd/session"
-import { DbCommand } from "./cli/cmd/db"
 import path from "path"
 import { Global } from "./global"
 import { JsonMigration } from "./storage"
 import { Database } from "./storage"
 import { errorMessage } from "./util/error"
-import { PluginCommand } from "./cli/cmd/plug"
 import { Heap } from "./cli/heap"
 import { drizzle } from "drizzle-orm/bun-sqlite"
 
@@ -62,6 +40,15 @@ function show(out: string) {
   }
   process.stderr.write(out)
 }
+
+// Shared network options used by TUI, serve, acp, web commands
+const networkOptions = {
+  port: { type: "number" as const, describe: "port to listen on", default: 0 },
+  hostname: { type: "string" as const, describe: "hostname to listen on", default: "127.0.0.1" },
+  mdns: { type: "boolean" as const, describe: "enable mDNS service discovery (defaults hostname to 0.0.0.0)", default: false },
+  "mdns-domain": { type: "string" as const, describe: "custom domain name for mDNS service (default: opencode.local)", default: "opencode.local" },
+  cors: { type: "string" as const, array: true as const, describe: "additional domains to allow for CORS", default: [] as string[] },
+} as const
 
 const cli = yargs(args)
   .parserConfiguration({ "populate--": true })
@@ -149,29 +136,223 @@ const cli = yargs(args)
   })
   .usage("")
   .completion("completion", "generate shell completion script")
-  .command(AcpCommand)
-  .command(McpCommand)
-  .command(TuiThreadCommand)
-  .command(AttachCommand)
-  .command(RunCommand)
-  .command(GenerateCommand)
-  .command(DebugCommand)
-  .command(ConsoleCommand)
-  .command(ProvidersCommand)
-  .command(AgentCommand)
-  .command(UpgradeCommand)
-  .command(UninstallCommand)
-  .command(ServeCommand)
-  .command(WebCommand)
-  .command(ModelsCommand)
-  .command(StatsCommand)
-  .command(ExportCommand)
-  .command(ImportCommand)
-  .command(GithubCommand)
-  .command(PrCommand)
-  .command(SessionCommand)
-  .command(PluginCommand)
-  .command(DbCommand)
+
+  // ── Default command (TUI) ──
+  .command(lazyCmd(
+    {
+      command: "$0 [project]",
+      describe: "start opencode tui",
+      builder: (yargs: any) =>
+        yargs.options(networkOptions)
+          .positional("project", { type: "string", describe: "path to start opencode in" })
+          .option("model", { type: "string", alias: ["m"], describe: "model to use in the format of provider/model" })
+          .option("continue", { alias: ["c"], describe: "continue the last session", type: "boolean" })
+          .option("session", { alias: ["s"], type: "string", describe: "session id to continue" })
+          .option("fork", { type: "boolean", describe: "fork the session when continuing (use with --continue or --session)" })
+          .option("prompt", { type: "string", describe: "prompt to use" })
+          .option("agent", { type: "string", describe: "agent to use" }),
+    },
+    () => import("./cli/cmd/tui/thread").then((m) => m.TuiThreadCommand),
+  ))
+
+  // ── Heavy commands — lazy-loaded handlers ──
+  .command(lazyCmd(
+    {
+      command: "run [message..]",
+      describe: "run opencode with a message",
+      builder: (yargs: any) =>
+        yargs
+          .positional("message", { describe: "message to send", type: "string", array: true, default: [] })
+          .option("command", { describe: "the command to run, use message for args", type: "string" })
+          .option("continue", { alias: ["c"], describe: "continue the last session", type: "boolean" })
+          .option("session", { alias: ["s"], describe: "session id to continue", type: "string" })
+          .option("fork", { type: "boolean", describe: "fork the session before continuing" })
+          .option("share", { type: "boolean", describe: "share the session" })
+          .option("model", { alias: ["m"], describe: "model to use", type: "string" })
+          .option("agent", { describe: "agent to use", type: "string" })
+          .option("format", { describe: "format", type: "string", choices: ["default", "json"], default: "default" })
+          .option("file", { alias: ["f"], describe: "file(s) to attach", type: "string", array: true })
+          .option("title", { describe: "title for the session", type: "string" })
+          .option("attach", { describe: "attach to a running opencode server", type: "string" })
+          .option("password", { alias: ["p"], describe: "basic auth password", type: "string" })
+          .option("dir", { describe: "directory to run in", type: "string" })
+          .option("port", { describe: "port for the local server", type: "number" })
+          .option("variant", { describe: "model variant", type: "string" })
+          .option("thinking", { describe: "show thinking blocks", type: "boolean", default: false })
+          .option("dangerously-skip-permissions", { describe: "auto-approve permissions", type: "boolean", default: false }),
+    },
+    () => import("./cli/cmd/run").then((m) => m.RunCommand),
+  ))
+  .command(lazyCmd(
+    {
+      command: "attach <url>",
+      describe: "attach to a running opencode server",
+      builder: (yargs: any) =>
+        yargs
+          .positional("url", { describe: "http://localhost:4096", type: "string", demandOption: true })
+          .option("dir", { describe: "directory to run in", type: "string" })
+          .option("continue", { alias: ["c"], describe: "continue the last session", type: "boolean" })
+          .option("session", { alias: ["s"], describe: "session id to continue", type: "string" })
+          .option("fork", { type: "boolean", describe: "fork the session when continuing" })
+          .option("password", { alias: ["p"], describe: "basic auth password", type: "string" }),
+    },
+    () => import("./cli/cmd/tui/attach").then((m) => m.AttachCommand),
+  ))
+  .command(lazyCmd(
+    {
+      command: "serve",
+      describe: "starts a headless opencode server",
+      builder: (yargs: any) => yargs.options(networkOptions),
+    },
+    () => import("./cli/cmd/serve").then((m) => m.ServeCommand),
+  ))
+  .command(lazyCmd(
+    {
+      command: "web",
+      describe: "start opencode server and open web interface",
+      builder: (yargs: any) => yargs.options(networkOptions),
+    },
+    () => import("./cli/cmd/web").then((m) => m.WebCommand),
+  ))
+  .command(lazyCmd(
+    {
+      command: "acp",
+      describe: "start ACP (Agent Client Protocol) server",
+      builder: (yargs: any) =>
+        yargs.options(networkOptions).option("cwd", { type: "string", describe: "working directory", default: process.cwd() }),
+    },
+    () => import("./cli/cmd/acp").then((m) => m.AcpCommand),
+  ))
+
+  // ── Parent commands with subcommands — load full module when matched ──
+  .command(lazyCmd(
+    { command: "mcp", describe: "manage MCP (Model Context Protocol) servers" },
+    () => import("./cli/cmd/mcp").then((m) => m.McpCommand),
+  ))
+  .command(lazyCmd(
+    { command: "console", describe: false as any },
+    () => import("./cli/cmd/account").then((m) => m.ConsoleCommand),
+  ))
+  .command(lazyCmd(
+    { command: "providers", describe: "manage AI providers and credentials" },
+    () => import("./cli/cmd/providers").then((m) => m.ProvidersCommand),
+  ))
+  .command(lazyCmd(
+    { command: "agent", describe: "manage agents" },
+    () => import("./cli/cmd/agent").then((m) => m.AgentCommand),
+  ))
+  .command(lazyCmd(
+    { command: "debug", describe: "debugging and troubleshooting tools" },
+    () => import("./cli/cmd/debug").then((m) => m.DebugCommand),
+  ))
+  .command(lazyCmd(
+    { command: "github", describe: "manage GitHub agent" },
+    () => import("./cli/cmd/github").then((m) => m.GithubCommand),
+  ))
+  .command(lazyCmd(
+    { command: "session", describe: "manage sessions" },
+    () => import("./cli/cmd/session").then((m) => m.SessionCommand),
+  ))
+  .command(lazyCmd(
+    { command: "db", describe: "database tools" },
+    () => import("./cli/cmd/db").then((m) => m.DbCommand),
+  ))
+
+  // ── Lightweight commands — still lazy for consistency ──
+  .command(lazyCmd(
+    { command: "generate", describe: false as any },
+    () => import("./cli/cmd/generate").then((m) => m.GenerateCommand),
+  ))
+  .command(lazyCmd(
+    {
+      command: "upgrade [target]",
+      describe: "upgrade opencode to the latest or a specific version",
+      builder: (yargs: any) =>
+        yargs
+          .positional("target", { describe: "version to upgrade to, for ex '0.1.48' or 'v0.1.48'", type: "string" })
+          .option("method", { alias: "m", describe: "installation method to use", type: "string", choices: ["curl", "npm", "pnpm", "bun", "brew", "choco", "scoop"] }),
+    },
+    () => import("./cli/cmd/upgrade").then((m) => m.UpgradeCommand),
+  ))
+  .command(lazyCmd(
+    {
+      command: "uninstall",
+      describe: "uninstall opencode and remove all related files",
+      builder: (yargs: any) =>
+        yargs
+          .option("keep-config", { alias: "c", describe: "keep configuration files", type: "boolean", default: false })
+          .option("keep-data", { alias: "d", describe: "keep session data and snapshots", type: "boolean", default: false })
+          .option("dry-run", { describe: "show what would be removed", type: "boolean", default: false })
+          .option("force", { alias: "f", describe: "skip confirmation prompts", type: "boolean", default: false }),
+    },
+    () => import("./cli/cmd/uninstall").then((m) => m.UninstallCommand),
+  ))
+  .command(lazyCmd(
+    {
+      command: "models [provider]",
+      describe: "list all available models",
+      builder: (yargs: any) =>
+        yargs
+          .positional("provider", { describe: "provider ID to filter models by", type: "string", array: false })
+          .option("verbose", { describe: "use more verbose model output (includes metadata like costs)", type: "boolean" })
+          .option("refresh", { describe: "refresh the models cache from models.dev", type: "boolean" }),
+    },
+    () => import("./cli/cmd/models").then((m) => m.ModelsCommand),
+  ))
+  .command(lazyCmd(
+    {
+      command: "stats",
+      describe: "show token usage and cost statistics",
+      builder: (yargs: any) =>
+        yargs
+          .option("days", { describe: "show stats for the last N days", type: "number" })
+          .option("tools", { describe: "number of tools to show", type: "number" })
+          .option("models", { describe: "show model statistics", type: "boolean" })
+          .option("project", { describe: "filter by project", type: "string" }),
+    },
+    () => import("./cli/cmd/stats").then((m) => m.StatsCommand),
+  ))
+  .command(lazyCmd(
+    {
+      command: "export [sessionID]",
+      describe: "export session data as JSON",
+      builder: (yargs: any) =>
+        yargs
+          .positional("sessionID", { describe: "session id to export", type: "string" })
+          .option("sanitize", { describe: "redact sensitive transcript and file data", type: "boolean" }),
+    },
+    () => import("./cli/cmd/export").then((m) => m.ExportCommand),
+  ))
+  .command(lazyCmd(
+    {
+      command: "import <file>",
+      describe: "import session data from JSON file or URL",
+      builder: (yargs: any) =>
+        yargs.positional("file", { describe: "path to JSON file or share URL", type: "string", demandOption: true }),
+    },
+    () => import("./cli/cmd/import").then((m) => m.ImportCommand),
+  ))
+  .command(lazyCmd(
+    {
+      command: "pr <number>",
+      describe: "fetch and checkout a GitHub PR branch, then run opencode",
+      builder: (yargs: any) =>
+        yargs.positional("number", { describe: "PR number to checkout", type: "number", demandOption: true }),
+    },
+    () => import("./cli/cmd/pr").then((m) => m.PrCommand),
+  ))
+  .command(lazyCmd(
+    {
+      command: "plugin <module>",
+      describe: "install plugin and update config",
+      builder: (yargs: any) =>
+        yargs
+          .positional("module", { describe: "npm module name", type: "string" })
+          .option("global", { alias: ["g"], describe: "install in global config", type: "boolean", default: false })
+          .option("force", { alias: ["f"], describe: "replace existing plugin version", type: "boolean", default: false }),
+    },
+    () => import("./cli/cmd/plug").then((m) => m.PluginCommand),
+  ))
   .fail((msg, err) => {
     if (
       msg?.startsWith("Unknown argument") ||
