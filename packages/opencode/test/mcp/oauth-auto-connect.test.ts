@@ -158,7 +158,7 @@ test("first connect to OAuth server shows needs_auth instead of failed", async (
 
 test("state() generates a new state when none is saved", async () => {
   const { McpOAuthProvider } = await import("../../src/mcp/oauth-provider")
-  const { McpAuth } = await import("../../src/mcp/auth")
+  const McpAuth = await import("../../src/mcp/auth")
 
   await using tmp = await tmpdir()
 
@@ -199,7 +199,7 @@ test("state() generates a new state when none is saved", async () => {
 
 test("state() returns existing state when one is saved", async () => {
   const { McpOAuthProvider } = await import("../../src/mcp/oauth-provider")
-  const { McpAuth } = await import("../../src/mcp/auth")
+  const McpAuth = await import("../../src/mcp/auth")
 
   await using tmp = await tmpdir()
 

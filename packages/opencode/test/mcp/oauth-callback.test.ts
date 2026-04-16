@@ -1,5 +1,5 @@
 import { test, expect, describe, afterEach } from "bun:test"
-import { McpOAuthCallback } from "../../src/mcp/oauth-callback"
+import { McpOAuthCallback } from "../../src/mcp"
 import { parseRedirectUri } from "../../src/mcp/oauth-provider"
 
 describe("parseRedirectUri", () => {

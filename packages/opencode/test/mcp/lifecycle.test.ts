@@ -641,7 +641,7 @@ test(
 // ========================================================================
 
 test("McpOAuthCallback.cancelPending is keyed by mcpName but pendingAuths uses oauthState", async () => {
-  const { McpOAuthCallback } = await import("../../src/mcp/oauth-callback")
+  const McpOAuthCallback = await import("../../src/mcp/oauth-callback")
 
   // Register a pending auth with an oauthState key, associated to an mcpName
   const oauthState = "abc123hexstate"
