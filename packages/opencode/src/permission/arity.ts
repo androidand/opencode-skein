@@ -159,3 +159,4 @@ const ARITY: Record<string, number> = {
   "yarn dlx": 3, // yarn dlx create-react-app
   "yarn run": 3, // yarn run dev
 }
+export * as BashArity from "./arity"

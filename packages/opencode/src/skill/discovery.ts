@@ -112,3 +112,4 @@ export const defaultLayer: Layer.Layer<Service> = layer.pipe(
   Layer.provide(AppFileSystem.defaultLayer),
   Layer.provide(NodePath.layer),
 )
+export * as Discovery from "./discovery"
