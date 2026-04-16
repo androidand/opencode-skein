@@ -15,7 +15,7 @@ import { Config } from "../config"
 import { ConfigMarkdown } from "../config"
 import { Glob } from "@opencode-ai/shared/util/glob"
 import { Log } from "../util"
-import { Discovery } from "./discovery"
+import * as Discovery from "./discovery"
 
 const log = Log.create({ service: "skill" })
 const EXTERNAL_DIRS = [".claude", ".agents"]
