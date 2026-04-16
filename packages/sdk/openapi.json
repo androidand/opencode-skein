@@ -6938,8 +6938,7 @@
                 "properties": {
                   "sessionID": {
                     "description": "Session ID to navigate to",
-                    "type": "string",
-                    "pattern": "^ses.*"
+                    "type": "string"
                   }
                 },
                 "required": ["sessionID"]
@@ -8511,8 +8510,7 @@
             "properties": {
               "sessionID": {
                 "description": "Session ID to navigate to",
-                "type": "string",
-                "pattern": "^ses.*"
+                "type": "string"
               }
             },
             "required": ["sessionID"]
@@ -11761,7 +11759,7 @@
             "anyOf": [
               {
                 "type": "boolean",
-                "const": false
+                "const": true
               },
               {
                 "type": "object",
