@@ -922,3 +922,5 @@ export const defaultLayer = layer.pipe(
   Layer.provide(CrossSpawnSpawner.defaultLayer),
   Layer.provide(AppFileSystem.defaultLayer),
 )
+
+export * as MCP from "./mcp"
