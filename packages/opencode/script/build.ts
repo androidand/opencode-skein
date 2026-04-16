@@ -5,6 +5,7 @@ import fs from "fs"
 import path from "path"
 import { fileURLToPath } from "url"
 import { createSolidTransformPlugin } from "@opentui/solid/bun-plugin"
+import { treeshakePrepass } from "./treeshake-prepass"
 
 const __filename = fileURLToPath(import.meta.url)
 const __dirname = path.dirname(__filename)
@@ -50,8 +51,22 @@ console.log(`Loaded ${migrations.length} migrations`)
 const singleFlag = process.argv.includes("--single")
 const baselineFlag = process.argv.includes("--baseline")
 const skipInstall = process.argv.includes("--skip-install")
+const skipTreeshake = process.argv.includes("--skip-treeshake")
 const plugin = createSolidTransformPlugin()
 const skipEmbedWebUi = process.argv.includes("--skip-embed-web-ui")
+
+// Run Rollup tree-shaking pre-pass on the main entrypoint.
+// Bun/esbuild can't tree-shake `export * as X` barrels (evanw/esbuild#1420).
+// Rollup can — it does AST-level analysis to drop unused exports and their
+// transitive imports. Workers are excluded since they're separate bundles.
+const rollupTmpDir = path.join(dir, ".rollup-tmp")
+let treeshakenEntry: string | undefined
+if (!skipTreeshake) {
+  const entryMap = await treeshakePrepass(["./src/index.ts"], rollupTmpDir)
+  treeshakenEntry = entryMap.get("index")
+} else {
+  console.log("[treeshake] Skipped (--skip-treeshake)")
+}
 
 const createEmbeddedWebUIBundle = async () => {
   console.log(`Building Web UI to embed in the binary`)
@@ -213,7 +228,7 @@ for (const item of targets) {
     },
     files: embeddedFileMap ? { "opencode-web-ui.gen.ts": embeddedFileMap } : {},
     entrypoints: [
-      "./src/index.ts",
+      treeshakenEntry ?? "./src/index.ts",
       parserWorker,
       workerPath,
       rgPath,
@@ -268,6 +283,11 @@ if (Script.release) {
     }
   }
   await $`gh release upload v${Script.version} ./dist/*.zip ./dist/*.tar.gz --clobber --repo ${process.env.GH_REPO}`
+}
+
+// Clean up Rollup temp directory
+if (fs.existsSync(rollupTmpDir)) {
+  fs.rmSync(rollupTmpDir, { recursive: true })
 }
 
 export { binaries }
