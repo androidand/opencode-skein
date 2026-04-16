@@ -36,7 +36,7 @@ import { JsonMigration } from "./storage"
 import { Database } from "./storage"
 import { errorMessage } from "./util/error"
 import { PluginCommand } from "./cli/cmd/plug"
-import { Heap } from "./cli/heap"
+import { Heap } from "./cli"
 import { drizzle } from "drizzle-orm/bun-sqlite"
 
 process.on("unhandledRejection", (e) => {

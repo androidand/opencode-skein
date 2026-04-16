@@ -9,7 +9,7 @@ import { Config } from "@/config"
 import { GlobalBus } from "@/bus/global"
 import { Flag } from "@/flag/flag"
 import { writeHeapSnapshot } from "node:v8"
-import { Heap } from "@/cli/heap"
+import { Heap } from "@/cli"
 import { AppRuntime } from "@/effect/app-runtime"
 
 await Log.init({
