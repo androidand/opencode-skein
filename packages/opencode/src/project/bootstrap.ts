@@ -1,4 +1,4 @@
-import { Plugin } from "../plugin"
+import { Plugin } from "../plugin/plugin"
 import { Format } from "../format"
 import { LSP } from "../lsp"
 import { File } from "../file"

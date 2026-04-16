@@ -1,7 +1,7 @@
 import { Layer, ManagedRuntime } from "effect"
 import { memoMap } from "./run-service"
 
-import { Plugin } from "@/plugin"
+import { Plugin } from "@/plugin/plugin"
 import { LSP } from "@/lsp"
 import { FileWatcher } from "@/file/watcher"
 import { Format } from "@/format"
