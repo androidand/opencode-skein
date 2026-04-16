@@ -43,19 +43,6 @@ if (import.meta.env.DEV && !(root instanceof HTMLElement)) {
   throw new Error(t("error.dev.rootNotFound"))
 }
 
-if (!import.meta.env.DEV && import.meta.env.VITE_SENTRY_DSN) {
-  Sentry.init({
-    dsn: import.meta.env.VITE_SENTRY_DSN,
-    environment: import.meta.env.VITE_SENTRY_ENVIRONMENT ?? import.meta.env.MODE,
-    release: import.meta.env.VITE_SENTRY_RELEASE ?? `desktop-tauri@${pkg.version}`,
-    initialScope: {
-      tags: {
-        platform: "desktop-tauri",
-      },
-    },
-  })
-}
-
 void initI18n()
 
 let update: Update | null = null

@@ -126,7 +126,7 @@ const platform: Platform = {
   setDefaultServer: writeDefaultServerUrl,
 }
 
-if (!import.meta.env.DEV && import.meta.env.VITE_SENTRY_DSN) {
+if (import.meta.env.VITE_SENTRY_DSN) {
   Sentry.init({
     dsn: import.meta.env.VITE_SENTRY_DSN,
     environment: import.meta.env.VITE_SENTRY_ENVIRONMENT ?? import.meta.env.MODE,
@@ -135,6 +135,12 @@ if (!import.meta.env.DEV && import.meta.env.VITE_SENTRY_DSN) {
       tags: {
         platform: "web",
       },
+    },
+    integrations: (integrations) => {
+      return integrations.filter(
+        (i) =>
+          i.name !== "Breadcrumbs" && !(import.meta.env.OPENCODE_CHANNEL === "prod" && i.name === "GlobalHandlers"),
+      )
     },
   })
 }
