@@ -1,4 +1,5 @@
 import z from "zod"
+import { zod } from "@/util/effect-zod"
 import os from "os"
 import fuzzysort from "fuzzysort"
 import { Config } from "../config"
@@ -18,7 +19,7 @@ import { Flag } from "../flag/flag"
 import { iife } from "@/util/iife"
 import { Global } from "../global"
 import path from "path"
-import { Effect, Layer, Context } from "effect"
+import { Effect, Layer, Context, Schema } from "effect"
 import { EffectBridge } from "@/effect"
 import { InstanceState } from "@/effect"
 import { AppFileSystem } from "@opencode-ai/shared/filesystem"
@@ -815,91 +816,96 @@ function custom(dep: CustomDep): Record<string, CustomLoader> {
   }
 }
 
-export const Model = z
-  .object({
-    id: ModelID.zod,
-    providerID: ProviderID.zod,
-    api: z.object({
-      id: z.string(),
-      url: z.string(),
-      npm: z.string(),
-    }),
-    name: z.string(),
-    family: z.string().optional(),
-    capabilities: z.object({
-      temperature: z.boolean(),
-      reasoning: z.boolean(),
-      attachment: z.boolean(),
-      toolcall: z.boolean(),
-      input: z.object({
-        text: z.boolean(),
-        audio: z.boolean(),
-        image: z.boolean(),
-        video: z.boolean(),
-        pdf: z.boolean(),
-      }),
-      output: z.object({
-        text: z.boolean(),
-        audio: z.boolean(),
-        image: z.boolean(),
-        video: z.boolean(),
-        pdf: z.boolean(),
-      }),
-      interleaved: z.union([
-        z.boolean(),
-        z.object({
-          field: z.enum(["reasoning_content", "reasoning_details"]),
-        }),
-      ]),
-    }),
-    cost: z.object({
-      input: z.number(),
-      output: z.number(),
-      cache: z.object({
-        read: z.number(),
-        write: z.number(),
-      }),
-      experimentalOver200K: z
-        .object({
-          input: z.number(),
-          output: z.number(),
-          cache: z.object({
-            read: z.number(),
-            write: z.number(),
-          }),
-        })
-        .optional(),
-    }),
-    limit: z.object({
-      context: z.number(),
-      input: z.number().optional(),
-      output: z.number(),
-    }),
-    status: z.enum(["alpha", "beta", "deprecated", "active"]),
-    options: z.record(z.string(), z.any()),
-    headers: z.record(z.string(), z.string()),
-    release_date: z.string(),
-    variants: z.record(z.string(), z.record(z.string(), z.any())).optional(),
-  })
-  .meta({
-    ref: "Model",
-  })
-export type Model = z.infer<typeof Model>
+const ModeSchema = Schema.Struct({
+  text: Schema.Boolean,
+  audio: Schema.Boolean,
+  image: Schema.Boolean,
+  video: Schema.Boolean,
+  pdf: Schema.Boolean,
+})
 
-export const Info = z
-  .object({
-    id: ProviderID.zod,
-    name: z.string(),
-    source: z.enum(["env", "config", "custom", "api"]),
-    env: z.string().array(),
-    key: z.string().optional(),
-    options: z.record(z.string(), z.any()),
-    models: z.record(z.string(), Model),
-  })
-  .meta({
-    ref: "Provider",
-  })
-export type Info = z.infer<typeof Info>
+const InterleavedSchema = Schema.Union([
+  Schema.Boolean,
+  Schema.Struct({
+    field: Schema.Literals(["reasoning_content", "reasoning_details"]),
+  }),
+])
+
+const CapabilitiesSchema = Schema.Struct({
+  temperature: Schema.Boolean,
+  reasoning: Schema.Boolean,
+  attachment: Schema.Boolean,
+  toolcall: Schema.Boolean,
+  input: ModeSchema,
+  output: ModeSchema,
+  interleaved: InterleavedSchema,
+})
+
+const CacheSchema = Schema.Struct({
+  read: Schema.Number,
+  write: Schema.Number,
+})
+
+const CostSchema = Schema.Struct({
+  input: Schema.Number,
+  output: Schema.Number,
+  cache: CacheSchema,
+  experimentalOver200K: Schema.mutableKey(
+    Schema.optional(
+      Schema.Struct({
+        input: Schema.Number,
+        output: Schema.Number,
+        cache: CacheSchema,
+      }),
+    ),
+  ),
+})
+
+const LimitSchema = Schema.Struct({
+  context: Schema.Number,
+  input: Schema.optional(Schema.Number),
+  output: Schema.Number,
+})
+
+const ApiSchema = Schema.Struct({
+  id: Schema.mutableKey(Schema.String),
+  url: Schema.String,
+  npm: Schema.String,
+})
+
+export class Model extends Schema.Class<Model>("Model")({
+  id: Schema.mutableKey(ModelID),
+  providerID: ProviderID,
+  api: ApiSchema,
+  name: Schema.mutableKey(Schema.String),
+  family: Schema.optional(Schema.String),
+  capabilities: CapabilitiesSchema,
+  cost: Schema.mutableKey(CostSchema),
+  limit: LimitSchema,
+  status: Schema.Literals(["alpha", "beta", "deprecated", "active"]),
+  options: Schema.mutableKey(Schema.Record(Schema.String, Schema.mutableKey(Schema.Any))),
+  headers: Schema.mutableKey(Schema.Record(Schema.String, Schema.mutableKey(Schema.String))),
+  release_date: Schema.String,
+  variants: Schema.mutableKey(
+    Schema.optional(
+      Schema.Record(Schema.String, Schema.mutableKey(Schema.Record(Schema.String, Schema.mutableKey(Schema.Any)))),
+    ),
+  ),
+}) {
+  static readonly zod = zod(this)
+}
+
+export class Info extends Schema.Class<Info>("Provider")({
+  id: ProviderID,
+  name: Schema.mutableKey(Schema.String),
+  source: Schema.Literals(["env", "config", "custom", "api"]),
+  env: Schema.mutableKey(Schema.mutable(Schema.Array(Schema.String))),
+  key: Schema.optional(Schema.String),
+  options: Schema.mutableKey(Schema.Record(Schema.String, Schema.mutableKey(Schema.Any))),
+  models: Schema.mutableKey(Schema.Record(Schema.String, Schema.mutableKey(Model))),
+}) {
+  static readonly zod = zod(this)
+}
 
 export interface Interface {
   readonly list: () => Effect.Effect<Record<ProviderID, Info>>

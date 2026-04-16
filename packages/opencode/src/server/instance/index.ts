@@ -47,6 +47,7 @@ export const InstanceRoutes = (upgrade: UpgradeWebSocket): Hono => {
       .all("/permission", (c) => handler(c.req.raw))
       .all("/permission/*", (c) => handler(c.req.raw))
       .all("/provider/auth", (c) => handler(c.req.raw))
+      .all("/config/providers", (c) => handler(c.req.raw))
   }
 
   return app

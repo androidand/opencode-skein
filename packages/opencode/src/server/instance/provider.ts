@@ -27,7 +27,7 @@ export const ProviderRoutes = lazy(() =>
               "application/json": {
                 schema: resolver(
                   z.object({
-                    all: Provider.Info.array(),
+                    all: z.array(Provider.Info.zod),
                     default: z.record(z.string(), z.string()),
                     connected: z.array(z.string()),
                   }),

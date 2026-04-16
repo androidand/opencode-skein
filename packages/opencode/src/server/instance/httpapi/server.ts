@@ -10,6 +10,7 @@ import { InstanceBootstrap } from "@/project/bootstrap"
 import { Instance } from "@/project/instance"
 import { lazy } from "@/util/lazy"
 import { Filesystem } from "@/util"
+import { ConfigApi, configHandlers } from "./config"
 import { PermissionApi, permissionHandlers } from "./permission"
 import { ProviderApi, providerHandlers } from "./provider"
 import { QuestionApi, questionHandlers } from "./question"
@@ -109,11 +110,13 @@ export namespace ExperimentalHttpApiServer {
   const QuestionSecured = QuestionApi.middleware(Authorization)
   const PermissionSecured = PermissionApi.middleware(Authorization)
   const ProviderSecured = ProviderApi.middleware(Authorization)
+  const ConfigSecured = ConfigApi.middleware(Authorization)
 
   export const routes = Layer.mergeAll(
     HttpApiBuilder.layer(QuestionSecured).pipe(Layer.provide(questionHandlers)),
     HttpApiBuilder.layer(PermissionSecured).pipe(Layer.provide(permissionHandlers)),
     HttpApiBuilder.layer(ProviderSecured).pipe(Layer.provide(providerHandlers)),
+    HttpApiBuilder.layer(ConfigSecured).pipe(Layer.provide(configHandlers)),
   ).pipe(
     Layer.provide(auth),
     Layer.provide(normalize),
