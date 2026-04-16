@@ -7,7 +7,7 @@ import { Effect, Layer, Context } from "effect"
 import z from "zod"
 import { Config } from "../config"
 import { MCP } from "../mcp"
-import { Skill } from "../skill"
+import { Skill } from "../skill/skill"
 import PROMPT_INITIALIZE from "./template/initialize.txt"
 import PROMPT_REVIEW from "./template/review.txt"
 

@@ -1,6 +1,6 @@
 import { describe, expect } from "bun:test"
 import { Effect, Layer } from "effect"
-import { Skill } from "../../src/skill"
+import { Skill } from "../../src/skill/skill"
 import * as CrossSpawnSpawner from "../../src/effect/cross-spawn-spawner"
 import { provideInstance, provideTmpdirInstance, tmpdir } from "../fixture/fixture"
 import { testEffect } from "../lib/effect"

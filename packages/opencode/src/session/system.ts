@@ -14,7 +14,7 @@ import PROMPT_TRINITY from "./prompt/trinity.txt"
 import type { Provider } from "@/provider"
 import type { Agent } from "@/agent/agent"
 import { Permission } from "@/permission"
-import { Skill } from "@/skill"
+import { Skill } from "@/skill/skill"
 
 export namespace SystemPrompt {
   export function provider(model: Provider.Model) {

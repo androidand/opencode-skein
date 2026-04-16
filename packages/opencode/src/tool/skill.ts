@@ -5,7 +5,7 @@ import { Effect } from "effect"
 import * as Stream from "effect/Stream"
 import { EffectLogger } from "@/effect"
 import { Ripgrep } from "../file/ripgrep"
-import { Skill } from "../skill"
+import { Skill } from "../skill/skill"
 import * as Tool from "./tool"
 
 const Parameters = z.object({
