@@ -6,16 +6,15 @@ import { Workspace } from "@/control-plane/workspace"
 import { ServerProxy } from "../proxy"
 import { Instance } from "@/project/instance"
 import { InstanceBootstrap } from "@/project/bootstrap"
+import { Flag } from "@/flag/flag"
 import { Session } from "@/session"
 import { SessionID } from "@/session/schema"
 import { WorkspaceContext } from "@/control-plane/workspace-context"
 import { AppRuntime } from "@/effect/app-runtime"
-import { Log } from "@/util/log"
+import { Log } from "@/util"
 import { AppFileSystem } from "@opencode-ai/shared/filesystem"
 
 type Rule = { method?: string; path: string; exact?: boolean; action: "local" | "forward" }
-
-const OPENCODE_WORKSPACE = process.env.OPENCODE_WORKSPACE
 
 const RULES: Array<Rule> = [
   { path: "/session/status", action: "forward" },
@@ -68,10 +67,10 @@ export function WorkspaceRouterMiddleware(upgrade: UpgradeWebSocket): Middleware
     const sessionWorkspaceID = await getSessionWorkspace(url)
     const workspaceID = sessionWorkspaceID || url.searchParams.get("workspace")
 
-    if (!workspaceID || url.pathname.startsWith("/console") || OPENCODE_WORKSPACE) {
-      if (OPENCODE_WORKSPACE) {
+    if (!workspaceID || url.pathname.startsWith("/console") || Flag.OPENCODE_WORKSPACE_ID) {
+      if (Flag.OPENCODE_WORKSPACE_ID) {
         return WorkspaceContext.provide({
-          workspaceID: WorkspaceID.make(OPENCODE_WORKSPACE),
+          workspaceID: WorkspaceID.make(Flag.OPENCODE_WORKSPACE_ID),
           async fn() {
             return Instance.provide({
               directory,
@@ -148,6 +147,6 @@ export function WorkspaceRouterMiddleware(upgrade: UpgradeWebSocket): Middleware
     headers.delete("x-opencode-workspace")
 
     const req = new Request(c.req.raw, { headers })
-    return ServerProxy.http(proxyURL, target.headers, req)
+    return ServerProxy.http(proxyURL, target.headers, req, workspace.id)
   }
 }
