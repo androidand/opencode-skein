@@ -326,10 +326,16 @@ async function notify(input: { type: Type; sessionID: string }): Promise<Notify>
   }
 
   try {
-    const [{ Session }, { MessageV2 }] = await Promise.all([import("@/session"), import("@/session/message-v2")])
+    const [{ Session }, { MessageV2 }, { SessionTable }, { Database, eq }] = await Promise.all([
+      import("@/session"),
+      import("@/session/message-v2"),
+      import("@/session/session.sql"),
+      import("@/storage/db"),
+    ])
     const sessionID = SessionID.make(input.sessionID)
-    const session = await Session.get(sessionID)
-    out.title = session.title
+    const row = Database.use((db) => db.select().from(SessionTable).where(eq(SessionTable.id, sessionID)).get())
+    const session = row ? Session.fromRow(row) : undefined
+    out.title = session?.title
 
     let latestUser: string | undefined
     for await (const msg of MessageV2.stream(sessionID)) {
