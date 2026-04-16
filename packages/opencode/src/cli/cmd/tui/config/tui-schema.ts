@@ -1,6 +1,6 @@
 import z from "zod"
-import { ConfigPlugin } from "@/config/plugin"
-import { ConfigKeybinds } from "@/config/keybinds"
+import { ConfigPlugin } from "@/config"
+import { ConfigKeybinds } from "@/config"
 
 const KeybindOverride = z
   .object(
