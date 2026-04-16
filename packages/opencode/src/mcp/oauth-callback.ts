@@ -228,3 +228,4 @@ export async function stop(): Promise<void> {
 export function isRunning(): boolean {
   return server !== undefined
 }
+export * as McpOAuthCallback from "./oauth-callback"

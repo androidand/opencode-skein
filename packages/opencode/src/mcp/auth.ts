@@ -140,3 +140,4 @@ export const layer = Layer.effect(
 )
 
 export const defaultLayer = layer.pipe(Layer.provide(AppFileSystem.defaultLayer))
+export * as McpAuth from "./auth"
