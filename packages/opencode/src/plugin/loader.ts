@@ -170,3 +170,4 @@ export async function loadExternal<R = Loaded>(input: Input<R>): Promise<R[]> {
   for (const item of out) if (item !== undefined) ready.push(item)
   return ready
 }
+export * as PluginLoader from "./loader"

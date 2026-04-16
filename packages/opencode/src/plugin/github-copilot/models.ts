@@ -142,3 +142,4 @@ export async function get(
 
   return result
 }
+export * as CopilotModels from "./models"

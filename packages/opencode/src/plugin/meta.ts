@@ -184,3 +184,4 @@ export async function list(): Promise<Store> {
   const file = storePath()
   return Flock.withLock(lock(file), async () => read(file))
 }
+export * as PluginMeta from "./meta"
