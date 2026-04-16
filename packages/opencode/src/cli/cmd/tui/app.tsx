@@ -28,7 +28,7 @@ import { useEvent } from "@tui/context/event"
 import { SDKProvider, useSDK } from "@tui/context/sdk"
 import { StartupLoading } from "@tui/component/startup-loading"
 import { SyncProvider, useSync } from "@tui/context/sync"
-import { LocalProvider, useLocal } from "@tui/context/local"
+import { LocalProvider, parseModel, useLocal } from "@tui/context/local"
 import { DialogModel, useConnected } from "@tui/component/dialog-model"
 import { DialogMcp } from "@tui/component/dialog-mcp"
 import { DialogStatus } from "@tui/component/dialog-status"
@@ -49,10 +49,8 @@ import { DialogAlert } from "./ui/dialog-alert"
 import { DialogConfirm } from "./ui/dialog-confirm"
 import { ToastProvider, useToast } from "./ui/toast"
 import { ExitProvider, useExit } from "./context/exit"
-import { Session as SessionApi } from "@/session"
 import { TuiEvent } from "./event"
 import { KVProvider, useKV } from "./context/kv"
-import { Provider } from "@/provider"
 import { ArgsProvider, useArgs, type Args } from "./context/args"
 import open from "open"
 import { PromptRefProvider, usePromptRef } from "./context/prompt"
@@ -304,7 +302,7 @@ function App(props: { onSnapshot?: () => Promise<string[]> }) {
 
     if (route.data.type === "session") {
       const session = sync.session.get(route.data.sessionID)
-      if (!session || SessionApi.isDefaultTitle(session.title)) {
+      if (!session) {
         renderer.setTerminalTitle("OpenCode")
         return
       }
@@ -324,7 +322,7 @@ function App(props: { onSnapshot?: () => Promise<string[]> }) {
     batch(() => {
       if (args.agent) local.agent.set(args.agent)
       if (args.model) {
-        const { providerID, modelID } = Provider.parseModel(args.model)
+        const { providerID, modelID } = parseModel(args.model)
         if (!providerID || !modelID)
           return toast.show({
             variant: "warning",

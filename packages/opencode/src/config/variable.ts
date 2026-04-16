@@ -5,7 +5,7 @@ import os from "os"
 import { Filesystem } from "@/util"
 import { InvalidError } from "./error"
 
-type ParseSource =
+export type ParseSource =
   | {
       type: "path"
       path: string

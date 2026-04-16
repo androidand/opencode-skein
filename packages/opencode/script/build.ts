@@ -213,7 +213,7 @@ for (const item of targets) {
     },
     files: embeddedFileMap ? { "opencode-web-ui.gen.ts": embeddedFileMap } : {},
     entrypoints: [
-      "./src/index.ts",
+      "./src/temporary.ts",
       parserWorker,
       workerPath,
       rgPath,

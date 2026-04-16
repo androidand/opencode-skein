@@ -8,6 +8,7 @@ import { AppRuntime } from "@/effect/app-runtime"
 import { AsyncQueue } from "../../util/queue"
 import { errors } from "../error"
 import { lazy } from "../../util/lazy"
+import { SessionID } from "@/session/schema"
 
 const TuiRequest = z.object({
   path: z.string(),
@@ -371,7 +372,7 @@ export const TuiRoutes = lazy(() =>
       validator("json", TuiEvent.SessionSelect.properties),
       async (c) => {
         const { sessionID } = c.req.valid("json")
-        await AppRuntime.runPromise(Session.Service.use((svc) => svc.get(sessionID)))
+        await AppRuntime.runPromise(Session.Service.use((svc) => svc.get(SessionID.make(sessionID))))
         await Bus.publish(TuiEvent.SessionSelect, { sessionID })
         return c.json(true)
       },
