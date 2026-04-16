@@ -25,7 +25,7 @@ import { Global } from "../../src/global"
 import { ProjectID } from "../../src/project/schema"
 import { Filesystem } from "../../src/util"
 import * as Network from "../../src/util/network"
-import { ConfigPlugin } from "@/config"
+import { ConfigPlugin } from "../../src/config/plugin"
 import { Npm } from "@opencode-ai/shared/npm"
 
 const emptyAccount = Layer.mock(Account.Service)({

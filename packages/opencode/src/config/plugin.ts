@@ -71,3 +71,4 @@ export function deduplicatePluginOrigins(plugins: Origin[]): Origin[] {
 
   return list.toReversed()
 }
+export * as ConfigPlugin from "./plugin"

@@ -8,7 +8,7 @@ import {
   type PluginPackage,
   type PluginSource,
 } from "./shared"
-import { ConfigPlugin } from "@/config"
+import { ConfigPlugin } from "@/config/plugin"
 import { InstallationVersion } from "@/installation/version"
 
 export namespace PluginLoader {

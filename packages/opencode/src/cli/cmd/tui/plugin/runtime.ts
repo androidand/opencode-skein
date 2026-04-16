@@ -36,7 +36,7 @@ import { Flag } from "@/flag/flag"
 import { INTERNAL_TUI_PLUGINS, type InternalTuiPlugin } from "./internal"
 import { setupSlots, Slot as View } from "./slots"
 import type { HostPluginApi, HostSlots } from "./slots"
-import { ConfigPlugin } from "@/config"
+import { ConfigPlugin } from "@/config/plugin"
 
 type PluginLoad = {
   options: ConfigPlugin.Options | undefined

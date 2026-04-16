@@ -160,3 +160,4 @@ export const Keybinds = z
   .meta({
     ref: "KeybindsConfig",
   })
+export * as ConfigKeybinds from "./keybinds"

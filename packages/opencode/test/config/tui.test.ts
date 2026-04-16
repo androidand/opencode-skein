@@ -10,7 +10,7 @@ import { Filesystem } from "../../src/util"
 import { AppRuntime } from "../../src/effect/app-runtime"
 import { Effect, Layer } from "effect"
 import { CurrentWorkingDirectory } from "@/cli/cmd/tui/config/cwd"
-import { ConfigPlugin } from "@/config"
+import { ConfigPlugin } from "../../src/config/plugin"
 
 const wintest = process.platform === "win32" ? test : test.skip
 const clear = (wait = false) => AppRuntime.runPromise(Config.Service.use((svc) => svc.invalidate(wait)))
