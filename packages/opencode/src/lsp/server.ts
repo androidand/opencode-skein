@@ -1,6 +1,7 @@
 import type { ChildProcessWithoutNullStreams } from "child_process"
 import path from "path"
 import os from "os"
+import { Effect, Option } from "effect"
 import { Global } from "../global"
 import { Log } from "../util"
 import { text } from "node:stream/consumers"
@@ -13,6 +14,7 @@ import { Process } from "../util"
 import { which } from "../util/which"
 import { Module } from "@opencode-ai/shared/util/module"
 import { spawn } from "./launch"
+import { Npm as EffectNpm } from "@opencode-ai/shared/npm"
 import { Npm } from "../npm"
 
 const log = Log.create({ service: "lsp.server" })
@@ -61,6 +63,14 @@ export interface Info {
   global?: boolean
   root: RootFunction
   spawn(root: string): Promise<Handle | undefined>
+  /**
+   * Optional Effect-based variant of `spawn`. When present, the LSP
+   * runtime uses this instead of `spawn` so the server body can yield
+   * from platform services like `Npm.Service.which`. Use for servers
+   * distributed via npm so tests can inject fakes. Existing `spawn`
+   * implementations continue to work unchanged.
+   */
+  spawnEffect?(root: string): Effect.Effect<Handle | undefined, never, EffectNpm.Service>
 }
 
 export const Deno: Info = {
@@ -486,6 +496,9 @@ export const Pyright: Info = {
   extensions: [".py", ".pyi"],
   root: NearestRoot(["pyproject.toml", "setup.py", "setup.cfg", "requirements.txt", "Pipfile", "pyrightconfig.json"]),
   async spawn(root) {
+    // Legacy async entry point — kept so the Info interface stays
+    // backwards-compatible. The live runtime always prefers spawnEffect
+    // below; this path only runs if someone invokes spawn() directly.
     let binary = which("pyright-langserver")
     const args = []
     if (!binary) {
@@ -495,34 +508,42 @@ export const Pyright: Info = {
       binary = resolved
     }
     args.push("--stdio")
-
-    const initialization: Record<string, string> = {}
-
-    const potentialVenvPaths = [process.env["VIRTUAL_ENV"], path.join(root, ".venv"), path.join(root, "venv")].filter(
-      (p): p is string => p !== undefined,
-    )
-    for (const venvPath of potentialVenvPaths) {
-      const isWindows = process.platform === "win32"
-      const potentialPythonPath = isWindows
-        ? path.join(venvPath, "Scripts", "python.exe")
-        : path.join(venvPath, "bin", "python")
-      if (await Filesystem.exists(potentialPythonPath)) {
-        initialization["pythonPath"] = potentialPythonPath
-        break
-      }
-    }
-
-    const proc = spawn(binary, args, {
-      cwd: root,
-      env: {
-        ...process.env,
-      },
-    })
-    return {
-      process: proc,
-      initialization,
-    }
+    const initialization = await pyrightVenvInitialization(root)
+    const proc = spawn(binary, args, { cwd: root, env: { ...process.env } })
+    return { process: proc, initialization }
   },
+  spawnEffect: (root) =>
+    Effect.gen(function* () {
+      let binary = which("pyright-langserver")
+      if (!binary) {
+        if (Flag.OPENCODE_DISABLE_LSP_DOWNLOAD) return undefined
+        const npm = yield* EffectNpm.Service
+        const resolved = yield* npm.which("pyright")
+        if (Option.isNone(resolved)) return undefined
+        binary = resolved.value
+      }
+      const initialization = yield* Effect.promise(() => pyrightVenvInitialization(root))
+      const proc = spawn(binary, ["--stdio"], { cwd: root, env: { ...process.env } })
+      return { process: proc, initialization }
+    }),
+}
+
+async function pyrightVenvInitialization(root: string): Promise<Record<string, string>> {
+  const initialization: Record<string, string> = {}
+  const potentialVenvPaths = [process.env["VIRTUAL_ENV"], path.join(root, ".venv"), path.join(root, "venv")].filter(
+    (p): p is string => p !== undefined,
+  )
+  for (const venvPath of potentialVenvPaths) {
+    const isWindows = process.platform === "win32"
+    const potentialPythonPath = isWindows
+      ? path.join(venvPath, "Scripts", "python.exe")
+      : path.join(venvPath, "bin", "python")
+    if (await Filesystem.exists(potentialPythonPath)) {
+      initialization["pythonPath"] = potentialPythonPath
+      break
+    }
+  }
+  return initialization
 }
 
 export const ElixirLS: Info = {

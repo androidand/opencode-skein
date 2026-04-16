@@ -13,6 +13,7 @@ import { Process } from "../util"
 import { spawn as lspspawn } from "./launch"
 import { Effect, Layer, Context } from "effect"
 import { InstanceState } from "@/effect"
+import { Npm as EffectNpm } from "@opencode-ai/shared/npm"
 
 const log = Log.create({ service: "lsp" })
 
@@ -160,6 +161,10 @@ export const layer = Layer.effect(
   Service,
   Effect.gen(function* () {
     const config = yield* Config.Service
+    // Resolve Npm.Service once at layer construction so per-call methods
+    // (getClients → server.spawnEffect) can capture a stable reference
+    // without propagating Npm.Service into the public LSP Interface.
+    const npm = yield* EffectNpm.Service
 
     const state = yield* InstanceState.make<State>(
       Effect.fn("LSP.state")(function* () {
@@ -229,9 +234,17 @@ export const layer = Layer.effect(
         const extension = path.parse(file).ext || file
         const result: LSPClient.Info[] = []
 
+        const runSpawn = (server: LSPServer.Info, root: string): Promise<LSPServer.Handle | undefined> => {
+          if (server.spawnEffect) {
+            return Effect.runPromise(
+              server.spawnEffect(root).pipe(Effect.provideService(EffectNpm.Service, npm)),
+            )
+          }
+          return server.spawn(root)
+        }
+
         async function schedule(server: LSPServer.Info, root: string, key: string) {
-          const handle = await server
-            .spawn(root)
+          const handle = await runSpawn(server, root)
             .then((value) => {
               if (!value) s.broken.add(key)
               return value
@@ -504,7 +517,7 @@ export const layer = Layer.effect(
   }),
 )
 
-export const defaultLayer = layer.pipe(Layer.provide(Config.defaultLayer))
+export const defaultLayer = layer.pipe(Layer.provide(Config.defaultLayer), Layer.provide(EffectNpm.defaultLayer))
 
 export namespace Diagnostic {
   const MAX_PER_FILE = 20
