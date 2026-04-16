@@ -6,10 +6,10 @@ import { cmd } from "./cmd"
 import { withNetworkOptions, resolveNetworkOptions } from "../network"
 import { Flag } from "../../flag/flag"
 import { Workspace } from "../../control-plane/workspace"
-import { Project } from "../../project/project"
+import { Project } from "../../project"
 import { Installation } from "../../installation"
 import { PushRelay } from "../../server/push-relay"
-import { Log } from "../../util/log"
+import { Log } from "../../util"
 import * as QRCode from "qrcode"
 
 const log = Log.create({ service: "serve" })

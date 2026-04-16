@@ -1,7 +1,7 @@
 import { BusEvent } from "@/bus/bus-event"
 import { Bus } from "@/bus"
 import { InstanceState } from "@/effect"
-import { Log } from "@/util/log"
+import { Log } from "@/util"
 import { SessionID } from "./schema"
 import { Effect, Layer, Context } from "effect"
 import z from "zod"

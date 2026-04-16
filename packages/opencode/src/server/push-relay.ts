@@ -2,7 +2,7 @@ import os from "node:os"
 import { createHash } from "node:crypto"
 import { SessionID } from "@/session/schema"
 import { GlobalBus } from "@/bus/global"
-import { Log } from "@/util/log"
+import { Log } from "@/util"
 
 type Type = "complete" | "permission" | "error"
 
@@ -326,14 +326,14 @@ async function notify(input: { type: Type; sessionID: string }): Promise<Notify>
   }
 
   try {
-    const [{ Session }, { MessageV2 }, { SessionTable }, { Database, eq }] = await Promise.all([
+    const [{ Session }, { MessageV2 }, { SessionTable }, { use, eq }] = await Promise.all([
       import("@/session"),
       import("@/session/message-v2"),
       import("@/session/session.sql"),
       import("@/storage/db"),
     ])
     const sessionID = SessionID.make(input.sessionID)
-    const row = Database.use((db) => db.select().from(SessionTable).where(eq(SessionTable.id, sessionID)).get())
+    const row = use((db) => db.select().from(SessionTable).where(eq(SessionTable.id, sessionID)).get())
     const session = row ? Session.fromRow(row) : undefined
     out.title = session?.title
 
