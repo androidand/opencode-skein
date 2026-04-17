@@ -1,25 +1,14 @@
 import { BoxRenderable, MouseButton, MouseEvent, RGBA, TextAttributes } from "@opentui/core"
-import { For, createMemo, createSignal, onCleanup, type JSX } from "solid-js"
+import { For, createMemo, createSignal, onCleanup, onMount, type JSX } from "solid-js"
 import { useTheme, tint } from "@tui/context/theme"
 import * as Sound from "@tui/util/sound"
 import { go, logo } from "@/cli/logo"
+import { shimmerConfig, type ShimmerConfig } from "./shimmer-config"
 
 export type LogoShape = {
   left: string[]
   right: string[]
 }
-
-const IDLE_PERIOD = 4600
-const IDLE_RINGS = 3
-const IDLE_WIDTH = 1.4
-const IDLE_TAIL = 6.5
-const IDLE_AMP = 0.9
-const IDLE_PEAK = 2.2
-const IDLE_TAIL_AMP = 0.3
-const IDLE_PULSE = 0.0014
-const IDLE_PULSE_AMP = 0.08
-const IDLE_NOISE = 0.14
-const IDLE_ORIGIN = { x: -1.2, y: -0.8 }
 
 // Shadow markers (rendered chars in parens):
 // _ = full shadow cell (space with bg=shadow)
@@ -405,43 +394,52 @@ function trace(x: number, y: number, frame: Frame, ctx: LogoContext) {
   return (core + glow + trail) * appear * fade
 }
 
-function idle(x: number, y: number, frame: Frame, ctx: LogoContext): { glow: number; peak: number } {
-  const w = ctx.FULL[0]?.length ?? 1
-  const h = ctx.FULL.length * 2
-  const reach = Math.hypot(w, h) + IDLE_TAIL * 2
-  const dx = x + 0.5 - IDLE_ORIGIN.x
-  const dy = y * 2 + 1 - IDLE_ORIGIN.y
+function idle(
+  x: number,
+  pixelY: number,
+  frame: Frame,
+  ctx: LogoContext,
+  state: IdleState,
+): { glow: number; peak: number; primary: number } {
+  const cfg = state.cfg
+  const dx = x + 0.5 - cfg.originX
+  const dy = pixelY - cfg.originY
   const dist = Math.hypot(dx, dy)
   const angle = Math.atan2(dy, dx)
-  const wob1 = noise(x * 0.24, y * 0.38, frame.t * 0.0004) - 0.5
-  const wob2 = noise(x * 0.08, y * 0.11, frame.t * 0.00015) - 0.5
-  const ripple = Math.sin(angle * 4 + frame.t * 0.0015) * 0.35
-  const jitter = (wob1 * 0.65 + wob2 * 0.25 + ripple * 0.1) * IDLE_NOISE * Math.min(dist, 7)
+  const wob1 = noise(x * 0.32, pixelY * 0.25, frame.t * 0.0005) - 0.5
+  const wob2 = noise(x * 0.12, pixelY * 0.08, frame.t * 0.00022) - 0.5
+  const ripple = Math.sin(angle * 3 + frame.t * 0.0012) * 0.3
+  const jitter = (wob1 * 0.55 + wob2 * 0.32 + ripple * 0.18) * cfg.noise
   const traveled = dist + jitter
   let glow = 0
   let peak = 0
-  for (let i = 0; i < IDLE_RINGS; i++) {
-    const offset = i / IDLE_RINGS
-    const phase = (frame.t / IDLE_PERIOD + offset) % 1
-    const envelope = Math.sin(phase * Math.PI)
-    const eased = envelope * envelope * (3 - 2 * envelope)
-    const head = phase * reach
+  let halo = 0
+  let primary = 0
+  let ambient = 0
+  for (const active of state.active) {
+    const head = active.head
+    const eased = active.eased
     const delta = traveled - head
-    const crestHalf = IDLE_WIDTH * 1.6
-    const crest = Math.abs(delta) < crestHalf ? 0.5 + 0.5 * Math.cos((delta / crestHalf) * Math.PI) : 0
-    const sharp = crest * crest
-    const tailRange = IDLE_TAIL * 2.8
-    const tail = delta < 0 && delta > -tailRange ? (1 + delta / tailRange) ** 2.2 : 0
-    glow += (sharp * IDLE_AMP + tail * IDLE_TAIL_AMP) * eased
-    peak += sharp * IDLE_PEAK * eased
+    // Use shallower exponent (1.6 vs 2) for softer edges on the Gaussians
+    // so adjacent pixels have smaller brightness deltas
+    const core = Math.exp(-(Math.abs(delta / cfg.coreWidth) ** 1.8))
+    const soft = Math.exp(-(Math.abs(delta / cfg.softWidth) ** 1.6))
+    const tailRange = cfg.tail * 2.6
+    const tail = delta < 0 && delta > -tailRange ? (1 + delta / tailRange) ** 2.6 : 0
+    const haloDelta = delta + cfg.haloOffset
+    const haloBand = Math.exp(-(Math.abs(haloDelta / cfg.haloWidth) ** 1.6))
+    glow += (soft * cfg.softAmp + tail * cfg.tailAmp) * eased
+    peak += core * cfg.coreAmp * eased
+    halo += haloBand * cfg.haloAmp * eased
+    // Primary-tinted fringe follows the halo (which trails behind the core) and the tail
+    primary += (haloBand + tail * 0.6) * eased
+    ambient += active.ambient
   }
-  const angular = 0.84 + 0.16 * Math.sin(angle * 1.6 + frame.t * 0.0005)
-  const falloff = Math.max(0, 1 - dist / (reach * 0.95))
-  const breath = (0.5 + 0.5 * Math.sin(frame.t * IDLE_PULSE)) * IDLE_PULSE_AMP
-  const rings = IDLE_RINGS
+  ambient /= state.rings
   return {
-    glow: (glow / rings) * falloff * angular + breath,
-    peak: (peak / rings) * falloff,
+    glow: glow / state.rings,
+    peak: cfg.breathBase + ambient + (peak + halo) / state.rings,
+    primary: (primary / state.rings) * cfg.primaryMix,
   }
 }
 
@@ -458,6 +456,52 @@ function bloom(x: number, y: number, frame: Frame, ctx: LogoContext) {
   const dy = y * 2 + 1 - ctx.MAP.center.get(item.glyph)!.y
   const bias = Math.exp(-((Math.hypot(dx, dy) / 2.8) ** 2))
   return lerp(item.force, item.force * 0.18, p) * lerp(0.72, 1.1, bias) * flash
+}
+
+type IdleState = {
+  cfg: ShimmerConfig
+  reach: number
+  rings: number
+  active: Array<{
+    head: number
+    eased: number
+    ambient: number
+  }>
+}
+
+function buildIdleState(t: number, ctx: LogoContext): IdleState {
+  const cfg = shimmerConfig
+  const w = ctx.FULL[0]?.length ?? 1
+  const h = ctx.FULL.length * 2
+  const corners: [number, number][] = [
+    [0, 0],
+    [w, 0],
+    [0, h],
+    [w, h],
+  ]
+  let maxCorner = 0
+  for (const [cx, cy] of corners) {
+    const d = Math.hypot(cx - cfg.originX, cy - cfg.originY)
+    if (d > maxCorner) maxCorner = d
+  }
+  const reach = maxCorner + cfg.tail * 2
+  const rings = Math.max(1, Math.floor(cfg.rings))
+  const active = [] as IdleState["active"]
+  for (let i = 0; i < rings; i++) {
+    const offset = i / rings
+    const cyclePhase = (t / cfg.period + offset) % 1
+    if (cyclePhase >= cfg.sweepFraction) continue
+    const phase = cyclePhase / cfg.sweepFraction
+    const envelope = Math.sin(phase * Math.PI)
+    const eased = envelope * envelope * (3 - 2 * envelope)
+    const d = (phase - cfg.ambientCenter) / cfg.ambientWidth
+    active.push({
+      head: phase * reach,
+      eased,
+      ambient: Math.abs(d) < 1 ? (1 - d * d) ** 2 * cfg.ambientAmp : 0,
+    })
+  }
+  return { cfg, reach, rings, active }
 }
 
 export function Logo(props: { shape?: LogoShape; ink?: RGBA; idle?: boolean } = {}) {
@@ -510,10 +554,17 @@ export function Logo(props: { shape?: LogoShape; ink?: RGBA; idle?: boolean } = 
     timer = setInterval(tick, 16)
   }
 
-  if (props.idle) {
+  onCleanup(() => {
+    stop()
+    hum = false
+    Sound.dispose()
+  })
+
+  onMount(() => {
+    if (!props.idle) return
     setNow(performance.now())
     start()
-  }
+  })
 
   const hit = (x: number, y: number) => {
     const char = ctx.FULL[y]?.[x]
@@ -585,6 +636,8 @@ export function Logo(props: { shape?: LogoShape; ink?: RGBA; idle?: boolean } = 
     }
   })
 
+  const idleState = createMemo(() => (props.idle ? buildIdleState(frame().t, ctx) : undefined))
+
   const renderLine = (
     line: string,
     y: number,
@@ -593,27 +646,64 @@ export function Logo(props: { shape?: LogoShape; ink?: RGBA; idle?: boolean } = 
     off: number,
     frame: Frame,
     dusk: Frame,
+    state: IdleState | undefined,
   ): JSX.Element[] => {
     const shadow = tint(theme.background, ink, 0.25)
     const attrs = bold ? TextAttributes.BOLD : undefined
 
     return Array.from(line).map((char, i) => {
+      if (char === " ") {
+        return (
+          <text fg={ink} attributes={attrs} selectable={false}>
+            {char}
+          </text>
+        )
+      }
+
       const h = field(off + i, y, frame, ctx)
-      const pulse = props.idle ? idle(off + i, y, frame, ctx) : { glow: 0, peak: 0 }
-      const peakMix = lit(char) ? Math.min(1, pulse.peak) : 0
-      const inkTinted = peakMix > 0 ? tint(ink, PEAK, peakMix) : ink
-      const n = wave(off + i, y, frame, lit(char), ctx) + h
+      const charLit = lit(char)
+      // Sub-pixel sampling: cells are 2 pixels tall. Sample at top (y*2) and bottom (y*2+1) pixel rows.
+      const pulseTop = state ? idle(off + i, y * 2, frame, ctx, state) : { glow: 0, peak: 0, primary: 0 }
+      const pulseBot = state ? idle(off + i, y * 2 + 1, frame, ctx, state) : { glow: 0, peak: 0, primary: 0 }
+      const peakMixTop = charLit ? Math.min(1, pulseTop.peak) : 0
+      const peakMixBot = charLit ? Math.min(1, pulseBot.peak) : 0
+      const primaryMixTop = charLit ? Math.min(1, pulseTop.primary) : 0
+      const primaryMixBot = charLit ? Math.min(1, pulseBot.primary) : 0
+      // Layer primary tint first, then white peak on top — so the halo/tail pulls toward primary,
+      // while the bright core stays pure white
+      const inkTopTint = primaryMixTop > 0 ? tint(ink, theme.primary, primaryMixTop) : ink
+      const inkBotTint = primaryMixBot > 0 ? tint(ink, theme.primary, primaryMixBot) : ink
+      const inkTop = peakMixTop > 0 ? tint(inkTopTint, PEAK, peakMixTop) : inkTopTint
+      const inkBot = peakMixBot > 0 ? tint(inkBotTint, PEAK, peakMixBot) : inkBotTint
+      // For the non-peak-aware brightness channels, use the average of top/bot
+      const pulse = {
+        glow: (pulseTop.glow + pulseBot.glow) / 2,
+        peak: (pulseTop.peak + pulseBot.peak) / 2,
+        primary: (pulseTop.primary + pulseBot.primary) / 2,
+      }
+      const peakMix = charLit ? Math.min(1, pulse.peak) : 0
+      const primaryMix = charLit ? Math.min(1, pulse.primary) : 0
+      const inkPrimary = primaryMix > 0 ? tint(ink, theme.primary, primaryMix) : ink
+      const inkTinted = peakMix > 0 ? tint(inkPrimary, PEAK, peakMix) : inkPrimary
+      const shadowMixCfg = state?.cfg.shadowMix ?? shimmerConfig.shadowMix
+      const shadowMixTop = Math.min(1, pulseTop.peak * shadowMixCfg)
+      const shadowMixBot = Math.min(1, pulseBot.peak * shadowMixCfg)
+      const shadowTop = shadowMixTop > 0 ? tint(shadow, PEAK, shadowMixTop) : shadow
+      const shadowBot = shadowMixBot > 0 ? tint(shadow, PEAK, shadowMixBot) : shadow
+      const shadowMix = Math.min(1, pulse.peak * shadowMixCfg)
+      const shadowTinted = shadowMix > 0 ? tint(shadow, PEAK, shadowMix) : shadow
+      const n = wave(off + i, y, frame, charLit, ctx) + h
       const s = wave(off + i, y, dusk, false, ctx) + h
-      const p = lit(char) ? pick(off + i, y, frame, ctx) : 0
-      const e = lit(char) ? trace(off + i, y, frame, ctx) : 0
-      const b = lit(char) ? bloom(off + i, y, frame, ctx) : 0
+      const p = charLit ? pick(off + i, y, frame, ctx) : 0
+      const e = charLit ? trace(off + i, y, frame, ctx) : 0
+      const b = charLit ? bloom(off + i, y, frame, ctx) : 0
       const q = shimmer(off + i, y, frame, ctx)
 
       if (char === "_") {
         return (
           <text
             fg={shade(inkTinted, theme, s * 0.08)}
-            bg={shade(shadow, theme, ghost(s, 0.24) + ghost(q, 0.06))}
+            bg={shade(shadowTinted, theme, ghost(s, 0.24) + ghost(q, 0.06))}
             attributes={attrs}
             selectable={false}
           >
@@ -625,8 +715,8 @@ export function Logo(props: { shape?: LogoShape; ink?: RGBA; idle?: boolean } = 
       if (char === "^") {
         return (
           <text
-            fg={shade(inkTinted, theme, n + p + e + b)}
-            bg={shade(shadow, theme, ghost(s, 0.18) + ghost(q, 0.05) + ghost(b, 0.08))}
+            fg={shade(inkTop, theme, n + p + e + b)}
+            bg={shade(shadowBot, theme, ghost(s, 0.18) + ghost(q, 0.05) + ghost(b, 0.08))}
             attributes={attrs}
             selectable={false}
           >
@@ -637,7 +727,7 @@ export function Logo(props: { shape?: LogoShape; ink?: RGBA; idle?: boolean } = 
 
       if (char === "~") {
         return (
-          <text fg={shade(shadow, theme, ghost(s, 0.22) + ghost(q, 0.05))} attributes={attrs} selectable={false}>
+          <text fg={shade(shadowTop, theme, ghost(s, 0.22) + ghost(q, 0.05))} attributes={attrs} selectable={false}>
             ▀
           </text>
         )
@@ -645,16 +735,40 @@ export function Logo(props: { shape?: LogoShape; ink?: RGBA; idle?: boolean } = 
 
       if (char === ",") {
         return (
-          <text fg={shade(shadow, theme, ghost(s, 0.22) + ghost(q, 0.05))} attributes={attrs} selectable={false}>
+          <text fg={shade(shadowBot, theme, ghost(s, 0.22) + ghost(q, 0.05))} attributes={attrs} selectable={false}>
             ▄
           </text>
         )
       }
 
-      if (char === " ") {
+      // Solid █: render as ▀ so the top pixel (fg) and bottom pixel (bg) can carry independent shimmer values
+      if (char === "█") {
         return (
-          <text fg={inkTinted} attributes={attrs} selectable={false}>
-            {char}
+          <text
+            fg={shade(inkTop, theme, n + p + e + b)}
+            bg={shade(inkBot, theme, n + p + e + b)}
+            attributes={attrs}
+            selectable={false}
+          >
+            ▀
+          </text>
+        )
+      }
+
+      // ▀ top-half-lit: fg uses top-pixel sample, bg stays transparent/panel
+      if (char === "▀") {
+        return (
+          <text fg={shade(inkTop, theme, n + p + e + b)} attributes={attrs} selectable={false}>
+            ▀
+          </text>
+        )
+      }
+
+      // ▄ bottom-half-lit: fg uses bottom-pixel sample
+      if (char === "▄") {
+        return (
+          <text fg={shade(inkBot, theme, n + p + e + b)} attributes={attrs} selectable={false}>
+            ▄
           </text>
         )
       }
@@ -666,12 +780,6 @@ export function Logo(props: { shape?: LogoShape; ink?: RGBA; idle?: boolean } = 
       )
     })
   }
-
-  onCleanup(() => {
-    stop()
-    hum = false
-    Sound.dispose()
-  })
 
   const mouse = (evt: MouseEvent) => {
     if (!box) return
@@ -710,7 +818,7 @@ export function Logo(props: { shape?: LogoShape; ink?: RGBA; idle?: boolean } = 
         {(line, index) => (
           <box flexDirection="row" gap={1}>
             <box flexDirection="row">
-              {renderLine(line, index(), props.ink ?? theme.textMuted, !!props.ink, 0, frame(), dusk())}
+              {renderLine(line, index(), props.ink ?? theme.textMuted, !!props.ink, 0, frame(), dusk(), idleState())}
             </box>
             <box flexDirection="row">
               {renderLine(
@@ -721,6 +829,7 @@ export function Logo(props: { shape?: LogoShape; ink?: RGBA; idle?: boolean } = 
                 ctx.LEFT + GAP,
                 frame(),
                 dusk(),
+                idleState(),
               )}
             </box>
           </box>
@@ -732,6 +841,6 @@ export function Logo(props: { shape?: LogoShape; ink?: RGBA; idle?: boolean } = 
 
 export function GoLogo() {
   const { theme } = useTheme()
-  const base = tint(theme.background, theme.text, 0.82)
+  const base = tint(theme.background, theme.text, 0.62)
   return <Logo shape={go} ink={base} idle />
 }
