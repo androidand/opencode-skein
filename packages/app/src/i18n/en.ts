@@ -865,6 +865,9 @@ export const dict = {
   "settings.pair.error.description": "Check that the server is reachable and try again.",
   "settings.pair.disabled.title": "Push relay is not enabled",
   "settings.pair.disabled.description": "Start the server with push relay options to enable mobile pairing.",
+  "settings.pair.server.label": "Server",
+  "settings.pair.relay.label": "Relay",
+  "settings.pair.secret.label": "Secret",
   "settings.pair.instructions.title": "Scan with the OpenCode Control app",
   "settings.pair.instructions.description":
     "Open the OpenCode Control app and scan this QR code to pair your device for push notifications.",

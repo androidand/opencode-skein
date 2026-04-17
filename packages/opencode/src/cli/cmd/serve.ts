@@ -1,5 +1,7 @@
 import { spawnSync } from "node:child_process"
 import { createHash, randomBytes } from "node:crypto"
+import { writeFileSync } from "node:fs"
+import path from "node:path"
 import os from "node:os"
 import { Server } from "../../server/server"
 import { cmd } from "./cmd"
@@ -10,9 +12,23 @@ import { Project } from "../../project"
 import { Installation } from "../../installation"
 import { PushRelay } from "../../server/push-relay"
 import { Log } from "../../util"
+import { Global } from "../../global"
 import * as QRCode from "qrcode"
 
 const log = Log.create({ service: "serve" })
+
+async function getOrCreatePersistedRelaySecret(): Promise<string> {
+  const filePath = path.join(Global.Path.state, "relay-secret")
+  try {
+    const existing = (await Bun.file(filePath).text()).trim()
+    if (existing.length > 0) return existing
+  } catch {
+    // file doesn't exist yet
+  }
+  const secret = randomBytes(18).toString("base64url")
+  writeFileSync(filePath, secret, { mode: 0o600 })
+  return secret
+}
 
 type PairPayload = {
   serverID?: string
@@ -225,7 +241,7 @@ export const ServeCommand = cmd({
     ]
 
     const input = (args["relay-secret"] ?? process.env.OPENCODE_EXPERIMENTAL_PUSH_RELAY_SECRET ?? "").trim()
-    const relaySecret = input || randomBytes(18).toString("base64url")
+    const relaySecret = input || (await getOrCreatePersistedRelaySecret())
     const connectQR = Boolean(args["connect-qr"])
 
     if (connectQR) {
@@ -236,10 +252,7 @@ export const ServeCommand = cmd({
       }
 
       if (!input) {
-        console.log("experimental push relay secret generated")
-        console.log(
-          "set --relay-secret or OPENCODE_EXPERIMENTAL_PUSH_RELAY_SECRET to keep push registrations stable across server restarts",
-        )
+        log.info("using persisted relay secret", { hash: secretHash(relaySecret) })
       }
 
       console.log("printing connect qr without starting the server")
@@ -259,10 +272,7 @@ export const ServeCommand = cmd({
     console.log(`opencode server listening on http://${server.hostname}:${server.port}`)
 
     if (!input) {
-      console.log("experimental push relay secret generated")
-      console.log(
-        "set --relay-secret or OPENCODE_EXPERIMENTAL_PUSH_RELAY_SECRET to keep push registrations stable across server restarts",
-      )
+      log.info("using persisted relay secret", { hash: secretHash(relaySecret) })
     }
     if (relayURL && relaySecret) {
       const host = server.hostname ?? opts.hostname

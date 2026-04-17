@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto"
 import { Hono } from "hono"
 import { describeRoute, validator, resolver } from "hono-openapi"
 import z from "zod"
@@ -36,6 +37,9 @@ const PushPairResult = z
     z.object({
       enabled: z.literal(true),
       hosts: z.array(z.string()),
+      relayURL: z.string(),
+      serverID: z.string().optional(),
+      relaySecretHash: z.string(),
       link: z.string(),
       qr: z.string(),
     }),
@@ -488,10 +492,16 @@ export const ExperimentalRoutes = lazy(() =>
 
         const link = pushPairLink(pair)
         const qr = await pushPairQRCode(pair)
+        const relaySecretHash = pair.relaySecret
+          ? `${createHash("sha256").update(pair.relaySecret).digest("hex").slice(0, 12)}...`
+          : "none"
 
         return c.json({
           enabled: true,
           hosts: pair.hosts,
+          relayURL: pair.relayURL,
+          serverID: pair.serverID,
+          relaySecretHash,
           link,
           qr,
         })
