@@ -4,11 +4,11 @@
     "slug": "control",
     "version": "1.0.2",
     "orientation": "portrait",
-    "icon": "./assets/images/icon.png",
+    "icon": "./assets/new-control.png",
     "scheme": "mobilevoice",
     "userInterfaceStyle": "automatic",
     "ios": {
-      "icon": "./assets/images/icon.png",
+      "icon": "./assets/new-control.png",
       "bundleIdentifier": "com.anomalyco.mobilevoice",
       "config": {
         "usesNonExemptEncryption": false
