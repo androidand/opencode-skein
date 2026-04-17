@@ -1,7 +1,7 @@
 import { describeRoute, resolver, validator } from "hono-openapi"
 import { Hono } from "hono"
 import type { UpgradeWebSocket } from "hono/ws"
-import { Effect } from "effect"
+import { Context, Effect } from "effect"
 import z from "zod"
 import { Format } from "../../format"
 import { TuiRoutes } from "./tui"
@@ -41,12 +41,16 @@ export const InstanceRoutes = (upgrade: UpgradeWebSocket): Hono => {
 
   if (Flag.OPENCODE_EXPERIMENTAL_HTTPAPI) {
     const handler = ExperimentalHttpApiServer.webHandler().handler
-    app
-      .all("/question", (c) => handler(c.req.raw))
-      .all("/question/*", (c) => handler(c.req.raw))
-      .all("/permission", (c) => handler(c.req.raw))
-      .all("/permission/*", (c) => handler(c.req.raw))
-      .all("/provider/auth", (c) => handler(c.req.raw))
+    const context = Context.empty() as Context.Context<unknown>
+    app.all("/question", (c) => handler(c.req.raw, context))
+    app.all("/question/*", (c) => handler(c.req.raw, context))
+    app.all("/permission", (c) => handler(c.req.raw, context))
+    app.all("/permission/*", (c) => handler(c.req.raw, context))
+    app.all("/experimental/workspace", (c) => handler(c.req.raw, context))
+    app.all("/experimental/workspace/*", (c) => handler(c.req.raw, context))
+    app.all("/experimental/workspace/adaptor", (c) => handler(c.req.raw, context))
+    app.all("/experimental/workspace/status", (c) => handler(c.req.raw, context))
+    app.all("/provider/auth", (c) => handler(c.req.raw, context))
   }
 
   return app

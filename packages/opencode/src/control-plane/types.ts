@@ -1,17 +1,34 @@
 import z from "zod"
+import { Schema } from "effect"
 import { ProjectID } from "@/project/schema"
 import { WorkspaceID } from "./schema"
 
-export const WorkspaceInfo = z.object({
-  id: WorkspaceID.zod,
-  type: z.string(),
-  name: z.string(),
-  branch: z.string().nullable(),
-  directory: z.string().nullable(),
-  extra: z.unknown().nullable(),
-  projectID: ProjectID.zod,
-})
-export type WorkspaceInfo = z.infer<typeof WorkspaceInfo>
+const WorkspaceInfoZod = z
+  .object({
+    id: WorkspaceID.zod,
+    type: z.string(),
+    name: z.string(),
+    branch: z.string().nullable(),
+    directory: z.string().nullable(),
+    extra: z.unknown().nullable(),
+    projectID: ProjectID.zod,
+  })
+  .meta({
+    ref: "Workspace",
+  })
+
+const _WorkspaceInfo = Schema.Struct({
+  id: WorkspaceID,
+  type: Schema.String,
+  name: Schema.String,
+  branch: Schema.NullOr(Schema.String),
+  directory: Schema.NullOr(Schema.String),
+  extra: Schema.NullOr(Schema.Unknown),
+  projectID: ProjectID,
+}).annotate({ identifier: "Workspace" })
+
+export const WorkspaceInfo = Object.assign(_WorkspaceInfo, { zod: WorkspaceInfoZod })
+export type WorkspaceInfo = Schema.Schema.Type<typeof _WorkspaceInfo>
 
 export type Target =
   | {

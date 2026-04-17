@@ -25,18 +25,25 @@ import { errorData } from "@/util/error"
 import { AppRuntime } from "@/effect/app-runtime"
 import { EventSequenceTable } from "@/sync/event.sql"
 import { waitEvent } from "./util"
+import { Schema } from "effect"
 
-export const Info = WorkspaceInfo.meta({
-  ref: "Workspace",
-})
-export type Info = z.infer<typeof Info>
+export const Info = WorkspaceInfo
+export type Info = WorkspaceInfo
 
-export const ConnectionStatus = z.object({
+const ConnectionStatusZod = z.object({
   workspaceID: WorkspaceID.zod,
   status: z.enum(["connected", "connecting", "disconnected", "error"]),
   error: z.string().optional(),
 })
-export type ConnectionStatus = z.infer<typeof ConnectionStatus>
+
+const _ConnectionStatus = Schema.Struct({
+  workspaceID: WorkspaceID,
+  status: Schema.Literals(["connected", "connecting", "disconnected", "error"]),
+  error: Schema.optional(Schema.String),
+})
+
+export const ConnectionStatus = Object.assign(_ConnectionStatus, { zod: ConnectionStatusZod })
+export type ConnectionStatus = Schema.Schema.Type<typeof _ConnectionStatus>
 
 const Restore = z.object({
   workspaceID: WorkspaceID.zod,
@@ -59,7 +66,7 @@ export const Event = {
     }),
   ),
   Restore: BusEvent.define("workspace.restore", Restore),
-  Status: BusEvent.define("workspace.status", ConnectionStatus),
+  Status: BusEvent.define("workspace.status", ConnectionStatus.zod),
 }
 
 function fromRow(row: typeof WorkspaceTable.$inferSelect): Info {
@@ -76,11 +83,28 @@ function fromRow(row: typeof WorkspaceTable.$inferSelect): Info {
 
 const CreateInput = z.object({
   id: WorkspaceID.zod.optional(),
-  type: Info.shape.type,
-  branch: Info.shape.branch,
+  type: WorkspaceInfo.zod.shape.type,
+  branch: WorkspaceInfo.zod.shape.branch,
   projectID: ProjectID.zod,
-  extra: Info.shape.extra,
+  extra: WorkspaceInfo.zod.shape.extra,
 })
+
+const CreateBodyZod = z.object({
+  id: WorkspaceID.zod.optional(),
+  type: WorkspaceInfo.zod.shape.type,
+  branch: WorkspaceInfo.zod.shape.branch,
+  extra: WorkspaceInfo.zod.shape.extra,
+})
+
+const _CreateBody = Schema.Struct({
+  id: Schema.optional(WorkspaceID),
+  type: Schema.String,
+  branch: Schema.NullOr(Schema.String),
+  extra: Schema.NullOr(Schema.Unknown),
+})
+
+export const CreateBody = Object.assign(_CreateBody, { zod: CreateBodyZod })
+export type CreateBody = Schema.Schema.Type<typeof _CreateBody>
 
 export const create = fn(CreateInput, async (input) => {
   const id = WorkspaceID.ascending(input.id)
@@ -139,6 +163,28 @@ const SessionRestoreInput = z.object({
   workspaceID: WorkspaceID.zod,
   sessionID: SessionID.zod,
 })
+
+const SessionRestoreBodyZod = z.object({
+  sessionID: SessionID.zod,
+})
+
+const _SessionRestoreBody = Schema.Struct({
+  sessionID: SessionID,
+})
+
+export const SessionRestoreBody = Object.assign(_SessionRestoreBody, { zod: SessionRestoreBodyZod })
+export type SessionRestoreBody = Schema.Schema.Type<typeof _SessionRestoreBody>
+
+const SessionRestoreResultZod = z.object({
+  total: z.number().int().min(0),
+})
+
+const _SessionRestoreResult = Schema.Struct({
+  total: Schema.Number,
+})
+
+export const SessionRestoreResult = Object.assign(_SessionRestoreResult, { zod: SessionRestoreResultZod })
+export type SessionRestoreResult = Schema.Schema.Type<typeof _SessionRestoreResult>
 
 export const sessionRestore = fn(SessionRestoreInput, async (input) => {
   log.info("session restore requested", {

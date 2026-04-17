@@ -13,6 +13,7 @@ import { Filesystem } from "@/util"
 import { PermissionApi, permissionHandlers } from "./permission"
 import { ProviderApi, providerHandlers } from "./provider"
 import { QuestionApi, questionHandlers } from "./question"
+import { WorkspaceApi, workspaceHandlers } from "./workspace"
 
 const Query = Schema.Struct({
   directory: Schema.optional(Schema.String),
@@ -108,11 +109,13 @@ const instance = HttpRouter.middleware()(
 const QuestionSecured = QuestionApi.middleware(Authorization)
 const PermissionSecured = PermissionApi.middleware(Authorization)
 const ProviderSecured = ProviderApi.middleware(Authorization)
+const WorkspaceSecured = WorkspaceApi.middleware(Authorization)
 
 export const routes = Layer.mergeAll(
   HttpApiBuilder.layer(QuestionSecured).pipe(Layer.provide(questionHandlers)),
   HttpApiBuilder.layer(PermissionSecured).pipe(Layer.provide(permissionHandlers)),
   HttpApiBuilder.layer(ProviderSecured).pipe(Layer.provide(providerHandlers)),
+  HttpApiBuilder.layer(WorkspaceSecured).pipe(Layer.provide(workspaceHandlers)),
 ).pipe(
   Layer.provide(auth),
   Layer.provide(normalize),

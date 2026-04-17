@@ -1,12 +1,23 @@
 import { lazy } from "@/util/lazy"
+import { Schema } from "effect"
+import z from "zod"
 import type { ProjectID } from "@/project/schema"
 import type { WorkspaceAdaptor } from "../types"
 
-export type WorkspaceAdaptorEntry = {
-  type: string
-  name: string
-  description: string
-}
+const WorkspaceAdaptorEntryZod = z.object({
+  type: z.string(),
+  name: z.string(),
+  description: z.string(),
+})
+
+const _WorkspaceAdaptorEntry = Schema.Struct({
+  type: Schema.String,
+  name: Schema.String,
+  description: Schema.String,
+})
+
+export const WorkspaceAdaptorEntry = Object.assign(_WorkspaceAdaptorEntry, { zod: WorkspaceAdaptorEntryZod })
+export type WorkspaceAdaptorEntry = Schema.Schema.Type<typeof _WorkspaceAdaptorEntry>
 
 const BUILTIN: Record<string, () => Promise<WorkspaceAdaptor>> = {
   worktree: lazy(async () => (await import("./worktree")).WorktreeAdaptor),

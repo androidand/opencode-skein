@@ -4,6 +4,8 @@ import z from "zod"
 import { listAdaptors } from "../../control-plane/adaptors"
 import { Workspace } from "../../control-plane/workspace"
 import { Instance } from "../../project/instance"
+import { WorkspaceID } from "../../control-plane/schema"
+import { WorkspaceAdaptorEntry } from "../../control-plane/adaptors"
 import { errors } from "../error"
 import { lazy } from "../../util/lazy"
 import { Log } from "@/util"
@@ -24,15 +26,7 @@ export const WorkspaceRoutes = lazy(() =>
             description: "Workspace adaptors",
             content: {
               "application/json": {
-                schema: resolver(
-                  z.array(
-                    z.object({
-                      type: z.string(),
-                      name: z.string(),
-                      description: z.string(),
-                    }),
-                  ),
-                ),
+                schema: resolver(WorkspaceAdaptorEntry.zod.array()),
               },
             },
           },
@@ -53,19 +47,14 @@ export const WorkspaceRoutes = lazy(() =>
             description: "Workspace created",
             content: {
               "application/json": {
-                schema: resolver(Workspace.Info),
+                schema: resolver(Workspace.Info.zod),
               },
             },
           },
           ...errors(400),
         },
       }),
-      validator(
-        "json",
-        Workspace.create.schema.omit({
-          projectID: true,
-        }),
-      ),
+      validator("json", Workspace.CreateBody.zod),
       async (c) => {
         const body = c.req.valid("json")
         const workspace = await Workspace.create({
@@ -86,7 +75,7 @@ export const WorkspaceRoutes = lazy(() =>
             description: "Workspaces",
             content: {
               "application/json": {
-                schema: resolver(z.array(Workspace.Info)),
+                schema: resolver(Workspace.Info.zod.array()),
               },
             },
           },
@@ -107,7 +96,7 @@ export const WorkspaceRoutes = lazy(() =>
             description: "Workspace status",
             content: {
               "application/json": {
-                schema: resolver(z.array(Workspace.ConnectionStatus)),
+                schema: resolver(Workspace.ConnectionStatus.zod.array()),
               },
             },
           },
@@ -129,7 +118,7 @@ export const WorkspaceRoutes = lazy(() =>
             description: "Workspace removed",
             content: {
               "application/json": {
-                schema: resolver(Workspace.Info.optional()),
+                schema: resolver(Workspace.Info.zod.optional()),
               },
             },
           },
@@ -139,7 +128,7 @@ export const WorkspaceRoutes = lazy(() =>
       validator(
         "param",
         z.object({
-          id: Workspace.Info.shape.id,
+          id: WorkspaceID.zod,
         }),
       ),
       async (c) => {
@@ -158,19 +147,15 @@ export const WorkspaceRoutes = lazy(() =>
             description: "Session replay started",
             content: {
               "application/json": {
-                schema: resolver(
-                  z.object({
-                    total: z.number().int().min(0),
-                  }),
-                ),
+                schema: resolver(Workspace.SessionRestoreResult.zod),
               },
             },
           },
           ...errors(400),
         },
       }),
-      validator("param", z.object({ id: Workspace.Info.shape.id })),
-      validator("json", Workspace.sessionRestore.schema.omit({ workspaceID: true })),
+      validator("param", z.object({ id: WorkspaceID.zod })),
+      validator("json", Workspace.SessionRestoreBody.zod),
       async (c) => {
         const { id } = c.req.valid("param")
         const body = c.req.valid("json")

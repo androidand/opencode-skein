@@ -4,9 +4,9 @@ import { Worktree } from "@/worktree"
 import { type WorkspaceAdaptor, WorkspaceInfo } from "../types"
 
 const WorktreeConfig = z.object({
-  name: WorkspaceInfo.shape.name,
-  branch: WorkspaceInfo.shape.branch.unwrap(),
-  directory: WorkspaceInfo.shape.directory.unwrap(),
+  name: WorkspaceInfo.zod.shape.name,
+  branch: WorkspaceInfo.zod.shape.branch.unwrap(),
+  directory: WorkspaceInfo.zod.shape.directory.unwrap(),
 })
 
 export const WorktreeAdaptor: WorkspaceAdaptor = {
