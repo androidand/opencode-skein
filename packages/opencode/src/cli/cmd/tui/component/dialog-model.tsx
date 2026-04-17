@@ -119,8 +119,18 @@ export function DialogModel(props: { providerID?: string }) {
       : []
 
     if (needle) {
+      const isFavorite = (v: { providerID: string; modelID: string }) =>
+        favorites.some((f) => f.providerID === v.providerID && f.modelID === v.modelID)
+      const isRecent = (v: { providerID: string; modelID: string }) =>
+        recents.some((r) => r.providerID === v.providerID && r.modelID === v.modelID)
+      const matches = fuzzysort.go(needle, providerOptions, { keys: ["title", "category"] }).map((x) => x.obj)
+      const fav = matches.filter((x) => isFavorite(x.value))
+      const rec = matches.filter((x) => !isFavorite(x.value) && isRecent(x.value))
+      const rest = matches.filter((x) => !isFavorite(x.value) && !isRecent(x.value))
       return [
-        ...fuzzysort.go(needle, providerOptions, { keys: ["title", "category"] }).map((x) => x.obj),
+        ...fav,
+        ...rec,
+        ...rest,
         ...fuzzysort.go(needle, popularProviders, { keys: ["title"] }).map((x) => x.obj),
       ]
     }
