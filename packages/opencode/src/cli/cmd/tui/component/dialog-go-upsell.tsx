@@ -1,12 +1,16 @@
-import { RGBA, TextAttributes } from "@opentui/core"
+import { BoxRenderable, RGBA, TextAttributes } from "@opentui/core"
 import { useKeyboard } from "@opentui/solid"
 import open from "open"
-import { createSignal } from "solid-js"
+import { createSignal, onCleanup, onMount } from "solid-js"
 import { selectedForeground, useTheme } from "@tui/context/theme"
 import { useDialog, type DialogContext } from "@tui/ui/dialog"
 import { Link } from "@tui/ui/link"
+import { GoLogo } from "./logo"
+import { BgPulse } from "./bg-pulse"
 
 const GO_URL = "https://opencode.ai/go"
+const PAD_X = 3
+const PAD_TOP_OUTER = 1
 
 export type DialogGoUpsellProps = {
   onClose?: (dontShowAgain?: boolean) => void
@@ -27,62 +31,96 @@ export function DialogGoUpsell(props: DialogGoUpsellProps) {
   const dialog = useDialog()
   const { theme } = useTheme()
   const fg = selectedForeground(theme)
-  const [selected, setSelected] = createSignal(0)
+  const [selected, setSelected] = createSignal<"dismiss" | "subscribe">("subscribe")
+  const [center, setCenter] = createSignal<{ x: number; y: number } | undefined>()
+  let content: BoxRenderable | undefined
+  let logoBox: BoxRenderable | undefined
+
+  const sync = () => {
+    if (!content || !logoBox) return
+    setCenter({
+      x: logoBox.x - content.x + logoBox.width / 2,
+      y: logoBox.y - content.y + logoBox.height / 2,
+    })
+  }
+
+  onMount(() => {
+    sync()
+    content?.on("resize", sync)
+    logoBox?.on("resize", sync)
+  })
+
+  onCleanup(() => {
+    content?.off("resize", sync)
+    logoBox?.off("resize", sync)
+  })
 
   useKeyboard((evt) => {
     if (evt.name === "left" || evt.name === "right" || evt.name === "tab") {
-      setSelected((s) => (s === 0 ? 1 : 0))
+      setSelected((s) => (s === "subscribe" ? "dismiss" : "subscribe"))
       return
     }
-    if (evt.name !== "return") return
-    if (selected() === 0) subscribe(props, dialog)
-    else dismiss(props, dialog)
+    if (evt.name === "return") {
+      if (selected() === "subscribe") subscribe(props, dialog)
+      else dismiss(props, dialog)
+    }
   })
 
   return (
-    <box paddingLeft={2} paddingRight={2} gap={1}>
-      <box flexDirection="row" justifyContent="space-between">
-        <text attributes={TextAttributes.BOLD} fg={theme.text}>
-          Free limit reached
-        </text>
-        <text fg={theme.textMuted} onMouseUp={() => dialog.clear()}>
-          esc
-        </text>
+    <box ref={(item: BoxRenderable) => (content = item)}>
+      <box position="absolute" top={-PAD_TOP_OUTER} left={0} right={0} bottom={0} zIndex={0}>
+        <BgPulse centerX={center()?.x} centerY={(center()?.y ?? 0) + PAD_TOP_OUTER} />
       </box>
-      <box gap={1} paddingBottom={1}>
-        <text fg={theme.textMuted}>
-          Subscribe to OpenCode Go to keep going with reliable access to the best open-source models, starting at
-          $5/month.
-        </text>
-        <box flexDirection="row" gap={1}>
+      <box paddingLeft={PAD_X} paddingRight={PAD_X} paddingBottom={1} gap={1}>
+        <box flexDirection="row" justifyContent="space-between">
+          <text attributes={TextAttributes.BOLD} fg={theme.text}>
+            Free limit reached
+          </text>
+          <text fg={theme.textMuted} onMouseUp={() => dialog.clear()}>
+            esc
+          </text>
+        </box>
+        <box>
+          <text fg={theme.textMuted}>
+            Subscribe to OpenCode Go to keep going with reliable access to the best open-source models, starting at
+            $5/month.
+          </text>
+        </box>
+        <box alignItems="center" gap={1} paddingBottom={1}>
+          <box ref={(item: BoxRenderable) => (logoBox = item)}>
+            <GoLogo />
+          </box>
           <Link href={GO_URL} fg={theme.primary} />
         </box>
-      </box>
-      <box flexDirection="row" justifyContent="flex-end" gap={1} paddingBottom={1}>
-        <box
-          paddingLeft={3}
-          paddingRight={3}
-          backgroundColor={selected() === 0 ? theme.primary : RGBA.fromInts(0, 0, 0, 0)}
-          onMouseOver={() => setSelected(0)}
-          onMouseUp={() => subscribe(props, dialog)}
-        >
-          <text fg={selected() === 0 ? fg : theme.text} attributes={selected() === 0 ? TextAttributes.BOLD : undefined}>
-            subscribe
-          </text>
-        </box>
-        <box
-          paddingLeft={3}
-          paddingRight={3}
-          backgroundColor={selected() === 1 ? theme.primary : RGBA.fromInts(0, 0, 0, 0)}
-          onMouseOver={() => setSelected(1)}
-          onMouseUp={() => dismiss(props, dialog)}
-        >
-          <text
-            fg={selected() === 1 ? fg : theme.textMuted}
-            attributes={selected() === 1 ? TextAttributes.BOLD : undefined}
+        <box flexDirection="row" justifyContent="space-between">
+          <box
+            paddingLeft={2}
+            paddingRight={2}
+            backgroundColor={selected() === "dismiss" ? theme.primary : RGBA.fromInts(0, 0, 0, 0)}
+            onMouseOver={() => setSelected("dismiss")}
+            onMouseUp={() => dismiss(props, dialog)}
           >
-            don't show again
-          </text>
+            <text
+              fg={selected() === "dismiss" ? fg : theme.textMuted}
+              attributes={selected() === "dismiss" ? TextAttributes.BOLD : undefined}
+            >
+              don't show again
+            </text>
+          </box>
+          <box
+            paddingLeft={2}
+            paddingRight={2}
+            backgroundColor={selected() === "subscribe" ? theme.primary : RGBA.fromInts(0, 0, 0, 0)}
+            onMouseOver={() => setSelected("subscribe")}
+            onMouseUp={() => subscribe(props, dialog)}
+          >
+            <text
+              fg={selected() === "subscribe" ? fg : theme.text}
+              attributes={selected() === "subscribe" ? TextAttributes.BOLD : undefined}
+            >
+              subscribe
+            </text>
+          </box>
         </box>
       </box>
     </box>
