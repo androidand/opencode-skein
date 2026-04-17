@@ -2,22 +2,10 @@ import z from "zod"
 import { Schema } from "effect"
 import { ProjectID } from "@/project/schema"
 import { WorkspaceID } from "./schema"
+import { zod } from "@/util/effect-zod"
+import { withStatics } from "@/util/schema"
 
-const WorkspaceInfoZod = z
-  .object({
-    id: WorkspaceID.zod,
-    type: z.string(),
-    name: z.string(),
-    branch: z.string().nullable(),
-    directory: z.string().nullable(),
-    extra: z.unknown().nullable(),
-    projectID: ProjectID.zod,
-  })
-  .meta({
-    ref: "Workspace",
-  })
-
-const _WorkspaceInfo = Schema.Struct({
+export const WorkspaceInfo = Schema.Struct({
   id: WorkspaceID,
   type: Schema.String,
   name: Schema.String,
@@ -25,10 +13,10 @@ const _WorkspaceInfo = Schema.Struct({
   directory: Schema.NullOr(Schema.String),
   extra: Schema.NullOr(Schema.Unknown),
   projectID: ProjectID,
-}).annotate({ identifier: "Workspace" })
-
-export const WorkspaceInfo = Object.assign(_WorkspaceInfo, { zod: WorkspaceInfoZod })
-export type WorkspaceInfo = Schema.Schema.Type<typeof _WorkspaceInfo>
+})
+  .annotate({ identifier: "Workspace" })
+  .pipe(withStatics((s) => ({ zod: zod(s) })))
+export type WorkspaceInfo = Schema.Schema.Type<typeof WorkspaceInfo>
 
 export type Target =
   | {

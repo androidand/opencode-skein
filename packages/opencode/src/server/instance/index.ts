@@ -42,15 +42,15 @@ export const InstanceRoutes = (upgrade: UpgradeWebSocket): Hono => {
   if (Flag.OPENCODE_EXPERIMENTAL_HTTPAPI) {
     const handler = ExperimentalHttpApiServer.webHandler().handler
     const context = Context.empty() as Context.Context<unknown>
-    app.all("/question", (c) => handler(c.req.raw, context))
-    app.all("/question/*", (c) => handler(c.req.raw, context))
-    app.all("/permission", (c) => handler(c.req.raw, context))
-    app.all("/permission/*", (c) => handler(c.req.raw, context))
-    app.all("/experimental/workspace", (c) => handler(c.req.raw, context))
-    app.all("/experimental/workspace/*", (c) => handler(c.req.raw, context))
-    app.all("/experimental/workspace/adaptor", (c) => handler(c.req.raw, context))
-    app.all("/experimental/workspace/status", (c) => handler(c.req.raw, context))
-    app.all("/provider/auth", (c) => handler(c.req.raw, context))
+    app.get("/question", (c) => handler(c.req.raw, context))
+    app.post("/question/:requestID/reply", (c) => handler(c.req.raw, context))
+    app.post("/question/:requestID/reject", (c) => handler(c.req.raw, context))
+    app.get("/permission", (c) => handler(c.req.raw, context))
+    app.post("/permission/:requestID/reply", (c) => handler(c.req.raw, context))
+    app.get("/experimental/workspace", (c) => handler(c.req.raw, context))
+    app.get("/experimental/workspace/adaptor", (c) => handler(c.req.raw, context))
+    app.get("/experimental/workspace/status", (c) => handler(c.req.raw, context))
+    app.get("/provider/auth", (c) => handler(c.req.raw, context))
   }
 
   return app

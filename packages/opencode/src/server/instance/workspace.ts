@@ -2,9 +2,9 @@ import { Hono } from "hono"
 import { describeRoute, resolver, validator } from "hono-openapi"
 import z from "zod"
 import { listAdaptors } from "../../control-plane/adaptors"
+import { WorkspaceID } from "../../control-plane/schema"
 import { Workspace } from "../../control-plane/workspace"
 import { Instance } from "../../project/instance"
-import { WorkspaceID } from "../../control-plane/schema"
 import { WorkspaceAdaptorEntry } from "../../control-plane/adaptors"
 import { errors } from "../error"
 import { lazy } from "../../util/lazy"
@@ -54,7 +54,12 @@ export const WorkspaceRoutes = lazy(() =>
           ...errors(400),
         },
       }),
-      validator("json", Workspace.CreateBody.zod),
+      validator(
+        "json",
+        Workspace.create.schema.omit({
+          projectID: true,
+        }),
+      ),
       async (c) => {
         const body = c.req.valid("json")
         const workspace = await Workspace.create({
@@ -147,7 +152,11 @@ export const WorkspaceRoutes = lazy(() =>
             description: "Session replay started",
             content: {
               "application/json": {
-                schema: resolver(Workspace.SessionRestoreResult.zod),
+                schema: resolver(
+                  z.object({
+                    total: z.number().int().min(0),
+                  }),
+                ),
               },
             },
           },
@@ -155,7 +164,7 @@ export const WorkspaceRoutes = lazy(() =>
         },
       }),
       validator("param", z.object({ id: WorkspaceID.zod })),
-      validator("json", Workspace.SessionRestoreBody.zod),
+      validator("json", Workspace.sessionRestore.schema.omit({ workspaceID: true })),
       async (c) => {
         const { id } = c.req.valid("param")
         const body = c.req.valid("json")
