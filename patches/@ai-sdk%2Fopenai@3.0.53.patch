@@ -1,0 +1,104 @@
+diff --git a/dist/index.js b/dist/index.js
+index 1c78d6f13..21254c8ca 100644
+--- a/dist/index.js
++++ b/dist/index.js
+@@ -4236,6 +4236,12 @@ var openaiLanguageModelResponsesOptionsSchema = (0, import_provider_utils27.lazy
+        * Additional metadata to store with the generation.
+        */
+       metadata: import_v422.z.any().nullish(),
++      contextManagement: import_v422.z.array(
++        import_v422.z.object({
++          type: import_v422.z.literal("compaction"),
++          compactThreshold: import_v422.z.number()
++        })
++      ).nullish(),
+       /**
+        * Whether to use parallel tool calls. Defaults to `true`.
+        */
+@@ -4790,6 +4796,12 @@ var OpenAIResponsesLanguageModel = class {
+       metadata: openaiOptions == null ? void 0 : openaiOptions.metadata,
+       parallel_tool_calls: openaiOptions == null ? void 0 : openaiOptions.parallelToolCalls,
+       previous_response_id: openaiOptions == null ? void 0 : openaiOptions.previousResponseId,
++      ...(openaiOptions != null && openaiOptions.contextManagement && {
++        context_management: openaiOptions.contextManagement.map((cm) => ({
++          type: cm.type,
++          compact_threshold: cm.compactThreshold
++        }))
++      }),
+       store,
+       user: openaiOptions == null ? void 0 : openaiOptions.user,
+       instructions: openaiOptions == null ? void 0 : openaiOptions.instructions,
+@@ -6759,4 +6771,4 @@ var openai = createOpenAI();
+   createOpenAI,
+   openai
+ });
+-//# sourceMappingURL=index.js.map
+\ No newline at end of file
++//# sourceMappingURL=index.js.map
+diff --git a/dist/index.mjs b/dist/index.mjs
+index 3dee8855a..3a0081631 100644
+--- a/dist/index.mjs
++++ b/dist/index.mjs
+@@ -4313,6 +4313,12 @@ var openaiLanguageModelResponsesOptionsSchema = lazySchema20(
+        * Additional metadata to store with the generation.
+        */
+       metadata: z22.any().nullish(),
++      contextManagement: z22.array(
++        z22.object({
++          type: z22.literal("compaction"),
++          compactThreshold: z22.number()
++        })
++      ).nullish(),
+       /**
+        * Whether to use parallel tool calls. Defaults to `true`.
+        */
+@@ -4869,6 +4875,12 @@ var OpenAIResponsesLanguageModel = class {
+       metadata: openaiOptions == null ? void 0 : openaiOptions.metadata,
+       parallel_tool_calls: openaiOptions == null ? void 0 : openaiOptions.parallelToolCalls,
+       previous_response_id: openaiOptions == null ? void 0 : openaiOptions.previousResponseId,
++      ...(openaiOptions != null && openaiOptions.contextManagement && {
++        context_management: openaiOptions.contextManagement.map((cm) => ({
++          type: cm.type,
++          compact_threshold: cm.compactThreshold
++        }))
++      }),
+       store,
+       user: openaiOptions == null ? void 0 : openaiOptions.user,
+       instructions: openaiOptions == null ? void 0 : openaiOptions.instructions,
+@@ -6849,4 +6861,4 @@ export {
+   createOpenAI,
+   openai
+ };
+-//# sourceMappingURL=index.mjs.map
+\ No newline at end of file
++//# sourceMappingURL=index.mjs.map
+diff --git a/dist/index.d.ts b/dist/index.d.ts
+index 7317931f9..55177ff7b 100644
+--- a/dist/index.d.ts
++++ b/dist/index.d.ts
+@@ -1014,6 +1014,10 @@ declare const openaiLanguageModelResponsesOptionsSchema: _ai_sdk_provider_utils.
+     logprobs?: number | boolean | undefined;
+     maxToolCalls?: number | null | undefined;
+     metadata?: any;
++    contextManagement?: {
++        type: "compaction";
++        compactThreshold: number;
++    }[] | null | undefined;
+     parallelToolCalls?: boolean | null | undefined;
+     previousResponseId?: string | null | undefined;
+     promptCacheKey?: string | null | undefined;
+diff --git a/dist/index.d.mts b/dist/index.d.mts
+index 7317931f9..55177ff7b 100644
+--- a/dist/index.d.mts
++++ b/dist/index.d.mts
+@@ -1014,6 +1014,10 @@ declare const openaiLanguageModelResponsesOptionsSchema: _ai_sdk_provider_utils.
+     logprobs?: number | boolean | undefined;
+     maxToolCalls?: number | null | undefined;
+     metadata?: any;
++    contextManagement?: {
++        type: "compaction";
++        compactThreshold: number;
++    }[] | null | undefined;
+     parallelToolCalls?: boolean | null | undefined;
+     previousResponseId?: string | null | undefined;
+     promptCacheKey?: string | null | undefined;
