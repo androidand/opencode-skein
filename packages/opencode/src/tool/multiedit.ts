@@ -10,7 +10,6 @@ export const Parameters = Schema.Struct({
   edits: Schema.mutable(
     Schema.Array(
       Schema.Struct({
-        filePath: Schema.String.annotate({ description: "The absolute path to the file to modify" }),
         oldString: Schema.String.annotate({ description: "The text to replace" }),
         newString: Schema.String.annotate({
           description: "The text to replace it with (must be different from oldString)",
@@ -32,17 +31,10 @@ export const MultiEditTool = Tool.define(
     return {
       description: DESCRIPTION,
       parameters: Parameters,
-      execute: (
-        params: {
-          filePath: string
-          edits: Array<{ filePath: string; oldString: string; newString: string; replaceAll?: boolean }>
-        },
-        ctx: Tool.Context,
-      ) =>
+      execute: (params: Schema.Schema.Type<typeof Parameters>, ctx: Tool.Context) =>
         Effect.gen(function* () {
-          const results = []
-          for (const [, entry] of params.edits.entries()) {
-            const result = yield* edit.execute(
+          const results = yield* Effect.forEach(params.edits, (entry) =>
+            edit.execute(
               {
                 filePath: params.filePath,
                 oldString: entry.oldString,
@@ -51,8 +43,7 @@ export const MultiEditTool = Tool.define(
               },
               ctx,
             )
-            results.push(result)
-          }
+          )
           return {
             title: path.relative(Instance.worktree, params.filePath),
             metadata: {

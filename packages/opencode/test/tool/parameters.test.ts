@@ -179,7 +179,7 @@ describe("tool parameters", () => {
     test("accepts an edit entry", () => {
       const parsed = parse(MultiEdit, {
         filePath: "/a",
-        edits: [{ filePath: "/a", oldString: "x", newString: "y" }],
+        edits: [{ oldString: "x", newString: "y" }],
       })
       expect(parsed.edits.length).toBe(1)
     })
