@@ -1,6 +1,6 @@
 import { Effect, Schema } from "effect"
 import * as Tool from "./tool"
-import { EditTool } from "./edit"
+import * as Edit from "./edit"
 import DESCRIPTION from "./multiedit.txt"
 import path from "path"
 import { Instance } from "../project/instance"
@@ -8,24 +8,14 @@ import { Instance } from "../project/instance"
 export const Parameters = Schema.Struct({
   filePath: Schema.String.annotate({ description: "The absolute path to the file to modify" }),
   edits: Schema.mutable(
-    Schema.Array(
-      Schema.Struct({
-        oldString: Schema.String.annotate({ description: "The text to replace" }),
-        newString: Schema.String.annotate({
-          description: "The text to replace it with (must be different from oldString)",
-        }),
-        replaceAll: Schema.optional(Schema.Boolean).annotate({
-          description: "Replace all occurrences of oldString (default false)",
-        }),
-      }),
-    ),
+    Schema.Array(Edit.Entry),
   ).annotate({ description: "Array of edit operations to perform sequentially on the file" }),
 })
 
 export const MultiEditTool = Tool.define(
   "multiedit",
   Effect.gen(function* () {
-    const editInfo = yield* EditTool
+    const editInfo = yield* Edit.EditTool
     const edit = yield* editInfo.init()
 
     return {
