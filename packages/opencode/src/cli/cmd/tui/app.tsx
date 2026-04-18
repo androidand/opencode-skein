@@ -1,5 +1,6 @@
 import { render, TimeToFirstDraw, useKeyboard, useRenderer, useTerminalDimensions } from "@opentui/solid"
 import * as Clipboard from "@tui/util/clipboard"
+import * as Notify from "@tui/util/notify"
 import * as Selection from "@tui/util/selection"
 import * as Terminal from "@tui/util/terminal"
 import { createCliRenderer, MouseButton, type CliRendererConfig } from "@opentui/core"
@@ -58,8 +59,11 @@ import open from "open"
 import { PromptRefProvider, usePromptRef } from "./context/prompt"
 import { TuiConfigProvider, useTuiConfig } from "./context/tui-config"
 import { TuiConfig } from "@/cli/cmd/tui/config/tui"
+import { Permission } from "@/permission"
 import { createTuiApi, TuiPluginRuntime, type RouteMap } from "./plugin"
+import { Question } from "@/question"
 import { FormatError, FormatUnknownError } from "@/cli/error"
+import { SessionStatus } from "@/session/status"
 
 import type { EventSource } from "./context/sdk"
 import { DialogVariant } from "./component/dialog-variant"
@@ -779,6 +783,31 @@ function App(props: { onSnapshot?: () => Promise<string[]> }) {
       message,
       duration: 5000,
     })
+  })
+
+  const notificationMethod = tuiConfig.notification_method ?? "off"
+  const notifySession = (sessionID: string, prefix: string) => {
+    const session = sync.session.get(sessionID)
+    if (session?.parentID) return
+    Notify.notifyTerminal({
+      method: notificationMethod,
+      title: "OpenCode",
+      body: `${prefix}: ${session?.title ?? sessionID}`,
+    })
+  }
+
+  event.subscribe((evt) => {
+    if (notificationMethod === "off") return
+    if (evt.type === SessionStatus.Event.Idle.type) {
+      notifySession(evt.properties.sessionID, "Response ready")
+      return
+    }
+    if (evt.type === Permission.Event.Asked.type) {
+      notifySession(evt.properties.sessionID, "Permission required")
+      return
+    }
+    if (evt.type !== Question.Event.Asked.type) return
+    notifySession(evt.properties.sessionID, "Question asked")
   })
 
   event.on("installation.update-available", async (evt) => {

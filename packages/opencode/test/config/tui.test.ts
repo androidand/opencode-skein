@@ -624,3 +624,39 @@ test("merges plugin_enabled flags across config layers", async () => {
     "local.plugin": true,
   })
 })
+
+test("loads notification config from tui.json", async () => {
+  await using tmp = await tmpdir({
+    init: async (dir) => {
+      await Bun.write(path.join(dir, "tui.json"), JSON.stringify({ notification_method: "osc777" }, null, 2))
+    },
+  })
+
+  const config = await getTuiConfig(tmp.path)
+  expect(config.notification_method).toBe("osc777")
+})
+
+test("migrates legacy notification settings from opencode.json", async () => {
+  await using tmp = await tmpdir({
+    init: async (dir) => {
+      await Bun.write(
+        path.join(dir, "opencode.json"),
+        JSON.stringify(
+          {
+            tui: { notification_method: "bell" },
+          },
+          null,
+          2,
+        ),
+      )
+    },
+  })
+
+  const config = await getTuiConfig(tmp.path)
+  expect(config.notification_method).toBe("bell")
+
+  const text = await Filesystem.readText(path.join(tmp.path, "tui.json"))
+  expect(JSON.parse(text)).toMatchObject({
+    notification_method: "bell",
+  })
+})
