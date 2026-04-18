@@ -14,6 +14,9 @@ const published = (name: string, version: string) =>
     Effect.map((result) => result.exitCode === 0),
   )
 
+const sha256 = (path: string) =>
+  Effect.promise(() => $`sha256sum ${path} | cut -d' ' -f1`.text()).pipe(Effect.map((text) => text.trim()))
+
 const publishPackage = (dir: string, name: string, version: string) =>
   Effect.gen(function* () {
     if (yield* published(name, version)) {
@@ -92,18 +95,12 @@ const program = Effect.gen(function* () {
 
   if (Script.preview) return
 
-  const arm64Sha = (yield* Effect.promise(() =>
-    $`sha256sum ./dist/opencode-linux-arm64.tar.gz | cut -d' ' -f1`.text(),
-  )).trim()
-  const x64Sha = (yield* Effect.promise(() =>
-    $`sha256sum ./dist/opencode-linux-x64.tar.gz | cut -d' ' -f1`.text(),
-  )).trim()
-  const macX64Sha = (yield* Effect.promise(() =>
-    $`sha256sum ./dist/opencode-darwin-x64.zip | cut -d' ' -f1`.text(),
-  )).trim()
-  const macArm64Sha = (yield* Effect.promise(() =>
-    $`sha256sum ./dist/opencode-darwin-arm64.zip | cut -d' ' -f1`.text(),
-  )).trim()
+  const [arm64Sha, x64Sha, macX64Sha, macArm64Sha] = yield* Effect.all([
+    sha256("./dist/opencode-linux-arm64.tar.gz"),
+    sha256("./dist/opencode-linux-x64.tar.gz"),
+    sha256("./dist/opencode-darwin-x64.zip"),
+    sha256("./dist/opencode-darwin-arm64.zip"),
+  ])
   const [pkgver, subver = ""] = Script.version.split(/(-.*)/, 2)
 
   const binaryPkgbuild = [

@@ -34,6 +34,13 @@ const published = (name: string, version: string) =>
     Effect.map((result) => result.exitCode === 0),
   )
 
+const withPackageJson = (pkg: ReturnType<typeof packageJson>, next: ReturnType<typeof packageJson>) =>
+  Effect.promise(() => Bun.write("package.json", JSON.stringify(next, null, 2))).pipe(
+    Effect.zipRight(Effect.promise(() => $`bun pm pack`)),
+    Effect.zipRight(Effect.promise(() => $`npm publish *.tgz --tag ${Script.channel} --access public`)),
+    Effect.ensuring(Effect.promise(() => Bun.write("package.json", JSON.stringify(pkg, null, 2)))),
+  )
+
 function transformExports(exports: Record<string, unknown>) {
   return Object.fromEntries(
     Object.entries(exports).map(([key, value]) => {
@@ -59,10 +66,7 @@ const program = Effect.gen(function* () {
     exports: transformExports(pkg.exports),
   }
 
-  yield* Effect.promise(() => Bun.write("package.json", JSON.stringify(next, null, 2)))
-  yield* Effect.promise(() => $`bun pm pack`)
-  yield* Effect.promise(() => $`npm publish *.tgz --tag ${Script.channel} --access public`)
-  yield* Effect.promise(() => Bun.write("package.json", JSON.stringify(pkg, null, 2)))
+  yield* withPackageJson(pkg, next)
 })
 
 await Effect.runPromise(program)
