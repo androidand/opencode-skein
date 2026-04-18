@@ -2,21 +2,38 @@
 
 import { Script } from "@opencode-ai/script"
 import { $ } from "bun"
+import { Effect } from "effect"
 import { fileURLToPath } from "url"
 
 const dir = fileURLToPath(new URL("..", import.meta.url))
 process.chdir(dir)
 
-async function published(name: string, version: string) {
-  return (await $`npm view ${name}@${version} version`.nothrow()).exitCode === 0
+const packageJson = (value: unknown) => {
+  if (
+    typeof value === "object" &&
+    value !== null &&
+    "name" in value &&
+    typeof value.name === "string" &&
+    "version" in value &&
+    typeof value.version === "string" &&
+    "exports" in value &&
+    typeof value.exports === "object" &&
+    value.exports !== null
+  ) {
+    return {
+      name: value.name,
+      version: value.version,
+      exports: value.exports,
+    }
+  }
+  throw new Error("invalid sdk package manifest")
 }
 
-const pkg = (await import("../package.json").then((m) => m.default)) as {
-  name: string
-  version: string
-  exports: Record<string, unknown>
-}
-const original = JSON.parse(JSON.stringify(pkg))
+const published = (name: string, version: string) =>
+  Effect.promise(() => $`npm view ${name}@${version} version`.nothrow()).pipe(
+    Effect.map((result) => result.exitCode === 0),
+  )
+
 function transformExports(exports: Record<string, unknown>) {
   return Object.fromEntries(
     Object.entries(exports).map(([key, value]) => {
@@ -24,19 +41,28 @@ function transformExports(exports: Record<string, unknown>) {
         const file = value.replace("./src/", "./dist/").replace(".ts", "")
         return [key, { import: file + ".js", types: file + ".d.ts" }]
       }
-      if (typeof value === "object" && value !== null && !Array.isArray(value)) {
-        return [key, transformExports(value)]
-      }
+      if (typeof value === "object" && value !== null && !Array.isArray(value)) return [key, transformExports(value)]
       return [key, value]
     }),
   )
 }
-if (await published(pkg.name, pkg.version)) {
-  console.log(`already published ${pkg.name}@${pkg.version}`)
-  process.exit(0)
-}
-pkg.exports = transformExports(pkg.exports)
-await Bun.write("package.json", JSON.stringify(pkg, null, 2))
-await $`bun pm pack`
-await $`npm publish *.tgz --tag ${Script.channel} --access public`
-await Bun.write("package.json", JSON.stringify(original, null, 2))
+
+const program = Effect.gen(function* () {
+  const pkg = packageJson(yield* Effect.promise(() => import("../package.json").then((m) => m.default)))
+  if (yield* published(pkg.name, pkg.version)) {
+    console.log(`already published ${pkg.name}@${pkg.version}`)
+    return
+  }
+
+  const next = {
+    ...pkg,
+    exports: transformExports(pkg.exports),
+  }
+
+  yield* Effect.promise(() => Bun.write("package.json", JSON.stringify(next, null, 2)))
+  yield* Effect.promise(() => $`bun pm pack`)
+  yield* Effect.promise(() => $`npm publish *.tgz --tag ${Script.channel} --access public`)
+  yield* Effect.promise(() => Bun.write("package.json", JSON.stringify(pkg, null, 2)))
+})
+
+await Effect.runPromise(program)

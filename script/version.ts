@@ -2,35 +2,55 @@
 
 import { Script } from "@opencode-ai/script"
 import { $ } from "bun"
+import { Effect } from "effect"
 
-const output = [`version=${Script.version}`]
+const tag = `v${Script.version}`
 const sha = process.env.GITHUB_SHA ?? (await $`git rev-parse HEAD`.text()).trim()
+const betaPreview = Script.preview && Script.channel === "beta"
 
-if (!Script.preview) {
-  await $`bun script/changelog.ts --to ${sha}`.cwd(process.cwd())
-  const file = `${process.cwd()}/UPCOMING_CHANGELOG.md`
-  const body = await Bun.file(file)
-    .text()
-    .catch(() => "No notable changes")
-  const dir = process.env.RUNNER_TEMP ?? "/tmp"
-  const notesFile = `${dir}/opencode-release-notes.txt`
-  await Bun.write(notesFile, body)
-  await $`gh release create v${Script.version} -d --target ${sha} --title "v${Script.version}" --notes-file ${notesFile}`
-  const release = await $`gh release view v${Script.version} --json tagName,databaseId`.json()
-  output.push(`release=${release.databaseId}`)
-  output.push(`tag=${release.tagName}`)
-} else if (Script.channel === "beta") {
-  await $`gh release create v${Script.version} -d --target ${sha} --title "v${Script.version}" --repo ${process.env.GH_REPO}`
-  const release =
-    await $`gh release view v${Script.version} --json tagName,databaseId --repo ${process.env.GH_REPO}`.json()
-  output.push(`release=${release.databaseId}`)
-  output.push(`tag=${release.tagName}`)
+const changelog = Effect.promise(() => $`bun script/changelog.ts --to ${sha}`.cwd(process.cwd()))
+const readNotes = Effect.promise(() => Bun.file(`${process.cwd()}/UPCOMING_CHANGELOG.md`).text()).pipe(
+  Effect.catchAll(() => Effect.succeed("No notable changes")),
+)
+const writeOutput = (lines: ReadonlyArray<string>) =>
+  process.env.GITHUB_OUTPUT
+    ? Effect.promise(() => Bun.write(process.env.GITHUB_OUTPUT!, lines.join("\n")))
+    : Effect.void
+
+const createRelease = (notesFile?: string) => {
+  if (!notesFile && betaPreview) {
+    return Effect.promise(
+      () => $`gh release create ${tag} -d --target ${sha} --title ${tag} --repo ${process.env.GH_REPO}`,
+    )
+  }
+  if (notesFile)
+    return Effect.promise(() => $`gh release create ${tag} -d --target ${sha} --title ${tag} --notes-file ${notesFile}`)
+  return Effect.void
 }
 
-output.push(`repo=${process.env.GH_REPO}`)
+const viewRelease = betaPreview
+  ? Effect.promise(() => $`gh release view ${tag} --json tagName,databaseId --repo ${process.env.GH_REPO}`.json())
+  : Effect.promise(() => $`gh release view ${tag} --json tagName,databaseId`.json())
 
-if (process.env.GITHUB_OUTPUT) {
-  await Bun.write(process.env.GITHUB_OUTPUT, output.join("\n"))
-}
+const output = Effect.gen(function* () {
+  const lines = [`version=${Script.version}`]
 
-process.exit(0)
+  if (!Script.preview) {
+    yield* changelog
+    const body = yield* readNotes
+    const notesFile = `${process.env.RUNNER_TEMP ?? "/tmp"}/opencode-release-notes.txt`
+    yield* Effect.promise(() => Bun.write(notesFile, body))
+    yield* createRelease(notesFile)
+    const release = yield* viewRelease
+    lines.push(`release=${release.databaseId}`, `tag=${release.tagName}`)
+  } else if (Script.channel === "beta") {
+    yield* createRelease()
+    const release = yield* viewRelease
+    lines.push(`release=${release.databaseId}`, `tag=${release.tagName}`)
+  }
+
+  lines.push(`repo=${process.env.GH_REPO}`)
+  yield* writeOutput(lines)
+})
+
+await Effect.runPromise(output)
