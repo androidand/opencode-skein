@@ -17,11 +17,6 @@ import { Npm } from "../npm"
 import { Effect } from "effect"
 
 const log = Log.create({ service: "lsp.server" })
-const pathExists = async (p: string) =>
-  fs
-    .stat(p)
-    .then(() => true)
-    .catch(() => false)
 const run = (cmd: string[], opts: Process.RunOptions = {}) => Process.run(cmd, { ...opts, nothrow: true })
 const output = (cmd: string[], opts: Process.RunOptions = {}) => Process.text(cmd, { ...opts, nothrow: true })
 
@@ -1131,7 +1126,7 @@ export const JDTLS: RawInfo = {
     }
     const distPath = path.join(Global.Path.bin, "jdtls")
     const launcherDir = path.join(distPath, "plugins")
-    const installed = await pathExists(launcherDir)
+    const installed = await Filesystem.exists(launcherDir)
     if (!installed) {
       if (Flag.OPENCODE_DISABLE_LSP_DOWNLOAD) return
       log.info("Downloading JDTLS LSP server.")
@@ -1163,7 +1158,7 @@ export const JDTLS: RawInfo = {
         .find((item) => /^org\.eclipse\.equinox\.launcher_.*\.jar$/.test(item))
         ?.trim() ?? ""
     const launcherJar = path.join(launcherDir, jarFileName)
-    if (!(await pathExists(launcherJar))) {
+    if (!(await Filesystem.exists(launcherJar))) {
       log.error(`Failed to locate the JDTLS launcher module in the installed directory: ${distPath}.`)
       return
     }

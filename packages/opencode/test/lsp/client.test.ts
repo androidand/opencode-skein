@@ -3,8 +3,8 @@ import path from "path"
 import { Effect } from "effect"
 import { LSPClient } from "../../src/lsp"
 import { LSPServer } from "../../src/lsp"
-import { Instance } from "../../src/project/instance"
 import { Log } from "../../src/util"
+import { provideInstance } from "../fixture/fixture"
 
 // Minimal fake LSP server that speaks JSON-RPC over stdio
 function spawnFakeServer() {
@@ -25,17 +25,13 @@ describe("LSPClient interop", () => {
   test("handles workspace/workspaceFolders request", async () => {
     const handle = spawnFakeServer() as any
 
-    const client = await Instance.provide({
-      directory: process.cwd(),
-      fn: () =>
-        Effect.runPromise(
-          LSPClient.create({
-            serverID: "fake",
-            server: handle as unknown as LSPServer.Handle,
-            root: process.cwd(),
-          }),
-        ),
-    })
+    const client = await Effect.runPromise(
+      LSPClient.create({
+        serverID: "fake",
+        server: handle as unknown as LSPServer.Handle,
+        root: process.cwd(),
+      }).pipe(provideInstance(process.cwd())),
+    )
 
     await client.connection.sendNotification("test/trigger", {
       method: "workspace/workspaceFolders",
@@ -51,17 +47,13 @@ describe("LSPClient interop", () => {
   test("handles client/registerCapability request", async () => {
     const handle = spawnFakeServer() as any
 
-    const client = await Instance.provide({
-      directory: process.cwd(),
-      fn: () =>
-        Effect.runPromise(
-          LSPClient.create({
-            serverID: "fake",
-            server: handle as unknown as LSPServer.Handle,
-            root: process.cwd(),
-          }),
-        ),
-    })
+    const client = await Effect.runPromise(
+      LSPClient.create({
+        serverID: "fake",
+        server: handle as unknown as LSPServer.Handle,
+        root: process.cwd(),
+      }).pipe(provideInstance(process.cwd())),
+    )
 
     await client.connection.sendNotification("test/trigger", {
       method: "client/registerCapability",
@@ -77,17 +69,13 @@ describe("LSPClient interop", () => {
   test("handles client/unregisterCapability request", async () => {
     const handle = spawnFakeServer() as any
 
-    const client = await Instance.provide({
-      directory: process.cwd(),
-      fn: () =>
-        Effect.runPromise(
-          LSPClient.create({
-            serverID: "fake",
-            server: handle as unknown as LSPServer.Handle,
-            root: process.cwd(),
-          }),
-        ),
-    })
+    const client = await Effect.runPromise(
+      LSPClient.create({
+        serverID: "fake",
+        server: handle as unknown as LSPServer.Handle,
+        root: process.cwd(),
+      }).pipe(provideInstance(process.cwd())),
+    )
 
     await client.connection.sendNotification("test/trigger", {
       method: "client/unregisterCapability",

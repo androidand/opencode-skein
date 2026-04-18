@@ -11,7 +11,6 @@ import { LANGUAGE_EXTENSIONS } from "./language"
 import z from "zod"
 import type * as LSPServer from "./server"
 import { NamedError } from "@opencode-ai/shared/util/error"
-import { withTimeout } from "../util/timeout"
 import { Instance } from "../project/instance"
 import { Filesystem } from "../util"
 
@@ -93,54 +92,65 @@ export const create = Effect.fn("LSPClient.create")(function* (input: {
   connection.listen()
 
   l.info("sending initialize")
-  yield* Effect.tryPromise({
-    try: () =>
-      withTimeout(
-        connection.sendRequest("initialize", {
-          rootUri: pathToFileURL(input.root).href,
-          processId: input.server.process.pid,
-          workspaceFolders: [
-            {
-              name: "workspace",
-              uri: pathToFileURL(input.root).href,
-            },
-          ],
-          initializationOptions: {
-            ...input.server.initialization,
-          },
-          capabilities: {
-            window: {
-              workDoneProgress: true,
-            },
-            workspace: {
-              configuration: true,
-              didChangeWatchedFiles: {
-                dynamicRegistration: true,
-              },
-            },
-            textDocument: {
-              synchronization: {
-                didOpen: true,
-                didChange: true,
-              },
-              publishDiagnostics: {
-                versionSupport: true,
-              },
-            },
-          },
-        }),
-        45_000,
-      ),
-    catch: (error) => {
-      l.error("initialize error", { error })
-      return new InitializeError(
-        { serverID: input.serverID },
+  yield* Effect.tryPromise(() =>
+    connection.sendRequest("initialize", {
+      rootUri: pathToFileURL(input.root).href,
+      processId: input.server.process.pid,
+      workspaceFolders: [
         {
-          cause: error,
+          name: "workspace",
+          uri: pathToFileURL(input.root).href,
         },
+      ],
+      initializationOptions: {
+        ...input.server.initialization,
+      },
+      capabilities: {
+        window: {
+          workDoneProgress: true,
+        },
+        workspace: {
+          configuration: true,
+          didChangeWatchedFiles: {
+            dynamicRegistration: true,
+          },
+        },
+        textDocument: {
+          synchronization: {
+            didOpen: true,
+            didChange: true,
+          },
+          publishDiagnostics: {
+            versionSupport: true,
+          },
+        },
+      },
+    }),
+  ).pipe(
+    Effect.timeoutOrElse({
+      duration: 45_000,
+      orElse: () =>
+        Effect.fail(
+          new InitializeError(
+            { serverID: input.serverID },
+            { cause: new Error("LSP initialize timed out after 45 seconds") },
+          ),
+        ),
+    }),
+    Effect.catch((error) => {
+      l.error("initialize error", { error })
+      return Effect.fail(
+        error instanceof InitializeError
+          ? error
+          : new InitializeError(
+              { serverID: input.serverID },
+              {
+                cause: error,
+              },
+            ),
       )
-    },
-  })
+    }),
+  )
 
   yield* Effect.tryPromise(() => connection.sendNotification("initialized", {}))
 
@@ -227,7 +237,6 @@ export const create = Effect.fn("LSPClient.create")(function* (input: {
     let unsub: (() => void) | undefined
     let debounceTimer: ReturnType<typeof setTimeout> | undefined
     yield* Effect.promise(() =>
-      withTimeout(
         new Promise<void>((resolve) => {
           unsub = Bus.subscribe(Event.Diagnostics, (event) => {
             if (event.properties.path === normalizedPath && event.properties.serverID === input.serverID) {
@@ -240,10 +249,8 @@ export const create = Effect.fn("LSPClient.create")(function* (input: {
             }
           })
         }),
-        3000,
-      ),
     ).pipe(
-      Effect.catch(() => Effect.void),
+      Effect.timeoutOrElse({ duration: 3000, orElse: () => Effect.void }),
       Effect.ensuring(
         Effect.sync(() => {
           if (debounceTimer) clearTimeout(debounceTimer)

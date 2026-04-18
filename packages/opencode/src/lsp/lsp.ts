@@ -11,7 +11,7 @@ import { Instance } from "../project/instance"
 import { Flag } from "@/flag/flag"
 import { Process } from "../util"
 import { spawn as lspspawn } from "./launch"
-import { Effect, Layer, Context } from "effect"
+import { Effect, Fiber, Layer, Context, Scope } from "effect"
 import { InstanceState } from "@/effect"
 
 const log = Log.create({ service: "lsp" })
@@ -160,6 +160,7 @@ export const layer = Layer.effect(
   Service,
   Effect.gen(function* () {
     const config = yield* Config.Service
+    const scope = yield* Scope.Scope
 
     const state = yield* InstanceState.make<State>(
       Effect.fn("LSP.state")(function* () {
@@ -367,14 +368,17 @@ export const layer = Layer.effect(
     const touchFile = Effect.fn("LSP.touchFile")(function* (input: string, waitForDiagnostics?: boolean) {
       log.info("touching file", { file: input })
       const clients = yield* getClients(input)
-      yield* Effect.tryPromise(() =>
-        Promise.all(
-          clients.map(async (client) => {
-            const wait = waitForDiagnostics ? Effect.runPromise(client.waitForDiagnostics({ path: input })) : Promise.resolve()
-            await Effect.runPromise(client.notify.open({ path: input }))
-            return wait
+      yield* Effect.forEach(
+        clients,
+        (client) =>
+          Effect.gen(function* () {
+            const waiting = waitForDiagnostics
+              ? yield* client.waitForDiagnostics({ path: input }).pipe(Effect.forkIn(scope))
+              : undefined
+            yield* client.notify.open({ path: input })
+            if (waiting) yield* Fiber.join(waiting)
           }),
-        ),
+        { concurrency: "unbounded", discard: true },
       ).pipe(
         Effect.catch((err: unknown) =>
           Effect.sync(() => {
