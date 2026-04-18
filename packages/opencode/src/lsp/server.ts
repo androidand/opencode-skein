@@ -14,6 +14,7 @@ import { which } from "../util/which"
 import { Module } from "@opencode-ai/shared/util/module"
 import { spawn } from "./launch"
 import { Npm } from "../npm"
+import { Effect } from "effect"
 
 const log = Log.create({ service: "lsp.server" })
 const pathExists = async (p: string) =>
@@ -29,9 +30,10 @@ export interface Handle {
   initialization?: Record<string, any>
 }
 
-type RootFunction = (file: string) => Promise<string | undefined>
+type RawRootFunction = (file: string) => Promise<string | undefined>
+type RootFunction = (file: string) => Effect.Effect<string | undefined>
 
-const NearestRoot = (includePatterns: string[], excludePatterns?: string[]): RootFunction => {
+const NearestRoot = (includePatterns: string[], excludePatterns?: string[]): RawRootFunction => {
   return async (file) => {
     if (excludePatterns) {
       const excludedFiles = Filesystem.up({
@@ -55,15 +57,36 @@ const NearestRoot = (includePatterns: string[], excludePatterns?: string[]): Roo
   }
 }
 
+export interface RawInfo {
+  id: string
+  extensions: string[]
+  global?: boolean
+  root: RawRootFunction
+  spawn(root: string): Promise<Handle | undefined>
+}
+
 export interface Info {
   id: string
   extensions: string[]
   global?: boolean
   root: RootFunction
-  spawn(root: string): Promise<Handle | undefined>
+  spawn(root: string): Effect.Effect<Handle | undefined>
 }
 
-export const Deno: Info = {
+const effectify = (info: RawInfo): Info => ({
+  ...info,
+  root: (file) => Effect.promise(() => info.root(file)),
+  spawn: (root) => Effect.promise(() => info.spawn(root)),
+})
+
+const effectifyAll = <T extends Record<string, RawInfo>>(infos: T): { [K in keyof T]: Info } =>
+  Object.fromEntries(Object.entries(infos).map(([key, value]) => [key, effectify(value)])) as { [K in keyof T]: Info }
+
+// Temporary migration bridge: `Builtins` exposes Effect-shaped `root` / `spawn`
+// while the per-server definitions still use their older Promise bodies.
+// Follow-up: convert the individual server definitions in place and delete this wrapper.
+
+export const Deno: RawInfo = {
   id: "deno",
   root: async (file) => {
     const files = Filesystem.up({
@@ -91,7 +114,7 @@ export const Deno: Info = {
   },
 }
 
-export const Typescript: Info = {
+export const Typescript: RawInfo = {
   id: "typescript",
   root: NearestRoot(
     ["package-lock.json", "bun.lockb", "bun.lock", "pnpm-lock.yaml", "yarn.lock"],
@@ -121,7 +144,7 @@ export const Typescript: Info = {
   },
 }
 
-export const Vue: Info = {
+export const Vue: RawInfo = {
   id: "vue",
   extensions: [".vue"],
   root: NearestRoot(["package-lock.json", "bun.lockb", "bun.lock", "pnpm-lock.yaml", "yarn.lock"]),
@@ -150,7 +173,7 @@ export const Vue: Info = {
   },
 }
 
-export const ESLint: Info = {
+export const ESLint: RawInfo = {
   id: "eslint",
   root: NearestRoot(["package-lock.json", "bun.lockb", "bun.lock", "pnpm-lock.yaml", "yarn.lock"]),
   extensions: [".ts", ".tsx", ".js", ".jsx", ".mjs", ".cjs", ".mts", ".cts", ".vue"],
@@ -207,7 +230,7 @@ export const ESLint: Info = {
   },
 }
 
-export const Oxlint: Info = {
+export const Oxlint: RawInfo = {
   id: "oxlint",
   root: NearestRoot([
     ".oxlintrc.json",
@@ -280,7 +303,7 @@ export const Oxlint: Info = {
   },
 }
 
-export const Biome: Info = {
+export const Biome: RawInfo = {
   id: "biome",
   root: NearestRoot([
     "biome.json",
@@ -342,7 +365,7 @@ export const Biome: Info = {
   },
 }
 
-export const Gopls: Info = {
+export const Gopls: RawInfo = {
   id: "gopls",
   root: async (file) => {
     const work = await NearestRoot(["go.work"])(file)
@@ -381,7 +404,7 @@ export const Gopls: Info = {
   },
 }
 
-export const Rubocop: Info = {
+export const Rubocop: RawInfo = {
   id: "ruby-lsp",
   root: NearestRoot(["Gemfile"]),
   extensions: [".rb", ".rake", ".gemspec", ".ru"],
@@ -419,7 +442,7 @@ export const Rubocop: Info = {
   },
 }
 
-export const Ty: Info = {
+export const Ty: RawInfo = {
   id: "ty",
   extensions: [".py", ".pyi"],
   root: NearestRoot([
@@ -481,7 +504,7 @@ export const Ty: Info = {
   },
 }
 
-export const Pyright: Info = {
+export const Pyright: RawInfo = {
   id: "pyright",
   extensions: [".py", ".pyi"],
   root: NearestRoot(["pyproject.toml", "setup.py", "setup.cfg", "requirements.txt", "Pipfile", "pyrightconfig.json"]),
@@ -525,7 +548,7 @@ export const Pyright: Info = {
   },
 }
 
-export const ElixirLS: Info = {
+export const ElixirLS: RawInfo = {
   id: "elixir-ls",
   extensions: [".ex", ".exs"],
   root: NearestRoot(["mix.exs", "mix.lock"]),
@@ -588,7 +611,7 @@ export const ElixirLS: Info = {
   },
 }
 
-export const Zls: Info = {
+export const Zls: RawInfo = {
   id: "zls",
   extensions: [".zig", ".zon"],
   root: NearestRoot(["build.zig"]),
@@ -700,7 +723,7 @@ export const Zls: Info = {
   },
 }
 
-export const CSharp: Info = {
+export const CSharp: RawInfo = {
   id: "csharp",
   root: NearestRoot([".slnx", ".sln", ".csproj", "global.json"]),
   extensions: [".cs"],
@@ -737,7 +760,7 @@ export const CSharp: Info = {
   },
 }
 
-export const FSharp: Info = {
+export const FSharp: RawInfo = {
   id: "fsharp",
   root: NearestRoot([".slnx", ".sln", ".fsproj", "global.json"]),
   extensions: [".fs", ".fsi", ".fsx", ".fsscript"],
@@ -774,7 +797,7 @@ export const FSharp: Info = {
   },
 }
 
-export const SourceKit: Info = {
+export const SourceKit: RawInfo = {
   id: "sourcekit-lsp",
   extensions: [".swift", ".objc", "objcpp"],
   root: NearestRoot(["Package.swift", "*.xcodeproj", "*.xcworkspace"]),
@@ -808,7 +831,7 @@ export const SourceKit: Info = {
   },
 }
 
-export const RustAnalyzer: Info = {
+export const RustAnalyzer: RawInfo = {
   id: "rust",
   root: async (root) => {
     const crateRoot = await NearestRoot(["Cargo.toml", "Cargo.lock"])(root)
@@ -854,7 +877,7 @@ export const RustAnalyzer: Info = {
   },
 }
 
-export const Clangd: Info = {
+export const Clangd: RawInfo = {
   id: "clangd",
   root: NearestRoot(["compile_commands.json", "compile_flags.txt", ".clangd"]),
   extensions: [".c", ".cpp", ".cc", ".cxx", ".c++", ".h", ".hpp", ".hh", ".hxx", ".h++"],
@@ -1000,7 +1023,7 @@ export const Clangd: Info = {
   },
 }
 
-export const Svelte: Info = {
+export const Svelte: RawInfo = {
   id: "svelte",
   extensions: [".svelte"],
   root: NearestRoot(["package-lock.json", "bun.lockb", "bun.lock", "pnpm-lock.yaml", "yarn.lock"]),
@@ -1027,7 +1050,7 @@ export const Svelte: Info = {
   },
 }
 
-export const Astro: Info = {
+export const Astro: RawInfo = {
   id: "astro",
   extensions: [".astro"],
   root: NearestRoot(["package-lock.json", "bun.lockb", "bun.lock", "pnpm-lock.yaml", "yarn.lock"]),
@@ -1065,7 +1088,7 @@ export const Astro: Info = {
   },
 }
 
-export const JDTLS: Info = {
+export const JDTLS: RawInfo = {
   id: "jdtls",
   root: async (file) => {
     // Without exclusions, NearestRoot defaults to instance directory so we can't
@@ -1186,7 +1209,7 @@ export const JDTLS: Info = {
   },
 }
 
-export const KotlinLS: Info = {
+export const KotlinLS: RawInfo = {
   id: "kotlin-ls",
   extensions: [".kt", ".kts"],
   root: async (file) => {
@@ -1285,7 +1308,7 @@ export const KotlinLS: Info = {
   },
 }
 
-export const YamlLS: Info = {
+export const YamlLS: RawInfo = {
   id: "yaml-ls",
   extensions: [".yaml", ".yml"],
   root: NearestRoot(["package-lock.json", "bun.lockb", "bun.lock", "pnpm-lock.yaml", "yarn.lock"]),
@@ -1311,7 +1334,7 @@ export const YamlLS: Info = {
   },
 }
 
-export const LuaLS: Info = {
+export const LuaLS: RawInfo = {
   id: "lua-ls",
   root: NearestRoot([
     ".luarc.json",
@@ -1452,7 +1475,7 @@ export const LuaLS: Info = {
   },
 }
 
-export const PHPIntelephense: Info = {
+export const PHPIntelephense: RawInfo = {
   id: "php intelephense",
   extensions: [".php"],
   root: NearestRoot(["composer.json", "composer.lock", ".php-version"]),
@@ -1483,7 +1506,7 @@ export const PHPIntelephense: Info = {
   },
 }
 
-export const Prisma: Info = {
+export const Prisma: RawInfo = {
   id: "prisma",
   extensions: [".prisma"],
   root: NearestRoot(["schema.prisma", "prisma/schema.prisma", "prisma"], ["package.json"]),
@@ -1501,7 +1524,7 @@ export const Prisma: Info = {
   },
 }
 
-export const Dart: Info = {
+export const Dart: RawInfo = {
   id: "dart",
   extensions: [".dart"],
   root: NearestRoot(["pubspec.yaml", "analysis_options.yaml"]),
@@ -1519,7 +1542,7 @@ export const Dart: Info = {
   },
 }
 
-export const Ocaml: Info = {
+export const Ocaml: RawInfo = {
   id: "ocaml-lsp",
   extensions: [".ml", ".mli"],
   root: NearestRoot(["dune-project", "dune-workspace", ".merlin", "opam"]),
@@ -1536,7 +1559,7 @@ export const Ocaml: Info = {
     }
   },
 }
-export const BashLS: Info = {
+export const BashLS: RawInfo = {
   id: "bash",
   extensions: [".sh", ".bash", ".zsh", ".ksh"],
   root: async () => Instance.directory,
@@ -1562,7 +1585,7 @@ export const BashLS: Info = {
   },
 }
 
-export const TerraformLS: Info = {
+export const TerraformLS: RawInfo = {
   id: "terraform",
   extensions: [".tf", ".tfvars"],
   root: NearestRoot([".terraform.lock.hcl", "terraform.tfstate", "*.tf"]),
@@ -1643,7 +1666,7 @@ export const TerraformLS: Info = {
   },
 }
 
-export const TexLab: Info = {
+export const TexLab: RawInfo = {
   id: "texlab",
   extensions: [".tex", ".bib"],
   root: NearestRoot([".latexmkrc", "latexmkrc", ".texlabroot", "texlabroot"]),
@@ -1731,7 +1754,7 @@ export const TexLab: Info = {
   },
 }
 
-export const DockerfileLS: Info = {
+export const DockerfileLS: RawInfo = {
   id: "dockerfile",
   extensions: [".dockerfile", "Dockerfile"],
   root: async () => Instance.directory,
@@ -1757,7 +1780,7 @@ export const DockerfileLS: Info = {
   },
 }
 
-export const Gleam: Info = {
+export const Gleam: RawInfo = {
   id: "gleam",
   extensions: [".gleam"],
   root: NearestRoot(["gleam.toml"]),
@@ -1775,7 +1798,7 @@ export const Gleam: Info = {
   },
 }
 
-export const Clojure: Info = {
+export const Clojure: RawInfo = {
   id: "clojure-lsp",
   extensions: [".clj", ".cljs", ".cljc", ".edn"],
   root: NearestRoot(["deps.edn", "project.clj", "shadow-cljs.edn", "bb.edn", "build.boot"]),
@@ -1796,7 +1819,7 @@ export const Clojure: Info = {
   },
 }
 
-export const Nixd: Info = {
+export const Nixd: RawInfo = {
   id: "nixd",
   extensions: [".nix"],
   root: async (file) => {
@@ -1827,7 +1850,7 @@ export const Nixd: Info = {
   },
 }
 
-export const Tinymist: Info = {
+export const Tinymist: RawInfo = {
   id: "tinymist",
   extensions: [".typ", ".typc"],
   root: NearestRoot(["typst.toml"]),
@@ -1919,7 +1942,7 @@ export const Tinymist: Info = {
   },
 }
 
-export const HLS: Info = {
+export const HLS: RawInfo = {
   id: "haskell-language-server",
   extensions: [".hs", ".lhs"],
   root: NearestRoot(["stack.yaml", "cabal.project", "hie.yaml", "*.cabal"]),
@@ -1937,7 +1960,7 @@ export const HLS: Info = {
   },
 }
 
-export const JuliaLS: Info = {
+export const JuliaLS: RawInfo = {
   id: "julials",
   extensions: [".jl"],
   root: NearestRoot(["Project.toml", "Manifest.toml", "*.jl"]),
@@ -1954,3 +1977,43 @@ export const JuliaLS: Info = {
     }
   },
 }
+
+export const Builtins = effectifyAll({
+  Deno,
+  Typescript,
+  Vue,
+  ESLint,
+  Oxlint,
+  Biome,
+  Gopls,
+  Rubocop,
+  Ty,
+  Pyright,
+  ElixirLS,
+  Zls,
+  CSharp,
+  FSharp,
+  SourceKit,
+  RustAnalyzer,
+  Clangd,
+  Svelte,
+  Astro,
+  JDTLS,
+  KotlinLS,
+  YamlLS,
+  LuaLS,
+  PHPIntelephense,
+  Prisma,
+  Dart,
+  Ocaml,
+  BashLS,
+  TerraformLS,
+  TexLab,
+  DockerfileLS,
+  Gleam,
+  Clojure,
+  Nixd,
+  Tinymist,
+  HLS,
+  JuliaLS,
+})

@@ -1,5 +1,6 @@
 import { describe, expect, test, beforeEach } from "bun:test"
 import path from "path"
+import { Effect } from "effect"
 import { LSPClient } from "../../src/lsp"
 import { LSPServer } from "../../src/lsp"
 import { Instance } from "../../src/project/instance"
@@ -27,11 +28,13 @@ describe("LSPClient interop", () => {
     const client = await Instance.provide({
       directory: process.cwd(),
       fn: () =>
-        LSPClient.create({
-          serverID: "fake",
-          server: handle as unknown as LSPServer.Handle,
-          root: process.cwd(),
-        }),
+        Effect.runPromise(
+          LSPClient.create({
+            serverID: "fake",
+            server: handle as unknown as LSPServer.Handle,
+            root: process.cwd(),
+          }),
+        ),
     })
 
     await client.connection.sendNotification("test/trigger", {
@@ -42,7 +45,7 @@ describe("LSPClient interop", () => {
 
     expect(client.connection).toBeDefined()
 
-    await client.shutdown()
+    await Effect.runPromise(client.shutdown())
   })
 
   test("handles client/registerCapability request", async () => {
@@ -51,11 +54,13 @@ describe("LSPClient interop", () => {
     const client = await Instance.provide({
       directory: process.cwd(),
       fn: () =>
-        LSPClient.create({
-          serverID: "fake",
-          server: handle as unknown as LSPServer.Handle,
-          root: process.cwd(),
-        }),
+        Effect.runPromise(
+          LSPClient.create({
+            serverID: "fake",
+            server: handle as unknown as LSPServer.Handle,
+            root: process.cwd(),
+          }),
+        ),
     })
 
     await client.connection.sendNotification("test/trigger", {
@@ -66,7 +71,7 @@ describe("LSPClient interop", () => {
 
     expect(client.connection).toBeDefined()
 
-    await client.shutdown()
+    await Effect.runPromise(client.shutdown())
   })
 
   test("handles client/unregisterCapability request", async () => {
@@ -75,11 +80,13 @@ describe("LSPClient interop", () => {
     const client = await Instance.provide({
       directory: process.cwd(),
       fn: () =>
-        LSPClient.create({
-          serverID: "fake",
-          server: handle as unknown as LSPServer.Handle,
-          root: process.cwd(),
-        }),
+        Effect.runPromise(
+          LSPClient.create({
+            serverID: "fake",
+            server: handle as unknown as LSPServer.Handle,
+            root: process.cwd(),
+          }),
+        ),
     })
 
     await client.connection.sendNotification("test/trigger", {
@@ -90,6 +97,6 @@ describe("LSPClient interop", () => {
 
     expect(client.connection).toBeDefined()
 
-    await client.shutdown()
+    await Effect.runPromise(client.shutdown())
   })
 })
