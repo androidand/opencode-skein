@@ -6,6 +6,20 @@ import DESCRIPTION from "./multiedit.txt"
 import path from "path"
 import { Instance } from "../project/instance"
 
+export const Parameters = z.object({
+  filePath: z.string().describe("The absolute path to the file to modify"),
+  edits: z
+    .array(
+      z.object({
+        filePath: z.string().describe("The absolute path to the file to modify"),
+        oldString: z.string().describe("The text to replace"),
+        newString: z.string().describe("The text to replace it with (must be different from oldString)"),
+        replaceAll: z.boolean().optional().describe("Replace all occurrences of oldString (default false)"),
+      }),
+    )
+    .describe("Array of edit operations to perform sequentially on the file"),
+})
+
 export const MultiEditTool = Tool.define(
   "multiedit",
   Effect.gen(function* () {
@@ -14,19 +28,7 @@ export const MultiEditTool = Tool.define(
 
     return {
       description: DESCRIPTION,
-      parameters: z.object({
-        filePath: z.string().describe("The absolute path to the file to modify"),
-        edits: z
-          .array(
-            z.object({
-              filePath: z.string().describe("The absolute path to the file to modify"),
-              oldString: z.string().describe("The text to replace"),
-              newString: z.string().describe("The text to replace it with (must be different from oldString)"),
-              replaceAll: z.boolean().optional().describe("Replace all occurrences of oldString (default false)"),
-            }),
-          )
-          .describe("Array of edit operations to perform sequentially on the file"),
-      }),
+      parameters: Parameters,
       execute: (
         params: {
           filePath: string

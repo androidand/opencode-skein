@@ -8,7 +8,7 @@ import { Ripgrep } from "../file/ripgrep"
 import { Skill } from "../skill"
 import * as Tool from "./tool"
 
-const Parameters = z.object({
+export const Parameters = z.object({
   name: z.string().describe("The name of the skill from available_skills"),
 })
 
