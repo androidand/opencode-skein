@@ -7,7 +7,6 @@ import { fileURLToPath } from "url"
 console.log("=== publishing ===\n")
 
 const tag = `v${Script.version}`
-const release_commit = `release: ${tag}`
 
 const pkgjsons = await Array.fromAsync(
   new Bun.Glob("**/package.json").scan({
@@ -21,10 +20,8 @@ async function hasChanges() {
   return (await $`git diff --quiet && git diff --cached --quiet`.nothrow()).exitCode !== 0
 }
 
-async function releaseTagReady() {
-  const ref = await $`git rev-parse -q --verify refs/tags/${tag}`.nothrow()
-  if (ref.exitCode !== 0) return false
-  return (await $`git log -1 --format=%s refs/tags/${tag}`.text()).trim() === release_commit
+async function releaseTagExists() {
+  return (await $`git rev-parse -q --verify refs/tags/${tag}`.nothrow()).exitCode === 0
 }
 
 async function prepareReleaseFiles() {
@@ -47,18 +44,16 @@ async function prepareReleaseFiles() {
 
 if (Script.release && !Script.preview) {
   await $`git fetch origin --tags`
-  if (await releaseTagReady()) await $`git switch --detach refs/tags/${tag}`
-  else await $`git switch --detach`
+  await $`git switch --detach`
 }
 
 await prepareReleaseFiles()
 
-if (Script.release && !Script.preview && !(await releaseTagReady())) {
-  await $`git commit -am ${release_commit}`
-  if ((await $`git rev-parse -q --verify refs/tags/${tag}`.nothrow()).exitCode === 0) {
-    await $`git tag -f ${tag}`
-    await $`git push origin refs/tags/${tag} --force --no-verify`
+if (Script.release && !Script.preview) {
+  if (await releaseTagExists()) {
+    console.log(`release tag ${tag} already exists, skipping tag creation`)
   } else {
+    await $`git commit -am "release: ${tag}"`
     await $`git tag ${tag}`
     await $`git push origin refs/tags/${tag} --no-verify`
     await new Promise((resolve) => setTimeout(resolve, 5_000))
