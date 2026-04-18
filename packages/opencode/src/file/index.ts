@@ -11,6 +11,7 @@ import ignore from "ignore"
 import path from "path"
 import z from "zod"
 import { Global } from "../global"
+import { Instance } from "../project/instance"
 import { Log } from "../util"
 import { Protected } from "./protected"
 import { Ripgrep } from "./ripgrep"
@@ -512,7 +513,6 @@ export const layer = Layer.effect(
       const ctx = yield* InstanceState.context
       const full = path.join(ctx.directory, file)
 
-<<<<<<< HEAD
       if (!Instance.containsPath(full, ctx)) {
         throw new Error("Access denied: path escapes project directory")
       }
@@ -592,7 +592,6 @@ export const layer = Layer.effect(
         ignored = ig.ignores.bind(ig)
       }
 
-<<<<<<< HEAD
       const resolved = dir ? path.join(ctx.directory, dir) : ctx.directory
       if (!Instance.containsPath(resolved, ctx)) {
         throw new Error("Access denied: path escapes project directory")
