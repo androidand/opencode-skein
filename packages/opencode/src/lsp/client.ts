@@ -127,29 +127,9 @@ export const create = Effect.fn("LSPClient.create")(function* (input: {
       },
     }),
   ).pipe(
-    Effect.timeoutOrElse({
-      duration: 45_000,
-      orElse: () =>
-        Effect.fail(
-          new InitializeError(
-            { serverID: input.serverID },
-            { cause: new Error("LSP initialize timed out after 45 seconds") },
-          ),
-        ),
-    }),
-    Effect.catch((error) => {
-      l.error("initialize error", { error })
-      return Effect.fail(
-        error instanceof InitializeError
-          ? error
-          : new InitializeError(
-              { serverID: input.serverID },
-              {
-                cause: error,
-              },
-            ),
-      )
-    }),
+    Effect.timeout(45_000),
+    Effect.mapError((cause) => new InitializeError({ serverID: input.serverID }, { cause })),
+    Effect.tapError((error) => Effect.sync(() => l.error("initialize error", { error }))),
   )
 
   yield* Effect.tryPromise(() => connection.sendNotification("initialized", {}))
@@ -234,30 +214,22 @@ export const create = Effect.fn("LSPClient.create")(function* (input: {
       path.isAbsolute(next.path) ? next.path : path.resolve(Instance.directory, next.path),
     )
     log.info("waiting for diagnostics", { path: normalizedPath })
-    let unsub: (() => void) | undefined
-    let debounceTimer: ReturnType<typeof setTimeout> | undefined
-    yield* Effect.promise(() =>
-        new Promise<void>((resolve) => {
-          unsub = Bus.subscribe(Event.Diagnostics, (event) => {
-            if (event.properties.path === normalizedPath && event.properties.serverID === input.serverID) {
-              if (debounceTimer) clearTimeout(debounceTimer)
-              debounceTimer = setTimeout(() => {
-                log.info("got diagnostics", { path: normalizedPath })
-                unsub?.()
-                resolve()
-              }, DIAGNOSTICS_DEBOUNCE_MS)
-            }
-          })
-        }),
-    ).pipe(
-      Effect.timeoutOrElse({ duration: 3000, orElse: () => Effect.void }),
-      Effect.ensuring(
-        Effect.sync(() => {
-          if (debounceTimer) clearTimeout(debounceTimer)
-          unsub?.()
-        }),
-      ),
-    )
+    yield* Effect.callback<void>((resume) => {
+      let debounceTimer: ReturnType<typeof setTimeout> | undefined
+      const unsub = Bus.subscribe(Event.Diagnostics, (event) => {
+        if (event.properties.path !== normalizedPath || event.properties.serverID !== input.serverID) return
+        if (debounceTimer) clearTimeout(debounceTimer)
+        debounceTimer = setTimeout(() => {
+          log.info("got diagnostics", { path: normalizedPath })
+          resume(Effect.void)
+        }, DIAGNOSTICS_DEBOUNCE_MS)
+      })
+
+      return Effect.sync(() => {
+        if (debounceTimer) clearTimeout(debounceTimer)
+        unsub()
+      })
+    }).pipe(Effect.timeoutOption(3000), Effect.asVoid)
   })
 
   const shutdown = Effect.fn("LSPClient.shutdown")(function* () {
