@@ -190,6 +190,30 @@
         "cloudflare": "5.2.0",
       },
     },
+    "packages/core": {
+      "name": "@opencode-ai/core",
+      "version": "1.4.11",
+      "bin": {
+        "opencode": "./bin/opencode",
+      },
+      "dependencies": {
+        "@effect/platform-node": "catalog:",
+        "@npmcli/arborist": "catalog:",
+        "effect": "catalog:",
+        "glob": "13.0.5",
+        "mime-types": "3.0.2",
+        "minimatch": "10.2.5",
+        "semver": "catalog:",
+        "xdg-basedir": "5.1.0",
+        "zod": "catalog:",
+      },
+      "devDependencies": {
+        "@tsconfig/bun": "catalog:",
+        "@types/bun": "catalog:",
+        "@types/npmcli__arborist": "6.3.3",
+        "@types/semver": "catalog:",
+      },
+    },
     "packages/desktop": {
       "name": "@opencode-ai/desktop",
       "version": "1.14.18",
@@ -1547,6 +1571,8 @@
     "@opencode-ai/console-mail": ["@opencode-ai/console-mail@workspace:packages/console/mail"],
 
     "@opencode-ai/console-resource": ["@opencode-ai/console-resource@workspace:packages/console/resource"],
+
+    "@opencode-ai/core": ["@opencode-ai/core@workspace:packages/core"],
 
     "@opencode-ai/desktop": ["@opencode-ai/desktop@workspace:packages/desktop"],
 
