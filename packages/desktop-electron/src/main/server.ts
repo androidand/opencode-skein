@@ -2,16 +2,16 @@ import { randomBytes } from "node:crypto"
 import { app } from "electron"
 import { DEFAULT_SERVER_URL_KEY, WSL_ENABLED_KEY } from "./constants"
 import { getUserShell, loadShellEnv } from "./shell-env"
-import { store } from "./store"
+import { getStore } from "./store"
 
 const DEFAULT_RELAY_URL = "https://apn.dev.opencode.ai"
 const RELAY_SECRET_KEY = "relaySecret"
 
 function getOrCreateRelaySecret(): string {
-  const existing = store.get(RELAY_SECRET_KEY)
+  const existing = getStore().get(RELAY_SECRET_KEY)
   if (typeof existing === "string" && existing.length > 0) return existing
   const secret = randomBytes(18).toString("base64url")
-  store.set(RELAY_SECRET_KEY, secret)
+  getStore().set(RELAY_SECRET_KEY, secret)
   return secret
 }
 
@@ -20,26 +20,26 @@ export type WslConfig = { enabled: boolean }
 export type HealthCheck = { wait: Promise<void> }
 
 export function getDefaultServerUrl(): string | null {
-  const value = store.get(DEFAULT_SERVER_URL_KEY)
+  const value = getStore().get(DEFAULT_SERVER_URL_KEY)
   return typeof value === "string" ? value : null
 }
 
 export function setDefaultServerUrl(url: string | null) {
   if (url) {
-    store.set(DEFAULT_SERVER_URL_KEY, url)
+    getStore().set(DEFAULT_SERVER_URL_KEY, url)
     return
   }
 
-  store.delete(DEFAULT_SERVER_URL_KEY)
+  getStore().delete(DEFAULT_SERVER_URL_KEY)
 }
 
 export function getWslConfig(): WslConfig {
-  const value = store.get(WSL_ENABLED_KEY)
+  const value = getStore().get(WSL_ENABLED_KEY)
   return { enabled: typeof value === "boolean" ? value : false }
 }
 
 export function setWslConfig(config: WslConfig) {
-  store.set(WSL_ENABLED_KEY, config.enabled)
+  getStore().set(WSL_ENABLED_KEY, config.enabled)
 }
 
 export async function spawnLocalServer(hostname: string, port: number, password: string) {
