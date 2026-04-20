@@ -1,14 +1,15 @@
 {
-  "$schema": "https://json.schemastore.org/tsconfig",
-  "extends": "@tsconfig/bun/tsconfig.json",
+  "$schema": "https://www.schemastore.org/tsconfig",
+  "_version": "24.0.0",
+
   "compilerOptions": {
+    "lib": ["es2024", "ESNext.Array", "ESNext.Collection", "ESNext.Error", "ESNext.Iterator", "ESNext.Promise"],
+    "module": "nodenext",
+    "moduleResolution": "nodenext",
+    "target": "es2024",
     "noUncheckedIndexedAccess": false,
-    "plugins": [
-      {
-        "name": "@effect/language-service",
-        "transform": "@effect/language-service/transform",
-        "namespaceImportPackages": ["effect", "@effect/*"]
-      }
-    ]
+    "strict": true,
+    "esModuleInterop": true,
+    "skipLibCheck": true
   }
 }
