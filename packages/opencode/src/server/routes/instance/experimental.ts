@@ -17,7 +17,8 @@ import { errors } from "../../error"
 import { lazy } from "@/util/lazy"
 import { Effect, Option } from "effect"
 import { PushRelay } from "../../push-relay"
-import * as QRCode from "qrcode"
+// dynamic import: static `import * as` of CJS package triggers Bun bundler splitting bug
+import type * as QRCodeType from "qrcode"
 import { Agent } from "@/agent/agent"
 import { jsonRequest, runRequest } from "./trace"
 
@@ -60,6 +61,7 @@ function pushPairLink(input: { relaySecret: string; hosts: string[] }) {
 }
 
 async function pushPairQRCode(input: { relaySecret: string; hosts: string[] }) {
+  const QRCode: typeof QRCodeType = await import("qrcode")
   return QRCode.toDataURL(pushPairLink(input), pushPairQROptions)
 }
 

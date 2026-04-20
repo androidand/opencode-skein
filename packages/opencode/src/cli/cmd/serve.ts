@@ -13,7 +13,8 @@ import { Installation } from "../../installation"
 import { PushRelay } from "../../server/push-relay"
 import { Log } from "../../util"
 import { Global } from "../../global"
-import * as QRCode from "qrcode"
+// dynamic import: static `import * as` of CJS package triggers Bun bundler splitting bug
+import type * as QRCodeType from "qrcode"
 
 const log = Log.create({ service: "serve" })
 
@@ -184,6 +185,7 @@ async function printPairQR(pair: PairPayload) {
     linkLength: link.length,
     qr: qrConfig,
   })
+  const QRCode: typeof QRCodeType = await import("qrcode")
   const code = await QRCode.toString(link, {
     ...qrConfig,
   })
