@@ -1,5 +1,6 @@
 import z from "zod"
 import type { ZodObject } from "zod"
+import { Schema, Types } from "effect"
 import { Database, eq } from "@/storage"
 import { GlobalBus } from "@/bus/global"
 import { Bus as ProjectBus } from "@/bus"
@@ -9,6 +10,7 @@ import { EventSequenceTable, EventTable } from "./event.sql"
 import { WorkspaceContext } from "@/control-plane/workspace-context"
 import { EventID } from "./schema"
 import { Flag } from "@/flag/flag"
+import { zod } from "@/util/effect-zod"
 
 export type Definition = {
   type: string
@@ -69,29 +71,56 @@ export function versionedType(type: string, version?: number) {
   return version ? `${type}.${version}` : type
 }
 
+type SchemaLike<Agg extends string> =
+  | ZodObject<Record<Agg, z.ZodType<string>>>
+  | Schema.Struct<Record<Agg, Schema.Top>>
+
+type BusSchemaLike = ZodObject | Schema.Struct<Schema.Struct.Fields>
+
+type Mutable<T> = Types.DeepMutable<T>
+type ToZodObject<S> = S extends Schema.Top
+  ? z.ZodObject<{ [K in keyof Mutable<Schema.Schema.Type<S>>]: z.ZodType<Mutable<Schema.Schema.Type<S>>[K]> }>
+  : S
+
+/**
+ * Define a sync event. Accepts either a Zod schema or an Effect Schema for
+ * both `schema` and `busSchema`. Effect Schemas are converted to Zod via the
+ * `effect-zod` walker since the sync pipeline uses Zod for validation and
+ * JSON Schema generation.
+ */
 export function define<
   Type extends string,
   Agg extends string,
-  Schema extends ZodObject<Record<Agg, z.ZodType<string>>>,
-  BusSchema extends ZodObject = Schema,
->(input: { type: Type; version: number; aggregate: Agg; schema: Schema; busSchema?: BusSchema }) {
+  S extends SchemaLike<Agg>,
+  B extends BusSchemaLike = S,
+>(input: { type: Type; version: number; aggregate: Agg; schema: S; busSchema?: B }) {
   if (frozen) {
     throw new Error("Error defining sync event: sync system has been frozen")
   }
+
+  const schema = toZodObject(input.schema) as ToZodObject<S>
+  const properties = (input.busSchema ? toZodObject(input.busSchema) : schema) as ToZodObject<B>
 
   const def = {
     type: input.type,
     version: input.version,
     aggregate: input.aggregate,
-    schema: input.schema,
-    properties: input.busSchema ? input.busSchema : input.schema,
+    schema,
+    properties,
   }
 
   versions.set(def.type, Math.max(def.version, versions.get(def.type) || 0))
 
-  registry.set(versionedType(def.type, def.version), def)
+  registry.set(versionedType(def.type, def.version), def as unknown as Definition)
 
   return def
+}
+
+function toZodObject(value: ZodObject | Schema.Top): z.ZodObject {
+  if (typeof value === "object" && value !== null && "ast" in value) {
+    return zod(value as Schema.Top) as unknown as z.ZodObject
+  }
+  return value as z.ZodObject
 }
 
 export function project<Def extends Definition>(

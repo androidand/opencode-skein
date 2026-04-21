@@ -581,48 +581,48 @@ export const Event = {
     type: "message.updated",
     version: 1,
     aggregate: "sessionID",
-    schema: z.object({
-      sessionID: SessionID.zod,
-      info: Info.zod,
+    schema: Schema.Struct({
+      sessionID: SessionID,
+      info: _Info,
     }),
   }),
   Removed: SyncEvent.define({
     type: "message.removed",
     version: 1,
     aggregate: "sessionID",
-    schema: z.object({
-      sessionID: SessionID.zod,
-      messageID: MessageID.zod,
+    schema: Schema.Struct({
+      sessionID: SessionID,
+      messageID: MessageID,
     }),
   }),
   PartUpdated: SyncEvent.define({
     type: "message.part.updated",
     version: 1,
     aggregate: "sessionID",
-    schema: z.object({
-      sessionID: SessionID.zod,
-      part: Part.zod,
-      time: z.number(),
+    schema: Schema.Struct({
+      sessionID: SessionID,
+      part: _Part,
+      time: Schema.Number,
     }),
   }),
   PartDelta: BusEvent.define(
     "message.part.delta",
-    z.object({
-      sessionID: SessionID.zod,
-      messageID: MessageID.zod,
-      partID: PartID.zod,
-      field: z.string(),
-      delta: z.string(),
+    Schema.Struct({
+      sessionID: SessionID,
+      messageID: MessageID,
+      partID: PartID,
+      field: Schema.String,
+      delta: Schema.String,
     }),
   ),
   PartRemoved: SyncEvent.define({
     type: "message.part.removed",
     version: 1,
     aggregate: "sessionID",
-    schema: z.object({
-      sessionID: SessionID.zod,
-      messageID: MessageID.zod,
-      partID: PartID.zod,
+    schema: Schema.Struct({
+      sessionID: SessionID,
+      messageID: MessageID,
+      partID: PartID,
     }),
   }),
 }
