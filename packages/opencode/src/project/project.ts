@@ -207,13 +207,16 @@ export const layer: Layer.Layer<
             vcs: fakeVcs,
           }
         }
-        const common = resolveGitPath(sandbox, commonDir.text.trim())
-        const bareCheck = yield* git(["config", "--bool", "core.bare"], { cwd: sandbox })
-        const isBareRepo = bareCheck.code === 0 && bareCheck.text.trim() === "true"
-        const worktree = common === sandbox ? sandbox : isBareRepo ? common : pathSvc.dirname(common)
+
+        const worktree = yield* Effect.gen(function* () {
+          const common = resolveGitPath(sandbox, commonDir.text.trim())
+          const bareCheck = yield* git(["config", "--bool", "core.bare"], { cwd: sandbox })
+          const isBareRepo = bareCheck.code === 0 && bareCheck.text.trim() === "true"
+          return common === sandbox ? sandbox : isBareRepo ? common : pathSvc.dirname(common)
+        })
 
         if (id == null) {
-          id = yield* readCachedProjectId(common)
+          id = yield* readCachedProjectId(pathSvc.join(worktree, ".git"))
         }
 
         if (!id) {
@@ -226,7 +229,7 @@ export const layer: Layer.Layer<
 
           id = roots[0] ? ProjectID.make(roots[0]) : undefined
           if (id) {
-            yield* fs.writeFileString(pathSvc.join(common, "opencode"), id).pipe(Effect.ignore)
+            yield* fs.writeFileString(pathSvc.join(pathSvc.join(worktree, ".git"), "opencode"), id).pipe(Effect.ignore)
           }
         }
 
