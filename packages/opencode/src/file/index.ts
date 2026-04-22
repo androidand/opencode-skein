@@ -630,13 +630,6 @@ export const layer = Layer.effect(
       const kind = input.type ?? (input.dirs === false ? "file" : "all")
       log.info("search", { query, kind })
 
-      const preferHidden = query.startsWith(".") || query.includes("/.")
-
-      if (!query) {
-        if (kind === "file") return cache.files.slice(0, limit)
-        return sortHiddenLast(cache.dirs.toSorted(), preferHidden).slice(0, limit)
-      }
-
       if (query && kind === "file") {
         const files = yield* searchSvc.file({
           cwd: Instance.directory,
@@ -661,6 +654,13 @@ export const layer = Layer.effect(
       const output = kind === "directory" ? sortHiddenLast(sorted, preferHidden).slice(0, limit) : sorted
 
       log.info("search", { query, kind, results: output.length })
+      const preferHidden = query.startsWith(".") || query.includes("/.")
+
+      if (!query) {
+        if (kind === "file") return cache.files.slice(0, limit)
+        return sortHiddenLast(cache.dirs.toSorted(), preferHidden).slice(0, limit)
+      }
+
       return output
     })
 
