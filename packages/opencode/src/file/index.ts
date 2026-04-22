@@ -14,7 +14,7 @@ import { Global } from "../global"
 import { Instance } from "../project/instance"
 import { Log } from "../util"
 import { Protected } from "./protected"
-import { Ripgrep } from "./ripgrep"
+import { Search } from "./search"
 
 export const Info = z
   .object({
@@ -343,7 +343,7 @@ export const layer = Layer.effect(
   Service,
   Effect.gen(function* () {
     const appFs = yield* AppFileSystem.Service
-    const rg = yield* Ripgrep.Service
+    const searchSvc = yield* Search.Service
     const git = yield* Git.Service
     const scope = yield* Scope.Scope
 
@@ -385,7 +385,7 @@ export const layer = Layer.effect(
 
         next.dirs = Array.from(dirs).toSorted()
       } else {
-        const files = yield* rg.files({ cwd: ctx.directory }).pipe(
+        const files = yield* searchSvc.files({ cwd: ctx.directory }).pipe(
           Stream.runCollect,
           Effect.map((chunk) => [...chunk]),
         )
@@ -625,9 +625,6 @@ export const layer = Layer.effect(
       dirs?: boolean
       type?: "file" | "directory"
     }) {
-      yield* ensure()
-      const { cache } = yield* InstanceState.get(state)
-
       const query = input.query.trim()
       const limit = input.limit ?? 100
       const kind = input.type ?? (input.dirs === false ? "file" : "all")
@@ -639,6 +636,23 @@ export const layer = Layer.effect(
         if (kind === "file") return cache.files.slice(0, limit)
         return sortHiddenLast(cache.dirs.toSorted(), preferHidden).slice(0, limit)
       }
+
+      if (query && kind === "file") {
+        const files = yield* searchSvc.file({
+          cwd: Instance.directory,
+          query,
+          limit,
+        }).pipe(Effect.orDie)
+        if (files === undefined) {
+          log.info("search", { query, kind, mode: "cache" })
+        } else {
+          log.info("search", { query, kind, results: files.length, mode: "fff" })
+          return files
+        }
+      }
+
+      yield* ensure()
+      const { cache } = yield* InstanceState.get(state)
 
       const items = kind === "file" ? cache.files : kind === "directory" ? cache.dirs : [...cache.files, ...cache.dirs]
 
@@ -656,7 +670,7 @@ export const layer = Layer.effect(
 )
 
 export const defaultLayer = layer.pipe(
-  Layer.provide(Ripgrep.defaultLayer),
+  Layer.provide(Search.defaultLayer),
   Layer.provide(AppFileSystem.defaultLayer),
   Layer.provide(Git.defaultLayer),
 )
