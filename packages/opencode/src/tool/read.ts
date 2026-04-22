@@ -10,6 +10,7 @@ import DESCRIPTION from "./read.txt"
 import { Instance } from "../project/instance"
 import { assertExternalDirectoryEffect } from "./external-directory"
 import { Instruction } from "../session/instruction"
+import { Search } from "../file/search"
 import { isImageAttachment, isPdfAttachment, sniffAttachmentMime } from "@/util/media"
 
 const DEFAULT_READ_LIMIT = 2000
@@ -31,6 +32,7 @@ export const ReadTool = Tool.define(
     const fs = yield* AppFileSystem.Service
     const instruction = yield* Instruction.Service
     const lsp = yield* LSP.Service
+    const search = yield* Search.Service
     const scope = yield* Scope.Scope
 
     const miss = Effect.fn("ReadTool.miss")(function* (filepath: string) {
@@ -75,6 +77,7 @@ export const ReadTool = Tool.define(
     })
 
     const warm = Effect.fn("ReadTool.warm")(function* (filepath: string) {
+      yield* search.open({ file: filepath }).pipe(Effect.ignore)
       yield* lsp.touchFile(filepath, false).pipe(Effect.ignore, Effect.forkIn(scope))
     })
 

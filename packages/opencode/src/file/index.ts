@@ -512,6 +512,7 @@ export const layer = Layer.effect(
       using _ = log.time("read", { file })
       const ctx = yield* InstanceState.context
       const full = path.join(ctx.directory, file)
+      const trackOpen = searchSvc.open({ cwd: ctx.directory, file }).pipe(Effect.ignore)
 
       if (!Instance.containsPath(full, ctx)) {
         throw new Error("Access denied: path escapes project directory")
@@ -519,21 +520,23 @@ export const layer = Layer.effect(
 
       if (isImageByExtension(file)) {
         const exists = yield* appFs.existsSafe(full)
-        if (exists) {
-          const bytes = yield* appFs.readFile(full).pipe(Effect.catch(() => Effect.succeed(new Uint8Array())))
-          return {
-            type: "text" as const,
-            content: Buffer.from(bytes).toString("base64"),
-            mimeType: getImageMimeType(file),
-            encoding: "base64" as const,
-          }
+        if (!exists) return { type: "text" as const, content: "" }
+        yield* trackOpen
+        const bytes = yield* appFs.readFile(full).pipe(Effect.catch(() => Effect.succeed(new Uint8Array())))
+        return {
+          type: "text" as const,
+          content: Buffer.from(bytes).toString("base64"),
+          mimeType: getImageMimeType(file),
+          encoding: "base64" as const,
         }
-        return { type: "text" as const, content: "" }
       }
 
       const knownText = isTextByExtension(file) || isTextByName(file)
 
-      if (isBinaryByExtension(file) && !knownText) return { type: "binary" as const, content: "" }
+      if (isBinaryByExtension(file) && !knownText) {
+        yield* trackOpen
+        return { type: "binary" as const, content: "" }
+      }
 
       const exists = yield* appFs.existsSafe(full)
       if (!exists) return { type: "text" as const, content: "" }
@@ -544,6 +547,7 @@ export const layer = Layer.effect(
       if (encode && !isImage(mimeType)) return { type: "binary" as const, content: "", mimeType }
 
       if (encode) {
+        yield* trackOpen
         const bytes = yield* appFs.readFile(full).pipe(Effect.catch(() => Effect.succeed(new Uint8Array())))
         return {
           type: "text" as const,
@@ -564,6 +568,7 @@ export const layer = Layer.effect(
           diff = yield* gitText(["-c", "core.fsmonitor=false", "diff", "--staged", "--", file])
         }
         if (diff.trim()) {
+          yield* trackOpen
           const original = yield* git.show(ctx.directory, "HEAD", file)
           const patch = structuredPatch(file, file, original, content, "old", "new", {
             context: Infinity,
@@ -571,9 +576,11 @@ export const layer = Layer.effect(
           })
           return { type: "text" as const, content, patch, diff: formatPatch(patch) }
         }
+        yield* trackOpen
         return { type: "text" as const, content }
       }
 
+      yield* trackOpen
       return { type: "text" as const, content }
     })
 
@@ -647,13 +654,6 @@ export const layer = Layer.effect(
       yield* ensure()
       const { cache } = yield* InstanceState.get(state)
 
-      const items = kind === "file" ? cache.files : kind === "directory" ? cache.dirs : [...cache.files, ...cache.dirs]
-
-      const searchLimit = kind === "directory" && !preferHidden ? limit * 20 : limit
-      const sorted = fuzzysort.go(query, items, { limit: searchLimit }).map((item) => item.target)
-      const output = kind === "directory" ? sortHiddenLast(sorted, preferHidden).slice(0, limit) : sorted
-
-      log.info("search", { query, kind, results: output.length })
       const preferHidden = query.startsWith(".") || query.includes("/.")
 
       if (!query) {
@@ -661,6 +661,13 @@ export const layer = Layer.effect(
         return sortHiddenLast(cache.dirs.toSorted(), preferHidden).slice(0, limit)
       }
 
+      const items = kind === "file" ? cache.files : kind === "directory" ? cache.dirs : [...cache.files, ...cache.dirs]
+
+      const searchLimit = kind === "directory" && !preferHidden ? limit * 20 : limit
+      const sorted = fuzzysort.go(query, items, { limit: searchLimit }).map((item) => item.target)
+      const output = kind === "directory" ? sortHiddenLast(sorted, preferHidden).slice(0, limit) : sorted
+
+      log.info("search", { query, kind, results: output.length })
       return output
     })
 

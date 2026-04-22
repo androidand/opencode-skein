@@ -4,6 +4,7 @@ import path from "path"
 import { Agent } from "../../src/agent/agent"
 import * as CrossSpawnSpawner from "../../src/effect/cross-spawn-spawner"
 import { AppFileSystem } from "@opencode-ai/shared/filesystem"
+import { Search } from "../../src/file/search"
 import { LSP } from "../../src/lsp"
 import { Permission } from "../../src/permission"
 import { Instance } from "../../src/project/instance"
@@ -40,6 +41,7 @@ const it = testEffect(
     CrossSpawnSpawner.defaultLayer,
     Instruction.defaultLayer,
     LSP.defaultLayer,
+    Search.defaultLayer,
     Truncate.defaultLayer,
   ),
 )
