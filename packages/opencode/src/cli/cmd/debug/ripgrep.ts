@@ -1,7 +1,7 @@
 import { EOL } from "os"
 import { Effect, Stream } from "effect"
 import { AppRuntime } from "../../../effect/app-runtime"
-import { Ripgrep } from "../../../file/ripgrep"
+import { Search } from "../../../file/search"
 import { Instance } from "../../../project/instance"
 import { bootstrap } from "../../bootstrap"
 import { cmd } from "../cmd"
@@ -23,7 +23,7 @@ const TreeCommand = cmd({
   async handler(args) {
     await bootstrap(process.cwd(), async () => {
       const tree = await AppRuntime.runPromise(
-        Ripgrep.Service.use((svc) => svc.tree({ cwd: Instance.directory, limit: args.limit })),
+        Search.Service.use((svc) => svc.tree({ cwd: Instance.directory, limit: args.limit })),
       )
       process.stdout.write(tree + EOL)
     })
@@ -51,8 +51,8 @@ const FilesCommand = cmd({
     await bootstrap(process.cwd(), async () => {
       const files = await AppRuntime.runPromise(
         Effect.gen(function* () {
-          const rg = yield* Ripgrep.Service
-          return yield* rg
+          const search = yield* Search.Service
+          return yield* search
             .files({
               cwd: Instance.directory,
               glob: args.glob ? [args.glob] : undefined,
@@ -90,7 +90,7 @@ const SearchCommand = cmd({
   async handler(args) {
     await bootstrap(process.cwd(), async () => {
       const results = await AppRuntime.runPromise(
-        Ripgrep.Service.use((svc) =>
+        Search.Service.use((svc) =>
           svc.search({
             cwd: Instance.directory,
             pattern: args.pattern,

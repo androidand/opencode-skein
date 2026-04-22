@@ -53,7 +53,7 @@ import { ToolRegistry } from "../../src/tool"
 import { Truncate } from "../../src/tool"
 import { AppFileSystem } from "@opencode-ai/shared/filesystem"
 import * as CrossSpawnSpawner from "../../src/effect/cross-spawn-spawner"
-import { Ripgrep } from "../../src/file/ripgrep"
+import { Search } from "../../src/file/search"
 import { Format } from "../../src/format"
 
 void Log.init({ print: false })
@@ -128,7 +128,7 @@ function makeHttp() {
     Layer.provide(Skill.defaultLayer),
     Layer.provide(FetchHttpClient.layer),
     Layer.provide(CrossSpawnSpawner.defaultLayer),
-    Layer.provide(Ripgrep.defaultLayer),
+    Layer.provide(Search.defaultLayer),
     Layer.provide(Format.defaultLayer),
     Layer.provideMerge(todo),
     Layer.provideMerge(question),

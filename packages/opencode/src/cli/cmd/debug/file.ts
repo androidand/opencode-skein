@@ -1,7 +1,7 @@
 import { EOL } from "os"
 import { AppRuntime } from "@/effect/app-runtime"
+import { Search } from "@/file/search"
 import { File } from "../../../file"
-import { Ripgrep } from "@/file/ripgrep"
 import { bootstrap } from "../../bootstrap"
 import { cmd } from "../cmd"
 
@@ -79,7 +79,7 @@ const FileTreeCommand = cmd({
     }),
   async handler(args) {
     await bootstrap(process.cwd(), async () => {
-      const tree = await AppRuntime.runPromise(Ripgrep.Service.use((svc) => svc.tree({ cwd: args.dir, limit: 200 })))
+      const tree = await AppRuntime.runPromise(Search.Service.use((svc) => svc.tree({ cwd: args.dir, limit: 200 })))
       console.log(JSON.stringify(tree, null, 2))
     })
   },

@@ -2,7 +2,7 @@ import { Hono } from "hono"
 import { describeRoute, validator, resolver } from "hono-openapi"
 import z from "zod"
 import { File } from "@/file"
-import { Ripgrep } from "@/file/ripgrep"
+import { Search } from "@/file/search"
 import { LSP } from "@/lsp"
 import { Instance } from "@/project/instance"
 import { lazy } from "@/util/lazy"
@@ -14,14 +14,14 @@ export const FileRoutes = lazy(() =>
       "/find",
       describeRoute({
         summary: "Find text",
-        description: "Search for text patterns across files in the project using ripgrep.",
+        description: "Search for text patterns across files in the project.",
         operationId: "find.text",
         responses: {
           200: {
             description: "Matches",
             content: {
               "application/json": {
-                schema: resolver(Ripgrep.Match.shape.data.array()),
+                schema: resolver(Search.Match.array()),
               },
             },
           },
@@ -36,7 +36,7 @@ export const FileRoutes = lazy(() =>
       async (c) =>
         jsonRequest("FileRoutes.findText", c, function* () {
           const pattern = c.req.valid("query").pattern
-          const svc = yield* Ripgrep.Service
+          const svc = yield* Search.Service
           const result = yield* svc.search({ cwd: Instance.directory, pattern, limit: 10 })
           return result.items
         }),

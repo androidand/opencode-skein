@@ -33,7 +33,7 @@ import { Effect, Layer, Context } from "effect"
 import { FetchHttpClient, HttpClient } from "effect/unstable/http"
 import { ChildProcessSpawner } from "effect/unstable/process/ChildProcessSpawner"
 import * as CrossSpawnSpawner from "@/effect/cross-spawn-spawner"
-import { Ripgrep } from "../file/ripgrep"
+import { Search } from "../file/search"
 import { Format } from "../format"
 import { InstanceState } from "@/effect"
 import { Question } from "../question"
@@ -80,13 +80,13 @@ export const layer: Layer.Layer<
   | Provider.Service
   | LSP.Service
   | Instruction.Service
-  | AppFileSystem.Service
-  | Bus.Service
-  | HttpClient.HttpClient
-  | ChildProcessSpawner
-  | Ripgrep.Service
-  | Format.Service
-  | Truncate.Service
+    | AppFileSystem.Service
+    | Bus.Service
+    | HttpClient.HttpClient
+    | ChildProcessSpawner
+    | Search.Service
+    | Format.Service
+    | Truncate.Service
 > = Layer.effect(
   Service,
   Effect.gen(function* () {
@@ -328,12 +328,12 @@ export const defaultLayer = Layer.suspend(() =>
     Layer.provide(Provider.defaultLayer),
     Layer.provide(LSP.defaultLayer),
     Layer.provide(Instruction.defaultLayer),
-    Layer.provide(AppFileSystem.defaultLayer),
-    Layer.provide(Bus.layer),
-    Layer.provide(FetchHttpClient.layer),
-    Layer.provide(Format.defaultLayer),
-    Layer.provide(CrossSpawnSpawner.defaultLayer),
-    Layer.provide(Ripgrep.defaultLayer),
-    Layer.provide(Truncate.defaultLayer),
-  ),
-)
+      Layer.provide(AppFileSystem.defaultLayer),
+      Layer.provide(Bus.layer),
+      Layer.provide(FetchHttpClient.layer),
+      Layer.provide(Format.defaultLayer),
+      Layer.provide(CrossSpawnSpawner.defaultLayer),
+      Layer.provide(Search.defaultLayer),
+      Layer.provide(Truncate.defaultLayer),
+    ),
+  )
