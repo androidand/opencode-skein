@@ -44,7 +44,6 @@ import { ConfigSkills } from "./skills"
 import { ConfigVariable } from "./variable"
 import { Npm } from "@/npm"
 import { ShellToolID } from "@/tool/shell/id"
-import { makeRuntime } from "@/effect/run-service"
 
 const log = Log.create({ service: "config" })
 
@@ -802,33 +801,3 @@ export const defaultLayer = layer.pipe(
   Layer.provide(Account.defaultLayer),
   Layer.provide(Npm.defaultLayer),
 )
-
-const { runPromise } = makeRuntime(Service, defaultLayer)
-
-export async function get() {
-  return runPromise((svc) => svc.get())
-}
-
-export async function getGlobal() {
-  return runPromise((svc) => svc.getGlobal())
-}
-
-export async function update(...args: Parameters<Interface["update"]>) {
-  return runPromise((svc) => svc.update(...args))
-}
-
-export async function updateGlobal(...args: Parameters<Interface["updateGlobal"]>) {
-  return runPromise((svc) => svc.updateGlobal(...args))
-}
-
-export async function invalidate(...args: Parameters<Interface["invalidate"]>) {
-  return runPromise((svc) => svc.invalidate(...args))
-}
-
-export async function directories() {
-  return runPromise((svc) => svc.directories())
-}
-
-export async function waitForDependencies() {
-  return runPromise((svc) => svc.waitForDependencies())
-}

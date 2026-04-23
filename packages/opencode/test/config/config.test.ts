@@ -1568,7 +1568,7 @@ test("permission config preserves shell and legacy bash order", async () => {
   await Instance.provide({
     directory: tmp.path,
     fn: async () => {
-      const config = await Config.get()
+      const config = await load()
       expect(Object.keys(config.permission!)).toEqual(["shell", "bash"])
       expect(config.permission).toEqual({
         shell: "deny",
