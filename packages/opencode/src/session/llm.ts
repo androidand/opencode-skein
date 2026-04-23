@@ -22,6 +22,7 @@ import { Auth } from "@/auth"
 import { Installation } from "@/installation"
 import { InstallationVersion } from "@/installation/version"
 import { EffectBridge } from "@/effect"
+import { ShellToolID } from "@/tool/shell/id"
 import * as Option from "effect/Option"
 import * as OtelTracer from "@effect/opentelemetry/Tracer"
 
@@ -453,7 +454,12 @@ function resolveTools(input: Pick<StreamInput, "tools" | "agent" | "permission" 
     Object.keys(input.tools),
     Permission.merge(input.agent.permission, input.permission ?? []),
   )
-  return Record.filter(input.tools, (_, k) => input.user.tools?.[k] !== false && !disabled.has(k))
+  return Record.filter(input.tools, (_, k) => {
+    const userTool = input.user.tools?.[k]
+    if (userTool !== undefined) return userTool !== false && !disabled.has(k)
+    if (k === ShellToolID.id && input.user.tools?.[ShellToolID.legacy] === false) return false
+    return !disabled.has(k)
+  })
 }
 
 // Check if messages contain any tool-call content

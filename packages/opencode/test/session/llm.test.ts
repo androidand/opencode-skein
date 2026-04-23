@@ -561,6 +561,100 @@ describe("session.llm.stream", () => {
     })
   })
 
+  test("disables shell when user message uses legacy bash override", async () => {
+    const server = state.server
+    if (!server) {
+      throw new Error("Server not initialized")
+    }
+
+    const providerID = "alibaba"
+    const modelID = "qwen-plus"
+    const fixture = await loadFixture(providerID, modelID)
+    const model = fixture.model
+
+    const request = waitRequest(
+      "/chat/completions",
+      new Response(createChatStream("Hello"), {
+        status: 200,
+        headers: { "Content-Type": "text/event-stream" },
+      }),
+    )
+
+    await using tmp = await tmpdir({
+      init: async (dir) => {
+        await Bun.write(
+          path.join(dir, "opencode.json"),
+          JSON.stringify({
+            $schema: "https://opencode.ai/config.json",
+            enabled_providers: [providerID],
+            provider: {
+              [providerID]: {
+                options: {
+                  apiKey: "test-key",
+                  baseURL: `${server.url.origin}/v1`,
+                },
+              },
+            },
+          }),
+        )
+      },
+    })
+
+    await Instance.provide({
+      directory: tmp.path,
+      fn: async () => {
+        const resolved = await getModel(ProviderID.make(providerID), ModelID.make(model.id))
+        const sessionID = SessionID.make("session-test-legacy-bash-tools")
+        const agent = {
+          name: "test",
+          mode: "primary",
+          options: {},
+          permission: [],
+        } satisfies Agent.Info
+
+        const user = {
+          id: MessageID.make("user-legacy-bash-tools"),
+          sessionID,
+          role: "user",
+          time: { created: Date.now() },
+          agent: agent.name,
+          model: { providerID: ProviderID.make(providerID), modelID: resolved.id },
+          tools: { bash: false },
+        } satisfies MessageV2.User
+
+        await drain({
+          user,
+          sessionID,
+          model: resolved,
+          agent,
+          system: ["You are a helpful assistant."],
+          messages: [{ role: "user", content: "Hello" }],
+          tools: {
+            shell: tool({
+              description: "Run a shell command",
+              inputSchema: z.object({ command: z.string() }),
+              execute: async () => ({ output: "" }),
+            }),
+            read: tool({
+              description: "Read a file",
+              inputSchema: z.object({ filePath: z.string() }),
+              execute: async () => ({ output: "" }),
+            }),
+          },
+        })
+
+        const capture = await request
+        const names =
+          (capture.body.tools as Array<{ function?: { name?: string } }> | undefined)?.flatMap((item) =>
+            item.function?.name ? [item.function.name] : [],
+          ) ?? []
+
+        expect(names).not.toContain("shell")
+        expect(names).toContain("read")
+      },
+    })
+  })
+
   test("sends responses API payload for OpenAI models", async () => {
     const server = state.server
     if (!server) {

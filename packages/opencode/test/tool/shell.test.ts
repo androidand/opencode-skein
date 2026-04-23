@@ -237,6 +237,38 @@ describe("tool.shell permissions", () => {
     )
   }
 
+  for (const item of ps) {
+    test(
+      `uses PowerShell cmdlet prefixes for always-allow prompts [${item.label}]`,
+      withShell(item, async () => {
+        await using tmp = await tmpdir()
+        await Instance.provide({
+          directory: tmp.path,
+          fn: async () => {
+            const bash = await initShell()
+            const err = new Error("stop after permission")
+            const requests: Array<Omit<Permission.Request, "id" | "sessionID" | "tool">> = []
+            await expect(
+              Effect.runPromise(
+                bash.execute(
+                  {
+                    command: "Remove-Item -Recurse tmp",
+                    description: "Remove a temp directory",
+                  },
+                  capture(requests, err),
+                ),
+              ),
+            ).rejects.toThrow(err.message)
+            const bashReq = requests.find((r) => r.permission === expectedPermission)
+            expect(bashReq).toBeDefined()
+            expect(bashReq!.always).toContain("Remove-Item *")
+            expect(bashReq!.always).not.toContain("Remove-Item -Recurse *")
+          },
+        })
+      }),
+    )
+  }
+
   each("asks for external_directory permission for wildcard external paths", async () => {
     await Instance.provide({
       directory: projectRoot,
