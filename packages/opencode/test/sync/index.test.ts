@@ -44,13 +44,13 @@ describe("SyncEvent", () => {
       type: "item.created",
       version: 1,
       aggregate: "id",
-      schema: z.object({ id: z.string(), name: z.string() }),
+      schema: { id: Schema.String, name: Schema.String },
     })
     const Sent = SyncEvent.define({
       type: "item.sent",
       version: 1,
       aggregate: "item_id",
-      schema: z.object({ item_id: z.string(), to: z.string() }),
+      schema: { item_id: Schema.String, to: Schema.String },
     })
 
     SyncEvent.init({
@@ -139,7 +139,7 @@ describe("SyncEvent", () => {
             type: "item.effect.created",
             version: 1,
             aggregate: "id",
-            schema: Schema.Struct({ id: Schema.String, name: Schema.String }),
+            schema: { id: Schema.String, name: Schema.String },
           })
 
           SyncEvent.init({

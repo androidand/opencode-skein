@@ -1,5 +1,4 @@
 import z from "zod"
-import type { ZodObject } from "zod"
 import { Schema, Types } from "effect"
 import { Database, eq } from "@/storage"
 import { GlobalBus } from "@/bus/global"
@@ -12,22 +11,34 @@ import { EventID } from "./schema"
 import { Flag } from "@/flag/flag"
 import { zod } from "@/util/effect-zod"
 
+type StructLike<Fields extends Schema.Struct.Fields> = Fields | Schema.Struct<Fields>
+
 export type Definition = {
   type: string
   version: number
   aggregate: string
-  schema: z.ZodObject
-
-  // This is temporary and only exists for compatibility with bus
-  // event definitions
-  properties: z.ZodObject
+  schema: Schema.Top
+  busSchema: Schema.Top
+  properties: z.ZodTypeAny
 }
+
+type MutableType<S extends Schema.Top> = Types.DeepMutable<Schema.Schema.Type<S>>
+
+type DefinedEvent<Type extends string, Agg extends string, SchemaDef extends Schema.Top, BusDef extends Schema.Top> = Definition & {
+  type: Type
+  aggregate: Agg
+  schema: SchemaDef
+  busSchema: BusDef
+  properties: z.ZodType<MutableType<BusDef>>
+}
+
+type Data<Def extends Definition> = MutableType<Def["schema"]>
 
 export type Event<Def extends Definition = Definition> = {
   id: string
   seq: number
   aggregateID: string
-  data: z.infer<Def["schema"]>
+  data: Data<Def>
 }
 
 export type SerializedEvent<Def extends Definition = Definition> = Event<Def> & { type: string }
@@ -56,7 +67,7 @@ export function init(input: { projectors: Array<[Definition, ProjectorFunc]>; co
   for (let [type, version] of versions.entries()) {
     let def = registry.get(versionedType(type, version))!
 
-    BusEvent.define(def.type, def.properties || def.schema)
+    BusEvent.define(def.type, def.properties)
   }
 
   // Freeze the system so it clearly errors if events are defined
@@ -71,56 +82,44 @@ export function versionedType(type: string, version?: number) {
   return version ? `${type}.${version}` : type
 }
 
-type SchemaLike<Agg extends string> =
-  | ZodObject<Record<Agg, z.ZodType<string>>>
-  | Schema.Struct<Record<Agg, Schema.Top>>
+function struct<Fields extends Schema.Struct.Fields>(value: StructLike<Fields>) {
+  return (Schema.isSchema(value) ? value : Schema.Struct(value as Fields)) as Schema.Struct<Fields>
+}
 
-type BusSchemaLike = ZodObject | Schema.Struct<Schema.Struct.Fields>
-
-type Mutable<T> = Types.DeepMutable<T>
-type ToZodObject<S> = S extends Schema.Top
-  ? z.ZodObject<{ [K in keyof Mutable<Schema.Schema.Type<S>>]: z.ZodType<Mutable<Schema.Schema.Type<S>>[K]> }>
-  : S
-
-/**
- * Define a sync event. Accepts either a Zod schema or an Effect Schema for
- * both `schema` and `busSchema`. Effect Schemas are converted to Zod via the
- * `effect-zod` walker since the sync pipeline uses Zod for validation and
- * JSON Schema generation.
- */
 export function define<
   Type extends string,
   Agg extends string,
-  S extends SchemaLike<Agg>,
-  B extends BusSchemaLike = S,
->(input: { type: Type; version: number; aggregate: Agg; schema: S; busSchema?: B }) {
+  Fields extends Schema.Struct.Fields & Record<Agg, Schema.Top>,
+  BusFields extends Schema.Struct.Fields = Fields,
+>(input: {
+  type: Type
+  version: number
+  aggregate: Agg
+  schema: StructLike<Fields>
+  busSchema?: StructLike<BusFields>
+}): DefinedEvent<Type, Agg, Schema.Struct<Fields>, Schema.Struct<BusFields>> {
   if (frozen) {
     throw new Error("Error defining sync event: sync system has been frozen")
   }
 
-  const schema = toZodObject(input.schema) as ToZodObject<S>
-  const properties = (input.busSchema ? toZodObject(input.busSchema) : schema) as ToZodObject<B>
+  const schema = struct(input.schema)
+  const busSchema = (input.busSchema ? struct(input.busSchema) : schema) as Schema.Struct<BusFields>
+  const properties = zod(busSchema) as unknown as z.ZodType<MutableType<typeof busSchema>>
 
-  const def = {
+  const def: DefinedEvent<Type, Agg, typeof schema, typeof busSchema> = {
     type: input.type,
     version: input.version,
     aggregate: input.aggregate,
     schema,
+    busSchema,
     properties,
   }
 
   versions.set(def.type, Math.max(def.version, versions.get(def.type) || 0))
 
-  registry.set(versionedType(def.type, def.version), def as unknown as Definition)
+  registry.set(versionedType(def.type, def.version), def)
 
   return def
-}
-
-function toZodObject(value: ZodObject | Schema.Top): z.ZodObject {
-  if (Schema.isSchema(value)) {
-    return zod(value as Schema.Top) as unknown as z.ZodObject
-  }
-  return value as z.ZodObject
 }
 
 export function project<Def extends Definition>(
@@ -172,10 +171,10 @@ function process<Def extends Definition>(def: Def, event: Event<Def>, options: {
         const result = convertEvent(def.type, event.data)
         if (result instanceof Promise) {
           void result.then((data) => {
-            void ProjectBus.publish({ type: def.type, properties: def.schema }, data)
+            void ProjectBus.publish({ type: def.type, properties: def.properties }, data)
           })
         } else {
-          void ProjectBus.publish({ type: def.type, properties: def.schema }, result)
+          void ProjectBus.publish({ type: def.type, properties: def.properties }, result)
         }
 
         GlobalBus.emit("event", {
@@ -295,7 +294,7 @@ export function payloads() {
           id: z.string(),
           seq: z.number(),
           aggregateID: z.literal(def.aggregate),
-          data: def.schema,
+          data: zod(def.schema),
         })
         .meta({
           ref: `SyncEvent.${def.type}`,

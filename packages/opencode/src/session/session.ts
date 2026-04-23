@@ -28,7 +28,7 @@ import type { Provider } from "@/provider"
 import { Permission } from "@/permission"
 import { Global } from "@/global"
 import { Effect, Layer, Option, Context, Schema, Types } from "effect"
-import { zod, zodObject } from "@/util/effect-zod"
+import { ZodOverride, zod, zodObject } from "@/util/effect-zod"
 import { withStatics } from "@/util/schema"
 
 const log = Log.create({ service: "session" })
@@ -215,40 +215,50 @@ export const MessagesInput = Schema.Struct({
   limit: Schema.optional(Schema.Number),
 }).pipe(withStatics((s) => ({ zod: zod(s) })))
 
+function schemaFromZod<T extends z.ZodTypeAny>(value: T) {
+  return Schema.declare((input): input is z.output<T> => value.safeParse(input).success).annotate({
+    [ZodOverride]: value,
+  })
+}
+
+const SessionUpdateInfoSchema = schemaFromZod(
+  updateSchema(zodObject(Info)).extend({
+    share: updateSchema(zodObject(Share)).optional(),
+    time: updateSchema(zodObject(Time)).optional(),
+  }),
+)
+
 export const Event = {
   Created: SyncEvent.define({
     type: "session.created",
     version: 1,
     aggregate: "sessionID",
-    schema: z.object({
-      sessionID: SessionID.zod,
-      info: Info.zod,
-    }),
+    schema: {
+      sessionID: SessionID,
+      info: Info,
+    },
   }),
   Updated: SyncEvent.define({
     type: "session.updated",
     version: 1,
     aggregate: "sessionID",
-    schema: z.object({
-      sessionID: SessionID.zod,
-      info: updateSchema(zodObject(Info)).extend({
-        share: updateSchema(zodObject(Share)).optional(),
-        time: updateSchema(zodObject(Time)).optional(),
-      }),
-    }),
-    busSchema: z.object({
-      sessionID: SessionID.zod,
-      info: Info.zod,
-    }),
+    schema: {
+      sessionID: SessionID,
+      info: SessionUpdateInfoSchema,
+    },
+    busSchema: {
+      sessionID: SessionID,
+      info: Info,
+    },
   }),
   Deleted: SyncEvent.define({
     type: "session.deleted",
     version: 1,
     aggregate: "sessionID",
-    schema: z.object({
-      sessionID: SessionID.zod,
-      info: Info.zod,
-    }),
+    schema: {
+      sessionID: SessionID,
+      info: Info,
+    },
   }),
   Diff: BusEvent.define(
     "session.diff",
@@ -394,7 +404,7 @@ export interface Interface {
 
 export class Service extends Context.Service<Service, Interface>()("@opencode/Session") {}
 
-type Patch = z.infer<typeof Event.Updated.schema>["info"]
+type Patch = Schema.Schema.Type<typeof Event.Updated.schema>["info"]
 
 const db = <T>(fn: (d: Parameters<typeof Database.use>[0] extends (trx: infer D) => any ? D : never) => T) =>
   Effect.sync(() => Database.use(fn))
