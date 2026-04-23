@@ -1,4 +1,5 @@
 import { afterEach, describe, expect, test } from "bun:test"
+import { Schema } from "effect"
 import z from "zod"
 import { Bus } from "../../src/bus"
 import { BusEvent } from "../../src/bus/bus-event"
@@ -9,6 +10,8 @@ const TestEvent = {
   Ping: BusEvent.define("test.ping", z.object({ value: z.number() })),
   Pong: BusEvent.define("test.pong", z.object({ message: z.string() })),
 }
+
+const EffectTestEvent = BusEvent.define("test.effect-schema.ping", Schema.Struct({ value: Schema.Number }))
 
 function withInstance(directory: string, fn: () => Promise<void>) {
   return Instance.provide({ directory, fn })
@@ -75,6 +78,22 @@ describe("Bus", () => {
       await withInstance(tmp.path, async () => {
         await Bus.publish(TestEvent.Ping, { value: 1 })
       })
+    })
+
+    test("accepts Effect Schema event definitions", async () => {
+      await using tmp = await tmpdir()
+      const received: number[] = []
+
+      await withInstance(tmp.path, async () => {
+        Bus.subscribe(EffectTestEvent, (evt) => {
+          received.push(evt.properties.value)
+        })
+        await Bun.sleep(10)
+        await Bus.publish(EffectTestEvent, { value: 42 })
+        await Bun.sleep(10)
+      })
+
+      expect(received).toEqual([42])
     })
   })
 

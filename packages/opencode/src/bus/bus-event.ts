@@ -23,14 +23,10 @@ export function define<Type extends string, P extends ZodType>(
   properties: P,
 ): { type: Type; properties: P }
 export function define(type: string, properties: unknown) {
-  const zodProperties = isEffectSchema(properties) ? zod(properties) : (properties as ZodType)
+  const zodProperties = Schema.isSchema(properties) ? zod(properties) : (properties as ZodType)
   const result = { type, properties: zodProperties }
   registry.set(type, result as Definition)
   return result
-}
-
-function isEffectSchema(value: unknown): value is Schema.Top {
-  return typeof value === "object" && value !== null && "ast" in value
 }
 
 export function payloads() {

@@ -117,7 +117,7 @@ export function define<
 }
 
 function toZodObject(value: ZodObject | Schema.Top): z.ZodObject {
-  if (typeof value === "object" && value !== null && "ast" in value) {
+  if (Schema.isSchema(value)) {
     return zod(value as Schema.Top) as unknown as z.ZodObject
   }
   return value as z.ZodObject

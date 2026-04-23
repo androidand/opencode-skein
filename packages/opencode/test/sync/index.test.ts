@@ -1,4 +1,5 @@
 import { describe, test, expect, beforeEach, afterEach, afterAll } from "bun:test"
+import { Schema } from "effect"
 import { tmpdir } from "../fixture/fixture"
 import z from "zod"
 import { Bus } from "../../src/bus"
@@ -126,6 +127,51 @@ describe("SyncEvent", () => {
             name: "test",
           },
         })
+      }),
+    )
+
+    test(
+      "accepts Effect Schema event definitions",
+      withInstance(async () => {
+        SyncEvent.reset()
+        try {
+          const Created = SyncEvent.define({
+            type: "item.effect.created",
+            version: 1,
+            aggregate: "id",
+            schema: Schema.Struct({ id: Schema.String, name: Schema.String }),
+          })
+
+          SyncEvent.init({
+            projectors: [SyncEvent.project(Created, () => {})],
+          })
+
+          const events: Array<{
+            type: string
+            properties: { id: string; name: string }
+          }> = []
+          const received = new Promise<void>((resolve) => {
+            Bus.subscribeAll((event) => {
+              events.push(event)
+              resolve()
+            })
+          })
+
+          SyncEvent.run(Created, { id: "evt_1", name: "schema" })
+
+          await received
+          expect(events).toEqual([
+            {
+              type: "item.effect.created",
+              properties: {
+                id: "evt_1",
+                name: "schema",
+              },
+            },
+          ])
+        } finally {
+          setup()
+        }
       }),
     )
   })
