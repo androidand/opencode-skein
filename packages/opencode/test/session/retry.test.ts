@@ -230,6 +230,30 @@ describe("session.retry.retryable", () => {
     expect(retryable).toBeDefined()
     expect(retryable).toBe("Response decompression failed")
   })
+
+  test("returns upsell message for FreeUsageLimitError in response body", () => {
+    const error = new MessageV2.APIError({
+      message: "Usage limit exceeded",
+      isRetryable: true,
+      responseBody: '{"error":{"type":"FreeUsageLimitError"}}',
+    }).toObject() as MessageV2.APIError
+
+    expect(SessionRetry.retryable(error)).toBe(SessionRetry.GO_UPSELL_MESSAGE)
+  })
+
+  test("returns overloaded message when APIError message includes Overloaded", () => {
+    const error = new MessageV2.APIError({
+      message: "Server is Overloaded, try again later",
+      isRetryable: true,
+    }).toObject() as MessageV2.APIError
+
+    expect(SessionRetry.retryable(error)).toBe("Provider is overloaded")
+  })
+
+  test("maps rate_limit error code in nested json", () => {
+    const error = wrap(JSON.stringify({ type: "error", error: { code: "rate_limit_exceeded" } }))
+    expect(SessionRetry.retryable(error)).toBe("Rate Limited")
+  })
 })
 
 describe("session.message-v2.fromError", () => {
