@@ -124,22 +124,22 @@ describe("session.retry.delay", () => {
 })
 
 describe("session.retry.retryable", () => {
-  test("maps too_many_requests json messages", () => {
+  test("retries too_many_requests in raw json strings", () => {
     const error = wrap(JSON.stringify({ type: "error", error: { type: "too_many_requests" } }))
-    expect(SessionRetry.retryable(error)).toBe("Too Many Requests")
+    expect(SessionRetry.retryable(error)).toBe(JSON.stringify({ type: "error", error: { type: "too_many_requests" } }))
   })
 
-  test("maps overloaded provider codes", () => {
+  test("retries exhausted codes in raw json strings", () => {
     const error = wrap(JSON.stringify({ code: "resource_exhausted" }))
     expect(SessionRetry.retryable(error)).toBe("Provider is overloaded")
   })
 
-  test("does not retry unknown json messages", () => {
+  test("does not retry unknown raw json strings", () => {
     const error = wrap(JSON.stringify({ error: { message: "no_kv_space" } }))
     expect(SessionRetry.retryable(error)).toBeUndefined()
   })
 
-  test("does not throw on numeric error codes", () => {
+  test("does not throw on numeric codes in raw json strings", () => {
     const error = wrap(JSON.stringify({ type: "error", error: { code: 123 } }))
     const result = SessionRetry.retryable(error)
     expect(result).toBeUndefined()
@@ -165,6 +165,66 @@ describe("session.retry.retryable", () => {
 
   test("retries too many requests in plain text", () => {
     const msg = "Too many requests, please slow down"
+    const error = wrap(msg)
+    expect(SessionRetry.retryable(error)).toBe(msg)
+  })
+
+  test("retries connection errors in plain text", () => {
+    const msg = "Connection refused"
+    const error = wrap(msg)
+    expect(SessionRetry.retryable(error)).toBe(msg)
+  })
+
+  test("retries timeout errors in plain text", () => {
+    const msg = "Request timed out"
+    const error = wrap(msg)
+    expect(SessionRetry.retryable(error)).toBe(msg)
+  })
+
+  test("retries 500 errors in plain text", () => {
+    const msg = "HTTP 500 Internal Server Error"
+    const error = wrap(msg)
+    expect(SessionRetry.retryable(error)).toBe(msg)
+  })
+
+  test("retries overloaded errors in plain text", () => {
+    const msg = "Provider is overloaded"
+    const error = wrap(msg)
+    expect(SessionRetry.retryable(error)).toBe("Provider is overloaded")
+  })
+
+  test("retries 429 errors in plain text", () => {
+    const msg = "HTTP 429 Too Many Requests"
+    const error = wrap(msg)
+    expect(SessionRetry.retryable(error)).toBe(msg)
+  })
+
+  test("retries provider returned errors", () => {
+    const msg = "Provider returned error: something went wrong"
+    const error = wrap(msg)
+    expect(SessionRetry.retryable(error)).toBe(msg)
+  })
+
+  test("retries other side closed errors", () => {
+    const msg = "Other side closed connection"
+    const error = wrap(msg)
+    expect(SessionRetry.retryable(error)).toBe(msg)
+  })
+
+  test("retries reset before headers errors", () => {
+    const msg = "Connection reset before headers"
+    const error = wrap(msg)
+    expect(SessionRetry.retryable(error)).toBe(msg)
+  })
+
+  test("retries ended without errors", () => {
+    const msg = "Request ended without sending chunks"
+    const error = wrap(msg)
+    expect(SessionRetry.retryable(error)).toBe(msg)
+  })
+
+  test("retries retry delay exceeded errors", () => {
+    const msg = "Retry delay exceeded"
     const error = wrap(msg)
     expect(SessionRetry.retryable(error)).toBe(msg)
   })
@@ -250,9 +310,14 @@ describe("session.retry.retryable", () => {
     expect(SessionRetry.retryable(error)).toBe("Provider is overloaded")
   })
 
-  test("maps rate_limit error code in nested json", () => {
+  test("retries rate_limit codes in raw json strings", () => {
     const error = wrap(JSON.stringify({ type: "error", error: { code: "rate_limit_exceeded" } }))
-    expect(SessionRetry.retryable(error)).toBe("Rate Limited")
+    expect(SessionRetry.retryable(error)).toBe(JSON.stringify({ type: "error", error: { code: "rate_limit_exceeded" } }))
+  })
+
+  test("retries server_error in raw json strings", () => {
+    const error = wrap(JSON.stringify({ type: "error", error: { type: "server_error", code: "server_error" } }))
+    expect(SessionRetry.retryable(error)).toBe(JSON.stringify({ type: "error", error: { type: "server_error", code: "server_error" } }))
   })
 })
 

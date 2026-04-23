@@ -1,7 +1,6 @@
 import type { NamedError } from "@opencode-ai/shared/util/error"
 import { Cause, Clock, Duration, Effect, Schedule } from "effect"
 import { MessageV2 } from "./message-v2"
-import { iife } from "@/util/iife"
 
 export type Err = ReturnType<NamedError["toObject"]>
 
@@ -63,43 +62,19 @@ export function retryable(error: Err) {
     return error.data.message.includes("Overloaded") ? "Provider is overloaded" : error.data.message
   }
 
-  // Check for rate limit patterns in plain text error messages
   const msg = error.data?.message
   if (typeof msg === "string") {
     const lower = msg.toLowerCase()
     if (
-      lower.includes("rate increased too quickly") ||
-      lower.includes("rate limit") ||
-      lower.includes("too many requests")
+      /rate.?limit|too.?many.?requests|overloaded|exhausted|unavailable|service.?unavailable|429|5\d\d|internal.?error|network.?error|connection.?(?:error|refused|lost|reset)|fetch.?failed|upstream|upstream.?connect|reset before headers|socket.?hang.?up|other.?side.?closed|ended without|timed? out|timeout|terminated|retry delay|provider.?returned.?error|server.?error/i.test(
+        lower,
+      )
     ) {
+      if (lower.includes("overloaded") || lower.includes("exhausted") || lower.includes("unavailable")) return "Provider is overloaded"
       return msg
     }
   }
 
-  const json = iife(() => {
-    try {
-      if (typeof error.data?.message === "string") {
-        const parsed = JSON.parse(error.data.message)
-        return parsed
-      }
-
-      return JSON.parse(error.data.message)
-    } catch {
-      return undefined
-    }
-  })
-  if (!json || typeof json !== "object") return undefined
-  const code = typeof json.code === "string" ? json.code : ""
-
-  if (json.type === "error" && json.error?.type === "too_many_requests") {
-    return "Too Many Requests"
-  }
-  if (code.includes("exhausted") || code.includes("unavailable")) {
-    return "Provider is overloaded"
-  }
-  if (json.type === "error" && typeof json.error?.code === "string" && json.error.code.includes("rate_limit")) {
-    return "Rate Limited"
-  }
   return undefined
 }
 
