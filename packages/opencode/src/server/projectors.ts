@@ -5,12 +5,14 @@ import { Session } from "@/session"
 import { SessionTable } from "@/session/session.sql"
 import { Database, eq } from "@/storage"
 
+const isSessionUpdated = Schema.is(Session.Event.Updated.schema)
+
 export function initProjectors() {
   SyncEvent.init({
     projectors: sessionProjectors,
     convertEvent: (type, data) => {
-      if (type === "session.updated") {
-        const id = (data as Schema.Schema.Type<typeof Session.Event.Updated.schema>).sessionID
+      if (type === Session.Event.Updated.type && isSessionUpdated(data)) {
+        const id = data.sessionID
         const row = Database.use((db) => db.select().from(SessionTable).where(eq(SessionTable.id, id)).get())
 
         if (!row) return data

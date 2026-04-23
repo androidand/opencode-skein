@@ -49,6 +49,14 @@ function isZodType(value: unknown): value is z.ZodTypeAny {
   return typeof value === "object" && value !== null && "_zod" in value
 }
 
+// Bridge a Zod-first schema into Effect Schema while preserving the original
+// Zod for downstream JSON Schema/OpenAPI generation.
+export function fromZod<T extends z.ZodTypeAny>(value: T) {
+  return Schema.declare((input): input is z.output<T> => value.safeParse(input).success).annotate({
+    [ZodOverride]: value,
+  })
+}
+
 function walk(ast: SchemaAST.AST): z.ZodTypeAny {
   const cached = walkCache.get(ast)
   if (cached) return cached

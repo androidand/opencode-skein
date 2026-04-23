@@ -28,7 +28,7 @@ import type { Provider } from "@/provider"
 import { Permission } from "@/permission"
 import { Global } from "@/global"
 import { Effect, Layer, Option, Context, Schema, Types } from "effect"
-import { ZodOverride, zod, zodObject } from "@/util/effect-zod"
+import { fromZod, zod, zodObject } from "@/util/effect-zod"
 import { withStatics } from "@/util/schema"
 
 const log = Log.create({ service: "session" })
@@ -215,13 +215,7 @@ export const MessagesInput = Schema.Struct({
   limit: Schema.optional(Schema.Number),
 }).pipe(withStatics((s) => ({ zod: zod(s) })))
 
-function schemaFromZod<T extends z.ZodTypeAny>(value: T) {
-  return Schema.declare((input): input is z.output<T> => value.safeParse(input).success).annotate({
-    [ZodOverride]: value,
-  })
-}
-
-const SessionUpdateInfoSchema = schemaFromZod(
+const SessionUpdateInfoSchema = fromZod(
   updateSchema(zodObject(Info)).extend({
     share: updateSchema(zodObject(Share)).optional(),
     time: updateSchema(zodObject(Time)).optional(),
