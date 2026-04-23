@@ -271,7 +271,7 @@ export type ToolInfo = {
   subtitle?: string
 }
 
-const SHELL = new Set(["shell"])
+const SHELL = new Set(["shell", "bash"])
 
 function agentTitle(i18n: UiI18n, type?: string) {
   if (!type) return i18n.t("ui.tool.agent.default")

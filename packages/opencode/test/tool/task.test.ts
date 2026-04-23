@@ -378,7 +378,7 @@ describe("tool.task", () => {
             },
           },
           experimental: {
-            primary_tools: ["shell", "read"],
+            primary_tools: ["bash", "read"],
           },
         },
       },

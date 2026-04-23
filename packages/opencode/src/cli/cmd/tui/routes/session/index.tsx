@@ -1541,7 +1541,7 @@ function ToolPart(props: { last: boolean; part: ToolPart; message: AssistantMess
   return (
     <Show when={!shouldHide()}>
       <Switch>
-        <Match when={ShellToolID.has(props.part.tool)}>
+        <Match when={ShellToolID.normalize(props.part.tool) === ShellToolID.id}>
           <Shell {...toolprops} />
         </Match>
         <Match when={props.part.tool === "glob"}>

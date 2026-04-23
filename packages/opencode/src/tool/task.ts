@@ -1,5 +1,6 @@
 import * as Tool from "./tool"
 import DESCRIPTION from "./task.txt"
+import { ShellToolID } from "./shell/id"
 import z from "zod"
 import { Session } from "../session"
 import { SessionID, MessageID } from "../session/schema"
@@ -39,7 +40,7 @@ export const TaskTool = Tool.define(
 
     const run = Effect.fn("TaskTool.execute")(function* (params: z.infer<typeof parameters>, ctx: Tool.Context) {
       const cfg = yield* config.get()
-      const primaryTools = cfg.experimental?.primary_tools ?? []
+      const primaryTools = (cfg.experimental?.primary_tools ?? []).map(ShellToolID.normalize)
 
       if (!ctx.extra?.bypassAgentCheck) {
         yield* ctx.ask({
