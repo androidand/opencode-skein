@@ -16,7 +16,6 @@ import type { SystemError } from "bun"
 import type { Provider } from "@/provider"
 import { ModelID, ProviderID } from "@/provider/schema"
 import { Effect, Schema, Types } from "effect"
-import { ShellToolID } from "@/tool/shell/id"
 import { zod, ZodOverride } from "@/util/effect-zod"
 import { withStatics } from "@/util/schema"
 import { namedSchemaError } from "@/util/named-schema-error"
@@ -443,17 +442,6 @@ export type Part =
   | RetryPart
   | CompactionPart
 
-function normalizeTool(tool: string) {
-  return ShellToolID.normalize(tool)
-}
-
-function normalizePart<T extends Part>(part: T): T {
-  if (part.type !== "tool") return part
-  const tool = normalizeTool(part.tool)
-  if (tool === part.tool) return part
-  return { ...part, tool } as T
-}
-
 // Errors are still NamedError-based Zod; bridge via ZodOverride so the derived
 // Zod + JSON Schema emit the original discriminatedUnion shape. Migrating the
 // error classes to Schema.TaggedErrorClass is a separate slice.
@@ -673,12 +661,12 @@ const info = (row: typeof MessageTable.$inferSelect) =>
   }) as Info
 
 const part = (row: typeof PartTable.$inferSelect) =>
-  normalizePart(({
+  ({
     ...row.data,
     id: row.id,
     sessionID: row.session_id,
     messageID: row.message_id,
-  } as Part))
+  } as Part)
 
 const older = (row: Cursor) =>
   or(lt(MessageTable.time_created, row.time), and(eq(MessageTable.time_created, row.time), lt(MessageTable.id, row.id)))
@@ -843,8 +831,7 @@ export const toModelMessagesEffect = Effect.fnUntraced(function* (
         role: "assistant",
         parts: [],
       }
-      for (const raw of msg.parts) {
-        const part = normalizePart(raw)
+      for (const part of msg.parts) {
         if (part.type === "text")
           assistantMessage.parts.push({
             type: "text",

@@ -8,7 +8,6 @@ import { Agent } from "../agent/agent"
 import type { SessionPrompt } from "../session/prompt"
 import { Config } from "../config"
 import { Effect } from "effect"
-import { ShellToolID } from "./shell/id"
 
 export interface TaskPromptOps {
   cancel(sessionID: SessionID): void
@@ -40,7 +39,7 @@ export const TaskTool = Tool.define(
 
     const run = Effect.fn("TaskTool.execute")(function* (params: z.infer<typeof parameters>, ctx: Tool.Context) {
       const cfg = yield* config.get()
-      const primaryTools = (cfg.experimental?.primary_tools ?? []).map((item) => ShellToolID.normalize(item))
+      const primaryTools = cfg.experimental?.primary_tools ?? []
 
       if (!ctx.extra?.bypassAgentCheck) {
         yield* ctx.ask({

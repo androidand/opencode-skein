@@ -12,8 +12,6 @@ import matter from "gray-matter"
 import { Instance } from "../../project/instance"
 import { EOL } from "os"
 import type { Argv } from "yargs"
-import { ShellToolID } from "../../tool/shell/id"
-
 type AgentMode = "all" | "primary" | "subagent"
 
 const AVAILABLE_TOOLS = ["shell", "read", "write", "edit", "glob", "grep", "webfetch", "task", "todowrite"]
@@ -129,7 +127,7 @@ const AgentCreateCommand = cmd({
                 ...new Set(
                   cliTools
                     .split(",")
-                    .map((t) => ShellToolID.normalize(t.trim()))
+                    .map((t) => t.trim())
                     .filter(Boolean),
                 ),
               ]

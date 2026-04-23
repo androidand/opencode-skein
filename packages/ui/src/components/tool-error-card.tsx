@@ -35,7 +35,6 @@ export function ToolErrorCard(props: ToolErrorCardProps) {
       websearch: "ui.tool.websearch",
       codesearch: "ui.tool.codesearch",
       shell: "ui.tool.shell",
-      bash: "ui.tool.shell",
       apply_patch: "ui.tool.patch",
       question: "ui.tool.questions",
     }

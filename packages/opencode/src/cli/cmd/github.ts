@@ -880,7 +880,6 @@ export const GithubRunCommand = cmd({
         const TOOL: Record<string, [string, string]> = {
           todowrite: ["Todo", UI.Style.TEXT_WARNING_BOLD],
           shell: ["Shell", UI.Style.TEXT_DANGER_BOLD],
-          bash: ["Shell", UI.Style.TEXT_DANGER_BOLD],
           edit: ["Edit", UI.Style.TEXT_SUCCESS_BOLD],
           glob: ["Glob", UI.Style.TEXT_INFO_BOLD],
           grep: ["Grep", UI.Style.TEXT_INFO_BOLD],

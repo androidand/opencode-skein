@@ -21,12 +21,10 @@ export namespace ShellKind {
 export namespace ShellToolID {
   export const id = "shell"
   export const legacy = "bash"
-  export type ID = typeof id | typeof legacy
-
-  const tool = new Set<string>([id, legacy])
+  export type ID = typeof id
 
   export function has(value: string): value is ID {
-    return tool.has(value)
+    return value === id
   }
 
   export function normalize(value: string) {

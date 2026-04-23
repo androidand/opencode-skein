@@ -607,12 +607,12 @@ describe("session.message-v2.toModelMessage", () => {
             ...basePart(assistantID, "a1"),
             type: "tool",
             callID: "call-1",
-            tool: "bash",
+            tool: "shell",
             state: {
               status: "completed",
               input: { cmd: "ls" },
               output: "abcdefghij",
-              title: "Bash",
+              title: "Shell",
               metadata: {},
               time: { start: 0, end: 1 },
             },
@@ -755,7 +755,7 @@ describe("session.message-v2.toModelMessage", () => {
             ...basePart(assistantID, "a1"),
             type: "tool",
             callID: "call-1",
-            tool: "bash",
+            tool: "shell",
             state: {
               status: "error",
               input: { command: "for i in {1..20}; do print -- $RANDOM; sleep 1; done" },
