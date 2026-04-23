@@ -4,6 +4,7 @@ import { Schema } from "effect"
 import z from "zod"
 import { Bus } from "@/bus"
 import { zod } from "@/util/effect-zod"
+import { PositiveInt } from "@/util/schema"
 import { Log } from "../util"
 import { NamedError } from "@opencode-ai/shared/util/error"
 import { Glob } from "@opencode-ai/shared/util/glob"
@@ -15,8 +16,6 @@ import { ConfigPermission } from "./permission"
 import { ShellToolID } from "@/tool/shell/id"
 
 const log = Log.create({ service: "config" })
-
-const PositiveInt = Schema.Number.check(Schema.isInt()).check(Schema.isGreaterThan(0))
 
 const Color = Schema.Union([
   Schema.String.check(Schema.isPattern(/^#[0-9a-fA-F]{6}$/)),

@@ -1,4 +1,4 @@
-import z from "zod"
+import { Effect, Schema, Stream } from "effect"
 import os from "os"
 import { createWriteStream } from "node:fs"
 import * as Tool from "./tool"
@@ -17,7 +17,6 @@ import { ShellKind, ShellToolID } from "./shell/id"
 
 import * as Truncate from "./truncate"
 import { Plugin } from "@/plugin"
-import { Effect, Stream } from "effect"
 import { ChildProcess } from "effect/unstable/process"
 import { ChildProcessSpawner } from "effect/unstable/process/ChildProcessSpawner"
 import { ShellArity } from "./shell/arity"
@@ -58,20 +57,25 @@ const describe = {
     'Clear, concise description of what this command does in 5-10 words. Examples:\nInput: Get-ChildItem -LiteralPath "."\nOutput: Lists current directory\n\nInput: git status\nOutput: Shows working tree status\n\nInput: npm install\nOutput: Installs package dependencies\n\nInput: New-Item -ItemType Directory -Path "tmp"\nOutput: Creates directory tmp',
 }
 
-const Parameters = (description: string) =>
-  z.object({
-    command: z.string().describe("The command to execute"),
-    timeout: z.number().describe("Optional timeout in milliseconds").optional(),
-    workdir: z
-      .string()
-      .describe(
-        `The working directory to run the command in. Defaults to the current directory. Use this instead of 'cd' commands.`,
-      )
-      .optional(),
-    description: z.string().describe(description),
+function parameterSchema(description: string) {
+  return Schema.Struct({
+    command: Schema.String.annotate({ description: "The command to execute" }),
+    timeout: Schema.optional(Schema.Number).annotate({ description: "Optional timeout in milliseconds" }),
+    workdir: Schema.optional(Schema.String).annotate({
+      description: `The working directory to run the command in. Defaults to the current directory. Use this instead of 'cd' commands.`,
+    }),
+    description: Schema.String.annotate({ description }),
   })
+}
 
-type Parameters = z.infer<ReturnType<typeof Parameters>>
+export const Parameters = parameterSchema(describe.bash)
+
+type Parameters = Schema.Schema.Type<typeof Parameters>
+
+type Limits = {
+  maxLines: number
+  maxBytes: number
+}
 
 function renderPrompt(template: string, values: Record<string, string>) {
   return template.replace(/\$\{(\w+)\}/g, (_, key: string) => {
@@ -119,7 +123,7 @@ function chainGuidance(name: string) {
   return "If the commands depend on each other and must run sequentially, use a single Bash call with '&&' to chain them together (e.g., `git add . && git commit -m \"message\" && git push`). For instance, if one operation must complete before another starts (like mkdir before cp, Write before Bash for git operations, or git add before git commit), run these operations sequentially instead."
 }
 
-function bashCommandSection(chain: string) {
+function bashCommandSection(chain: string, limits: Limits) {
   return `Before executing the command, please follow these steps:
 
 1. Directory Verification:
@@ -140,7 +144,7 @@ Usage notes:
   - The command argument is required.
   - You can specify an optional timeout in milliseconds. If not specified, commands will time out after 120000ms (2 minutes).
   - It is very helpful if you write a clear, concise description of what this command does in 5-10 words.
-  - If the output exceeds ${Truncate.MAX_LINES} lines or ${Truncate.MAX_BYTES} bytes, it will be truncated and the full output will be written to a file. You can use Read with offset/limit to read specific sections or Grep to search the full content. Do NOT use \`head\`, \`tail\`, or other truncation commands to limit output; the full output will already be captured to a file for more precise searching.
+  - If the output exceeds ${limits.maxLines} lines or ${limits.maxBytes} bytes, it will be truncated and the full output will be written to a file. You can use Read with offset/limit to read specific sections or Grep to search the full content. Do NOT use \`head\`, \`tail\`, or other truncation commands to limit output; the full output will already be captured to a file for more precise searching.
 
   - Avoid using Bash with the \`find\`, \`grep\`, \`cat\`, \`head\`, \`tail\`, \`sed\`, \`awk\`, or \`echo\` commands, unless explicitly instructed or when these commands are truly necessary for the task. Instead, always prefer using the dedicated tools for these commands:
     - File search: Use Glob (NOT find or ls)
@@ -163,7 +167,7 @@ Usage notes:
     </bad-example>`
 }
 
-function powershellCommandSection(name: string, chain: string, pathSep: string) {
+function powershellCommandSection(name: string, chain: string, pathSep: string, limits: Limits) {
   return `${powershellNotes(name)}
 
 Before executing the command, please follow these steps:
@@ -186,7 +190,7 @@ Usage notes:
   - The command argument is required.
   - You can specify an optional timeout in milliseconds. If not specified, commands will time out after 120000ms (2 minutes).
   - It is very helpful if you write a clear, concise description of what this command does in 5-10 words.
-  - If the output exceeds ${Truncate.MAX_LINES} lines or ${Truncate.MAX_BYTES} bytes, it will be truncated and the full output will be written to a file. You can use Read with offset/limit to read specific sections or Grep to search the full content. Do NOT use \`Select-Object -First\`, \`Select-Object -Last\`, or other truncation commands to limit output; the full output will already be captured to a file for more precise searching.
+  - If the output exceeds ${limits.maxLines} lines or ${limits.maxBytes} bytes, it will be truncated and the full output will be written to a file. You can use Read with offset/limit to read specific sections or Grep to search the full content. Do NOT use \`Select-Object -First\`, \`Select-Object -Last\`, or other truncation commands to limit output; the full output will already be captured to a file for more precise searching.
 
   - Avoid using Shell with PowerShell file/content cmdlets unless explicitly instructed or when these cmdlets are truly necessary for the task. Instead, always prefer using the dedicated tools for these commands:
     - File search: Use Glob (NOT Get-ChildItem)
@@ -209,7 +213,7 @@ Usage notes:
     </bad-example>`
 }
 
-function promptProfile(name: string, platform: NodeJS.Platform) {
+function promptProfile(name: string, platform: NodeJS.Platform, limits: Limits) {
   const isPowerShell = PS.has(name)
   const chain = chainGuidance(name)
   if (isPowerShell) {
@@ -217,7 +221,7 @@ function promptProfile(name: string, platform: NodeJS.Platform) {
       intro: `Executes a given ${shellDisplayName(name)} command with optional timeout, ensuring proper handling and security measures.`,
       workdirSection:
         "All commands run in the current working directory by default. Use the `workdir` parameter if you need to run a command in a different directory. AVOID changing directories inside the command - use `workdir` instead.",
-      commandSection: powershellCommandSection(name, chain, platform === "win32" ? "\\" : "/"),
+      commandSection: powershellCommandSection(name, chain, platform === "win32" ? "\\" : "/", limits),
       gitCommands: "git commands",
       toolName: "Shell",
       gitCommandRestriction: "git commands",
@@ -234,7 +238,7 @@ function promptProfile(name: string, platform: NodeJS.Platform) {
       "Executes a given bash command in a persistent shell session with optional timeout, ensuring proper handling and security measures.",
     workdirSection:
       "All commands run in the current working directory by default. Use the `workdir` parameter if you need to run a command in a different directory. AVOID using `cd <directory> && <command>` patterns - use `workdir` instead.",
-    commandSection: bashCommandSection(chain),
+    commandSection: bashCommandSection(chain, limits),
     gitCommands: "bash commands",
     toolName: "Bash",
     gitCommandRestriction: "git bash commands",
@@ -601,9 +605,8 @@ export const ShellTool = Tool.define(
       },
       ctx: Tool.Context,
     ) {
-      const bytes = Truncate.MAX_BYTES
-      const lines = Truncate.MAX_LINES
-      const keep = bytes * 2
+      const limits = yield* trunc.limits()
+      const keep = limits.maxBytes * 2
       let full = ""
       let last = ""
       const list: Chunk[] = []
@@ -643,7 +646,7 @@ export const ShellTool = Tool.define(
                 sink?.write(chunk)
               } else {
                 full += chunk
-                if (Buffer.byteLength(full, "utf-8") > bytes) {
+                if (Buffer.byteLength(full, "utf-8") > limits.maxBytes) {
                   return trunc.write(full).pipe(
                     Effect.andThen((next) =>
                       Effect.sync(() => {
@@ -710,7 +713,7 @@ export const ShellTool = Tool.define(
       }
       if (aborted) meta.push("User aborted the command")
       const raw = list.map((item) => item.text).join("")
-      const end = tail(raw, lines, bytes)
+      const end = tail(raw, limits.maxLines, limits.maxBytes)
       if (end.cut) cut = true
       if (!file && end.cut) {
         file = yield* trunc.write(raw)
@@ -751,10 +754,11 @@ export const ShellTool = Tool.define(
     })
 
     return () =>
-      Effect.sync(() => {
+      Effect.gen(function* () {
         const shell = Shell.acceptable()
         const name = Shell.name(shell)
-        const profile = promptProfile(name, process.platform)
+        const limits = yield* trunc.limits()
+        const profile = promptProfile(name, process.platform, limits)
         const description = renderPrompt(DESCRIPTION, {
           intro: profile.intro,
           os: process.platform,
@@ -771,7 +775,7 @@ export const ShellTool = Tool.define(
 
         return {
           description,
-          parameters: Parameters(profile.parameterDescription),
+          parameters: parameterSchema(profile.parameterDescription),
           execute: (params: Parameters, ctx: Tool.Context) =>
             Effect.gen(function* () {
               const cwd = params.workdir
