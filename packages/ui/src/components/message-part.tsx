@@ -1258,6 +1258,7 @@ export function registerTool(input: { name: string; render?: ToolComponent }) {
 }
 
 export function getTool(name: string) {
+  if (name === "bash") return state.shell?.render
   return state[name]?.render
 }
 

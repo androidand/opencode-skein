@@ -10,6 +10,7 @@ import fs from "fs/promises"
 import { Filesystem } from "../../util"
 import matter from "gray-matter"
 import { Instance } from "../../project/instance"
+import { ShellToolID } from "../../tool/shell/id"
 import { EOL } from "os"
 import type { Argv } from "yargs"
 type AgentMode = "all" | "primary" | "subagent"
@@ -128,6 +129,7 @@ const AgentCreateCommand = cmd({
                   cliTools
                     .split(",")
                     .map((t) => t.trim())
+                    .map(ShellToolID.normalize)
                     .filter(Boolean),
                 ),
               ]
