@@ -360,6 +360,8 @@ function array(ast: SchemaAST.Arrays): z.ZodTypeAny {
 }
 
 function decl(ast: SchemaAST.Declaration): z.ZodTypeAny {
+  const typeConstructor = (ast.annotations as { typeConstructor?: { _tag?: string } }).typeConstructor
+  if (typeConstructor?._tag === "effect/DateTime.Utc") return z.string().datetime()
   if (ast.typeParameters.length !== 1) return fail(ast)
   return walk(ast.typeParameters[0])
 }

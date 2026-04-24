@@ -987,6 +987,371 @@ export type EventSessionDeleted = {
   }
 }
 
+export type SessionEventSource = {
+  start: number
+  end: number
+  text: string
+}
+
+export type SessionEventFileAttachment = {
+  uri: string
+  mime: string
+  name?: string
+  description?: string
+  source?: SessionEventSource
+}
+
+export type SessionEventAgentAttachment = {
+  name: string
+  source?: SessionEventSource
+}
+
+export type SessionEventPrompt = {
+  id: string
+  sessionID: string
+  metadata?: {
+    [key: string]: unknown
+  }
+  timestamp: string
+  type: "prompt"
+  text: string
+  files?: Array<SessionEventFileAttachment>
+  agents?: Array<SessionEventAgentAttachment>
+}
+
+export type EventPrompt = {
+  type: "prompt"
+  properties: SessionEventPrompt
+}
+
+export type SessionEventSynthetic = {
+  id: string
+  sessionID: string
+  metadata?: {
+    [key: string]: unknown
+  }
+  timestamp: string
+  type: "synthetic"
+  text: string
+}
+
+export type EventSynthetic = {
+  type: "synthetic"
+  properties: SessionEventSynthetic
+}
+
+export type SessionEventStepStarted = {
+  id: string
+  sessionID: string
+  metadata?: {
+    [key: string]: unknown
+  }
+  timestamp: string
+  type: "step.started"
+  model: {
+    id: string
+    providerID: string
+    variant?: string
+  }
+}
+
+export type EventStepStarted = {
+  type: "step.started"
+  properties: SessionEventStepStarted
+}
+
+export type SessionEventStepEnded = {
+  id: string
+  sessionID: string
+  metadata?: {
+    [key: string]: unknown
+  }
+  timestamp: string
+  type: "step.ended"
+  reason: string
+  cost: number
+  tokens: {
+    input: number
+    output: number
+    reasoning: number
+    cache: {
+      read: number
+      write: number
+    }
+  }
+}
+
+export type EventStepEnded = {
+  type: "step.ended"
+  properties: SessionEventStepEnded
+}
+
+export type SessionEventTextStarted = {
+  id: string
+  sessionID: string
+  metadata?: {
+    [key: string]: unknown
+  }
+  timestamp: string
+  type: "text.started"
+}
+
+export type EventTextStarted = {
+  type: "text.started"
+  properties: SessionEventTextStarted
+}
+
+export type SessionEventTextDelta = {
+  id: string
+  sessionID: string
+  metadata?: {
+    [key: string]: unknown
+  }
+  timestamp: string
+  type: "text.delta"
+  delta: string
+}
+
+export type EventTextDelta = {
+  type: "text.delta"
+  properties: SessionEventTextDelta
+}
+
+export type SessionEventTextEnded = {
+  id: string
+  sessionID: string
+  metadata?: {
+    [key: string]: unknown
+  }
+  timestamp: string
+  type: "text.ended"
+  text: string
+}
+
+export type EventTextEnded = {
+  type: "text.ended"
+  properties: SessionEventTextEnded
+}
+
+export type SessionEventReasoningStarted = {
+  id: string
+  sessionID: string
+  metadata?: {
+    [key: string]: unknown
+  }
+  timestamp: string
+  type: "reasoning.started"
+}
+
+export type EventReasoningStarted = {
+  type: "reasoning.started"
+  properties: SessionEventReasoningStarted
+}
+
+export type SessionEventReasoningDelta = {
+  id: string
+  sessionID: string
+  metadata?: {
+    [key: string]: unknown
+  }
+  timestamp: string
+  type: "reasoning.delta"
+  delta: string
+}
+
+export type EventReasoningDelta = {
+  type: "reasoning.delta"
+  properties: SessionEventReasoningDelta
+}
+
+export type SessionEventReasoningEnded = {
+  id: string
+  sessionID: string
+  metadata?: {
+    [key: string]: unknown
+  }
+  timestamp: string
+  type: "reasoning.ended"
+  text: string
+}
+
+export type EventReasoningEnded = {
+  type: "reasoning.ended"
+  properties: SessionEventReasoningEnded
+}
+
+export type SessionEventToolInputStarted = {
+  id: string
+  sessionID: string
+  metadata?: {
+    [key: string]: unknown
+  }
+  timestamp: string
+  type: "tool.input.started"
+  callID: string
+  name: string
+}
+
+export type EventToolInputStarted = {
+  type: "tool.input.started"
+  properties: SessionEventToolInputStarted
+}
+
+export type SessionEventToolInputDelta = {
+  id: string
+  sessionID: string
+  metadata?: {
+    [key: string]: unknown
+  }
+  timestamp: string
+  type: "tool.input.delta"
+  callID: string
+  delta: string
+}
+
+export type EventToolInputDelta = {
+  type: "tool.input.delta"
+  properties: SessionEventToolInputDelta
+}
+
+export type SessionEventToolInputEnded = {
+  id: string
+  sessionID: string
+  metadata?: {
+    [key: string]: unknown
+  }
+  timestamp: string
+  type: "tool.input.ended"
+  callID: string
+  text: string
+}
+
+export type EventToolInputEnded = {
+  type: "tool.input.ended"
+  properties: SessionEventToolInputEnded
+}
+
+export type SessionEventToolCalled = {
+  id: string
+  sessionID: string
+  metadata?: {
+    [key: string]: unknown
+  }
+  timestamp: string
+  type: "tool.called"
+  callID: string
+  tool: string
+  input: {
+    [key: string]: unknown
+  }
+  provider: {
+    executed: boolean
+    metadata?: {
+      [key: string]: unknown
+    }
+  }
+}
+
+export type EventToolCalled = {
+  type: "tool.called"
+  properties: SessionEventToolCalled
+}
+
+export type SessionEventToolSuccess = {
+  id: string
+  sessionID: string
+  metadata?: {
+    [key: string]: unknown
+  }
+  timestamp: string
+  type: "tool.success"
+  callID: string
+  title: string
+  output?: string
+  attachments?: Array<SessionEventFileAttachment>
+  provider: {
+    executed: boolean
+    metadata?: {
+      [key: string]: unknown
+    }
+  }
+}
+
+export type EventToolSuccess = {
+  type: "tool.success"
+  properties: SessionEventToolSuccess
+}
+
+export type SessionEventToolError = {
+  id: string
+  sessionID: string
+  metadata?: {
+    [key: string]: unknown
+  }
+  timestamp: string
+  type: "tool.error"
+  callID: string
+  error: string
+  provider: {
+    executed: boolean
+    metadata?: {
+      [key: string]: unknown
+    }
+  }
+}
+
+export type EventToolError = {
+  type: "tool.error"
+  properties: SessionEventToolError
+}
+
+export type SessionEventRetryError = {
+  message: string
+  statusCode?: number
+  isRetryable: boolean
+  responseHeaders?: {
+    [key: string]: string
+  }
+  responseBody?: string
+  metadata?: {
+    [key: string]: string
+  }
+}
+
+export type SessionEventRetried = {
+  id: string
+  sessionID: string
+  metadata?: {
+    [key: string]: unknown
+  }
+  timestamp: string
+  type: "retried"
+  attempt: number
+  error: SessionEventRetryError
+}
+
+export type EventRetried = {
+  type: "retried"
+  properties: SessionEventRetried
+}
+
+export type SessionEventCompacted = {
+  id: string
+  sessionID: string
+  metadata?: {
+    [key: string]: unknown
+  }
+  timestamp: string
+  type: "compacted"
+  auto: boolean
+  overflow?: boolean
+}
+
+export type EventCompacted = {
+  type: "compacted"
+  properties: SessionEventCompacted
+}
+
 export type SyncEventMessageUpdated = {
   type: "sync"
   name: "message.updated.1"
@@ -1104,6 +1469,168 @@ export type SyncEventSessionDeleted = {
   }
 }
 
+export type SyncEventPrompt = {
+  type: "sync"
+  name: "prompt.1"
+  id: string
+  seq: number
+  aggregateID: "sessionID"
+  data: SessionEventPrompt
+}
+
+export type SyncEventSynthetic = {
+  type: "sync"
+  name: "synthetic.1"
+  id: string
+  seq: number
+  aggregateID: "sessionID"
+  data: SessionEventSynthetic
+}
+
+export type SyncEventStepStarted = {
+  type: "sync"
+  name: "step.started.1"
+  id: string
+  seq: number
+  aggregateID: "sessionID"
+  data: SessionEventStepStarted
+}
+
+export type SyncEventStepEnded = {
+  type: "sync"
+  name: "step.ended.1"
+  id: string
+  seq: number
+  aggregateID: "sessionID"
+  data: SessionEventStepEnded
+}
+
+export type SyncEventTextStarted = {
+  type: "sync"
+  name: "text.started.1"
+  id: string
+  seq: number
+  aggregateID: "sessionID"
+  data: SessionEventTextStarted
+}
+
+export type SyncEventTextDelta = {
+  type: "sync"
+  name: "text.delta.1"
+  id: string
+  seq: number
+  aggregateID: "sessionID"
+  data: SessionEventTextDelta
+}
+
+export type SyncEventTextEnded = {
+  type: "sync"
+  name: "text.ended.1"
+  id: string
+  seq: number
+  aggregateID: "sessionID"
+  data: SessionEventTextEnded
+}
+
+export type SyncEventReasoningStarted = {
+  type: "sync"
+  name: "reasoning.started.1"
+  id: string
+  seq: number
+  aggregateID: "sessionID"
+  data: SessionEventReasoningStarted
+}
+
+export type SyncEventReasoningDelta = {
+  type: "sync"
+  name: "reasoning.delta.1"
+  id: string
+  seq: number
+  aggregateID: "sessionID"
+  data: SessionEventReasoningDelta
+}
+
+export type SyncEventReasoningEnded = {
+  type: "sync"
+  name: "reasoning.ended.1"
+  id: string
+  seq: number
+  aggregateID: "sessionID"
+  data: SessionEventReasoningEnded
+}
+
+export type SyncEventToolInputStarted = {
+  type: "sync"
+  name: "tool.input.started.1"
+  id: string
+  seq: number
+  aggregateID: "sessionID"
+  data: SessionEventToolInputStarted
+}
+
+export type SyncEventToolInputDelta = {
+  type: "sync"
+  name: "tool.input.delta.1"
+  id: string
+  seq: number
+  aggregateID: "sessionID"
+  data: SessionEventToolInputDelta
+}
+
+export type SyncEventToolInputEnded = {
+  type: "sync"
+  name: "tool.input.ended.1"
+  id: string
+  seq: number
+  aggregateID: "sessionID"
+  data: SessionEventToolInputEnded
+}
+
+export type SyncEventToolCalled = {
+  type: "sync"
+  name: "tool.called.1"
+  id: string
+  seq: number
+  aggregateID: "sessionID"
+  data: SessionEventToolCalled
+}
+
+export type SyncEventToolSuccess = {
+  type: "sync"
+  name: "tool.success.1"
+  id: string
+  seq: number
+  aggregateID: "sessionID"
+  data: SessionEventToolSuccess
+}
+
+export type SyncEventToolError = {
+  type: "sync"
+  name: "tool.error.1"
+  id: string
+  seq: number
+  aggregateID: "sessionID"
+  data: SessionEventToolError
+}
+
+export type SyncEventRetried = {
+  type: "sync"
+  name: "retried.1"
+  id: string
+  seq: number
+  aggregateID: "sessionID"
+  data: SessionEventRetried
+}
+
+export type SyncEventCompacted = {
+  type: "sync"
+  name: "compacted.1"
+  id: string
+  seq: number
+  aggregateID: "sessionID"
+  data: SessionEventCompacted
+}
+
 export type GlobalEvent = {
   directory: string
   project?: string
@@ -1156,6 +1683,24 @@ export type GlobalEvent = {
     | EventSessionCreated
     | EventSessionUpdated
     | EventSessionDeleted
+    | EventPrompt
+    | EventSynthetic
+    | EventStepStarted
+    | EventStepEnded
+    | EventTextStarted
+    | EventTextDelta
+    | EventTextEnded
+    | EventReasoningStarted
+    | EventReasoningDelta
+    | EventReasoningEnded
+    | EventToolInputStarted
+    | EventToolInputDelta
+    | EventToolInputEnded
+    | EventToolCalled
+    | EventToolSuccess
+    | EventToolError
+    | EventRetried
+    | EventCompacted
     | SyncEventMessageUpdated
     | SyncEventMessageRemoved
     | SyncEventMessagePartUpdated
@@ -1163,6 +1708,24 @@ export type GlobalEvent = {
     | SyncEventSessionCreated
     | SyncEventSessionUpdated
     | SyncEventSessionDeleted
+    | SyncEventPrompt
+    | SyncEventSynthetic
+    | SyncEventStepStarted
+    | SyncEventStepEnded
+    | SyncEventTextStarted
+    | SyncEventTextDelta
+    | SyncEventTextEnded
+    | SyncEventReasoningStarted
+    | SyncEventReasoningDelta
+    | SyncEventReasoningEnded
+    | SyncEventToolInputStarted
+    | SyncEventToolInputDelta
+    | SyncEventToolInputEnded
+    | SyncEventToolCalled
+    | SyncEventToolSuccess
+    | SyncEventToolError
+    | SyncEventRetried
+    | SyncEventCompacted
 }
 
 /**
@@ -1198,32 +1761,14 @@ export type ServerConfig = {
 
 export type PermissionActionConfig = "ask" | "allow" | "deny"
 
-export type PermissionObjectConfig = {
-  [key: string]: PermissionActionConfig
-}
-
-export type PermissionRuleConfig = PermissionActionConfig | PermissionObjectConfig
-
 export type PermissionConfig =
   | PermissionActionConfig
   | {
-      read?: PermissionRuleConfig
-      edit?: PermissionRuleConfig
-      glob?: PermissionRuleConfig
-      grep?: PermissionRuleConfig
-      list?: PermissionRuleConfig
-      bash?: PermissionRuleConfig
-      task?: PermissionRuleConfig
-      external_directory?: PermissionRuleConfig
-      todowrite?: PermissionActionConfig
-      question?: PermissionActionConfig
-      webfetch?: PermissionActionConfig
-      websearch?: PermissionActionConfig
-      codesearch?: PermissionActionConfig
-      lsp?: PermissionRuleConfig
-      doom_loop?: PermissionActionConfig
-      skill?: PermissionRuleConfig
-      [key: string]: PermissionRuleConfig | PermissionActionConfig | undefined
+      [key: string]:
+        | PermissionActionConfig
+        | {
+            [key: string]: PermissionActionConfig
+          }
     }
 
 export type AgentConfig = {
@@ -2082,6 +2627,24 @@ export type Event =
   | EventSessionCreated
   | EventSessionUpdated
   | EventSessionDeleted
+  | EventPrompt
+  | EventSynthetic
+  | EventStepStarted
+  | EventStepEnded
+  | EventTextStarted
+  | EventTextDelta
+  | EventTextEnded
+  | EventReasoningStarted
+  | EventReasoningDelta
+  | EventReasoningEnded
+  | EventToolInputStarted
+  | EventToolInputDelta
+  | EventToolInputEnded
+  | EventToolCalled
+  | EventToolSuccess
+  | EventToolError
+  | EventRetried
+  | EventCompacted
 
 export type McpStatusConnected = {
   status: "connected"
