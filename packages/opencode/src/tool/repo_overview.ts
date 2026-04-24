@@ -1,6 +1,5 @@
 import path from "path"
-import z from "zod"
-import { Effect } from "effect"
+import { Effect, Schema } from "effect"
 import { AppFileSystem } from "@opencode-ai/shared/filesystem"
 import { Git } from "@/git"
 import { assertExternalDirectoryEffect } from "./external-directory"
@@ -9,24 +8,17 @@ import * as Tool from "./tool"
 import { parseRepositoryReference, repositoryCachePath } from "@/util/repository"
 import { Instance } from "@/project/instance"
 
-type Parameters = {
-  repository?: string
-  path?: string
-  depth?: number
-}
-
-const parameters: z.ZodType<Parameters> = z
-  .object({
-    repository: z
-      .string()
-      .optional()
-      .describe("Cached repository to inspect, as a git URL, host/path reference, or GitHub owner/repo shorthand"),
-    path: z.string().optional().describe("Directory path to inspect instead of a cached repository"),
-    depth: z.number().int().positive().max(6).optional().describe("Maximum structure depth to include. Defaults to 3."),
+export const Parameters = Schema.Struct({
+  repository: Schema.optional(Schema.String).annotate({
+    description: "Cached repository to inspect, as a git URL, host/path reference, or GitHub owner/repo shorthand",
+  }),
+  path: Schema.optional(Schema.String).annotate({
+    description: "Directory path to inspect instead of a cached repository",
+  }),
+  depth: Schema.optional(Schema.Number).annotate({
+    description: "Maximum structure depth to include. Defaults to 3.",
   })
-  .refine((input) => Boolean(input.repository || input.path), {
-    message: "Either repository or path is required",
-  })
+})
 
 type Metadata = {
   path: string
@@ -84,19 +76,21 @@ function commonEntrypoints(files: Set<string>) {
   return ["index.ts", "index.tsx", "index.js", "index.mjs", "main.ts", "main.js", "src/index.ts", "src/index.tsx", "src/index.js", "src/main.ts", "src/main.js"].filter((file) => files.has(file))
 }
 
-export const RepoOverviewTool = Tool.define<typeof parameters, Metadata, AppFileSystem.Service | Git.Service>(
+export const RepoOverviewTool = Tool.define<typeof Parameters, Metadata, AppFileSystem.Service | Git.Service>(
   "repo_overview",
   Effect.gen(function* () {
     const fs = yield* AppFileSystem.Service
     const git = yield* Git.Service
 
-    const resolveTarget = Effect.fn("RepoOverviewTool.resolveTarget")(function* (params: Parameters) {
+    const resolveTarget = Effect.fn("RepoOverviewTool.resolveTarget")(function* (params: Schema.Schema.Type<typeof Parameters>) {
       if (params.path) {
         const full = path.isAbsolute(params.path) ? params.path : path.resolve(Instance.directory, params.path)
         return { path: full, repository: params.repository }
       }
 
-      const parsed = parseRepositoryReference(params.repository!)
+      if (!params.repository) throw new Error("Either repository or path is required")
+
+      const parsed = parseRepositoryReference(params.repository)
       if (!parsed) throw new Error("Repository must be a git URL, host/path reference, or GitHub owner/repo shorthand")
 
       const repository = parsed.label
@@ -152,11 +146,11 @@ export const RepoOverviewTool = Tool.define<typeof parameters, Metadata, AppFile
 
     return {
       description: DESCRIPTION,
-      parameters,
-      execute: (params: Parameters, ctx: Tool.Context<Metadata>) =>
+      parameters: Parameters,
+      execute: (params: Schema.Schema.Type<typeof Parameters>, ctx: Tool.Context<Metadata>) =>
         Effect.gen(function* () {
           const target = yield* resolveTarget(params)
-          const depth = params.depth ?? 3
+          const depth = !params.depth || !Number.isInteger(params.depth) || params.depth < 1 || params.depth > 6 ? 3 : params.depth
 
           yield* assertExternalDirectoryEffect(ctx, target.path, { kind: "directory" })
           yield* ctx.ask({
@@ -239,6 +233,6 @@ export const RepoOverviewTool = Tool.define<typeof parameters, Metadata, AppFile
             ].join("\n"),
           }
         }).pipe(Effect.orDie),
-    } satisfies Tool.DefWithoutID<typeof parameters, Metadata>
+    } satisfies Tool.DefWithoutID<typeof Parameters, Metadata>
   }),
 )

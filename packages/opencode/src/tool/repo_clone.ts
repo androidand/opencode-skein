@@ -1,6 +1,5 @@
 import path from "path"
-import z from "zod"
-import { Effect } from "effect"
+import { Effect, Schema } from "effect"
 import { AppFileSystem } from "@opencode-ai/shared/filesystem"
 import { Flock } from "@opencode-ai/shared/util/flock"
 import { Git } from "@/git"
@@ -8,16 +7,13 @@ import DESCRIPTION from "./repo_clone.txt"
 import * as Tool from "./tool"
 import { parseRepositoryReference, repositoryCachePath, sameRepositoryReference } from "@/util/repository"
 
-type Parameters = {
-  repository: string
-  refresh?: boolean
-}
-
-const parameters: z.ZodType<Parameters> = z.object({
-  repository: z
-    .string()
-    .describe("Repository to clone, as a git URL, host/path reference, or GitHub owner/repo shorthand"),
-  refresh: z.boolean().optional().describe("When true, fetches the latest remote state into the managed cache"),
+export const Parameters = Schema.Struct({
+  repository: Schema.String.annotate({
+    description: "Repository to clone, as a git URL, host/path reference, or GitHub owner/repo shorthand",
+  }),
+  refresh: Schema.optional(Schema.Boolean).annotate({
+    description: "When true, fetches the latest remote state into the managed cache",
+  }),
 })
 
 type Metadata = {
@@ -49,7 +45,7 @@ function resetTarget(input: {
   return "HEAD"
 }
 
-export const RepoCloneTool = Tool.define<typeof parameters, Metadata, AppFileSystem.Service | Git.Service>(
+export const RepoCloneTool = Tool.define<typeof Parameters, Metadata, AppFileSystem.Service | Git.Service>(
   "repo_clone",
   Effect.gen(function* () {
     const fs = yield* AppFileSystem.Service
@@ -57,8 +53,8 @@ export const RepoCloneTool = Tool.define<typeof parameters, Metadata, AppFileSys
 
     return {
       description: DESCRIPTION,
-      parameters,
-      execute: (params: Parameters, ctx: Tool.Context<Metadata>) =>
+      parameters: Parameters,
+      execute: (params: Schema.Schema.Type<typeof Parameters>, ctx: Tool.Context<Metadata>) =>
         Effect.gen(function* () {
           const reference = parseRepositoryReference(params.repository)
           if (!reference) throw new Error("Repository must be a git URL, host/path reference, or GitHub owner/repo shorthand")
@@ -152,6 +148,6 @@ export const RepoCloneTool = Tool.define<typeof parameters, Metadata, AppFileSys
             (lock) => Effect.promise(() => lock.release()).pipe(Effect.ignore),
           )
         }).pipe(Effect.orDie),
-    } satisfies Tool.DefWithoutID<typeof parameters, Metadata>
+    } satisfies Tool.DefWithoutID<typeof Parameters, Metadata>
   }),
 )
