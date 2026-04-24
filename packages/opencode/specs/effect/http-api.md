@@ -53,6 +53,12 @@ Before porting more routes, cover the bridge behavior that every route depends o
 
 Create a route inventory from the actual Hono registrations and classify each route.
 
+The generated inventory lives in `specs/effect/http-route-inventory.md` and is produced by:
+
+```bash
+bun run script/http-route-inventory.ts
+```
+
 Statuses:
 
 - `bridged`: served through the `HttpApi` bridge when the flag is on.
@@ -130,31 +136,31 @@ Use raw Effect HTTP routes where `HttpApi` does not fit. The goal is deleting Ho
 
 ## Current Route Status
 
-| Area                     | Status            | Notes                                                          |
-| ------------------------ | ----------------- | -------------------------------------------------------------- |
-| `question`               | `bridged`         | `GET /question`, reply, reject                                 |
-| `permission`             | `bridged`         | list and reply                                                 |
-| `provider`               | `bridged`         | list, auth, OAuth authorize/callback                           |
-| `config`                 | `bridged` partial | reads only; mutation remains Hono                              |
-| `project`                | `bridged` partial | reads only; git-init remains Hono                              |
-| `file`                   | `bridged` partial | list/content/status only                                       |
-| `mcp`                    | `bridged` partial | status only                                                    |
-| `workspace`              | `implemented`     | `HttpApi` group exists, but bridge mounting needs verification |
-| top-level instance reads | `next`            | path, vcs, command, agent, skill, lsp, formatter               |
-| experimental JSON routes | `next/later`      | console, tool, worktree, resource, global session list         |
-| `session`                | `later/special`   | large stateful surface plus streaming                          |
-| `sync`                   | `later`           | process/control side effects                                   |
-| `event`                  | `special`         | SSE                                                            |
-| `pty`                    | `special`         | websocket                                                      |
-| `tui`                    | `special`         | UI bridge                                                      |
+| Area                     | Status            | Notes                                                                 |
+| ------------------------ | ----------------- | --------------------------------------------------------------------- |
+| `question`               | `bridged`         | `GET /question`, reply, reject                                        |
+| `permission`             | `bridged`         | list and reply                                                        |
+| `provider`               | `bridged`         | list, auth, OAuth authorize/callback                                  |
+| `config`                 | `bridged` partial | reads only; `PATCH /config` remains Hono                              |
+| `project`                | `bridged` partial | reads only; update and git-init remain Hono                           |
+| `file`                   | `bridged` partial | `GET /file`, `GET /file/content`, `GET /file/status`                  |
+| `mcp`                    | `bridged` partial | `GET /mcp` only                                                       |
+| `workspace`              | `bridged` partial | reads only; create/remove/session-restore remain Hono                 |
+| top-level instance reads | `next`            | `GET /path`, `/vcs`, `/vcs/diff`, `/command`, `/agent`, `/skill`, etc. |
+| experimental JSON routes | `next/later`      | console, tool, worktree, resource, global session list                |
+| `session`                | `later/special`   | large stateful surface plus streaming                                 |
+| `sync`                   | `later`           | process/control side effects                                          |
+| `event`                  | `special`         | SSE                                                                   |
+| `pty`                    | `special`         | websocket                                                             |
+| `tui`                    | `special`         | UI bridge                                                             |
+
+See `specs/effect/http-route-inventory.md` for exact paths and per-route status.
 
 ## Next PRs
 
 1. Add bridge-level auth and instance-context tests for the current `HttpApi` bridge.
-2. Produce a generated route inventory from Hono registrations and update `Current Route Status` with exact paths.
-3. Fix the `workspace` status: mount it if it should be reachable, or remove it from the composed `HttpApi` layer.
-4. Port the top-level JSON reads.
-5. Start the Effect OpenAPI/SDK generation path for already-bridged routes.
+2. Port the top-level JSON reads.
+3. Start the Effect OpenAPI/SDK generation path for already-bridged routes.
 
 ## Checklist
 
@@ -165,8 +171,8 @@ Use raw Effect HTTP routes where `HttpApi` does not fit. The goal is deleting Ho
 - [x] Attach auth middleware in route modules.
 - [x] Support `auth_token` as a query security scheme.
 - [ ] Add bridge-level auth and instance tests.
-- [ ] Complete exact Hono route inventory.
-- [ ] Resolve implemented-but-unmounted route groups.
+- [x] Complete exact Hono route inventory.
+- [x] Resolve implemented-but-unmounted route groups.
 - [ ] Port remaining JSON routes.
 - [ ] Generate SDK/OpenAPI from Effect routes.
 - [ ] Flip ported JSON routes to default-on with fallback.
