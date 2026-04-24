@@ -33,7 +33,7 @@ import { AppRuntime } from "@/effect/app-runtime"
 import { Git } from "@/git"
 import { setTimeout as sleep } from "node:timers/promises"
 import { Process } from "@/util"
-import { parseGitHubRemote } from "@/util/github-remote"
+import { parseGitHubRemote } from "@/util/repository"
 import { Effect } from "effect"
 
 type GitHubAuthor = {
