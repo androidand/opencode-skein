@@ -66,7 +66,11 @@ export const TaskStatusTool = Tool.define(
       }
 
       const latestUser = yield* sessions.findMessage(taskID, (item) => item.info.role === "user")
-      if (Option.isSome(latestUser) && latestUser.value.info.role === "user" && latestUser.value.info.id > latestAssistant.value.info.id) {
+      if (
+        Option.isSome(latestUser) &&
+        latestUser.value.info.role === "user" &&
+        latestUser.value.info.id > latestAssistant.value.info.id
+      ) {
         return {
           state: "running" as const,
           text: "Task is starting.",
@@ -96,8 +100,12 @@ export const TaskStatusTool = Tool.define(
       }
     })
 
-    const waitForTerminal: (taskID: SessionID, timeout: number) => Effect.Effect<{ result: InspectResult; timedOut: boolean }> =
-      Effect.fn("TaskStatusTool.waitForTerminal")(function* (taskID: SessionID, timeout: number) {
+    const waitForTerminal: (
+      taskID: SessionID,
+      timeout: number,
+    ) => Effect.Effect<{ result: InspectResult; timedOut: boolean }> = Effect.fn(
+      "TaskStatusTool.waitForTerminal",
+    )(function* (taskID: SessionID, timeout: number) {
         const result = yield* inspect(taskID)
         if (result.state !== "running") return { result, timedOut: false }
         if (timeout <= 0) return { result, timedOut: true }

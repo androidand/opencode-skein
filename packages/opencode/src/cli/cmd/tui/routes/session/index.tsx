@@ -2000,7 +2000,8 @@ function Task(props: ToolProps<typeof TaskTool>) {
 
   const content = createMemo(() => {
     if (!props.input.description) return ""
-    const description = props.metadata.background === true ? `${props.input.description} (background)` : props.input.description
+    const description =
+      props.metadata.background === true ? `${props.input.description} (background)` : props.input.description
     let content = [`${Locale.titlecase(props.input.subagent_type ?? "General")} Task — ${description}`]
 
     if (isRunning() && tools().length > 0) {

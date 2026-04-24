@@ -80,9 +80,9 @@ export const layer: Layer.Layer<
   | Todo.Service
   | Agent.Service
   | Skill.Service
-   | Session.Service
-   | SessionStatus.Service
-   | Provider.Service
+  | Session.Service
+  | SessionStatus.Service
+  | Provider.Service
   | LSP.Service
   | Instruction.Service
   | AppFileSystem.Service

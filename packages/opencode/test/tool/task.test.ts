@@ -336,10 +336,10 @@ describe("tool.task", () => {
         const result = yield* def.execute(
           {
             description: "inspect bug",
-              prompt: "look into the cache key path",
-              subagent_type: "general",
-              task_id: SessionID.make("ses_missing"),
-            },
+            prompt: "look into the cache key path",
+            subagent_type: "general",
+            task_id: SessionID.make("ses_missing"),
+          },
           {
             sessionID: chat.id,
             messageID: assistant.id,
