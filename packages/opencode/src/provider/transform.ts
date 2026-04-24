@@ -594,6 +594,27 @@ export function variants(model: Provider.Model): Record<string, Record<string, a
         }
       }
 
+      if (model.api.id.includes("deepseek")) {
+        return {
+          high: {
+            thinking: {
+              type: "enabled",
+            },
+            output_config: {
+              effort: "max",
+            },
+          },
+          max: {
+            thinking: {
+              type: "enabled",
+            },
+            output_config: {
+              effort: "max",
+            },
+          },
+        }
+      }
+
       if (adaptiveEfforts) {
         return Object.fromEntries(
           adaptiveEfforts.map((effort) => [
