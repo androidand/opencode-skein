@@ -220,6 +220,19 @@ describe("tool parameters", () => {
       const parsed = parse(Task, { description: "d", prompt: "p", subagent_type: "general" })
       expect(parsed.subagent_type).toBe("general")
     })
+    test("accepts optional task_id + command + background", () => {
+      const parsed = parse(Task, {
+        description: "d",
+        prompt: "p",
+        subagent_type: "general",
+        task_id: "ses_test",
+        command: "/cmd",
+        background: true,
+      })
+      expect(parsed.task_id).toBe("ses_test")
+      expect(parsed.command).toBe("/cmd")
+      expect(parsed.background).toBe(true)
+    })
     test("rejects missing prompt", () => {
       expect(accepts(Task, { description: "d", subagent_type: "general" })).toBe(false)
     })
