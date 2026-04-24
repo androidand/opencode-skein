@@ -15,6 +15,16 @@ const parameters = z.object({
   refresh: z.boolean().optional().describe("When true, fetches the latest remote state into the managed cache"),
 })
 
+type Metadata = {
+  repository: string
+  host: string
+  remote: string
+  localPath: string
+  status: "cached" | "cloned" | "refreshed"
+  head?: string
+  branch?: string
+}
+
 function statusForRepository(input: { reuse: boolean; refresh?: boolean }) {
   if (!input.reuse) return "cloned" as const
   if (input.refresh) return "refreshed" as const
@@ -34,7 +44,7 @@ function resetTarget(input: {
   return "HEAD"
 }
 
-export const RepoCloneTool = Tool.define(
+export const RepoCloneTool = Tool.define<typeof parameters, Metadata, AppFileSystem.Service | Git.Service>(
   "repo_clone",
   Effect.gen(function* () {
     const fs = yield* AppFileSystem.Service
@@ -43,7 +53,7 @@ export const RepoCloneTool = Tool.define(
     return {
       description: DESCRIPTION,
       parameters,
-      execute: (params: z.infer<typeof parameters>, ctx: Tool.Context) =>
+      execute: (params: z.infer<typeof parameters>, ctx: Tool.Context<Metadata>) =>
         Effect.gen(function* () {
           const reference = parseRepositoryReference(params.repository)
           if (!reference) throw new Error("Repository must be a git URL, host/path reference, or GitHub owner/repo shorthand")
@@ -137,6 +147,6 @@ export const RepoCloneTool = Tool.define(
             (lock) => Effect.promise(() => lock.release()).pipe(Effect.ignore),
           )
         }).pipe(Effect.orDie),
-    }
+    } satisfies Tool.DefWithoutID<typeof parameters, Metadata>
   }),
 )

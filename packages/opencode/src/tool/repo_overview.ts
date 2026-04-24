@@ -147,7 +147,7 @@ export const RepoOverviewTool = Tool.define<typeof parameters, Metadata, AppFile
     return {
       description: DESCRIPTION,
       parameters,
-      execute: (params: z.infer<typeof parameters>, ctx: Tool.Context) =>
+      execute: (params: z.infer<typeof parameters>, ctx: Tool.Context<Metadata>) =>
         Effect.gen(function* () {
           const target = yield* resolveTarget(params)
           const depth = params.depth ?? 3
@@ -233,6 +233,6 @@ export const RepoOverviewTool = Tool.define<typeof parameters, Metadata, AppFile
             ].join("\n"),
           }
         }).pipe(Effect.orDie),
-    }
+    } satisfies Tool.DefWithoutID<typeof parameters, Metadata>
   }),
 )
