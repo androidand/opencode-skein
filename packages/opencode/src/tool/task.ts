@@ -81,10 +81,9 @@ export const TaskTool = Tool.define(
     const sessions = yield* Session.Service
     const status = yield* SessionStatus.Service
 
-    const run = Effect.fn("TaskTool.execute")(function* (
-      params: Schema.Schema.Type<typeof Parameters>,
-      ctx: Tool.Context,
-    ) {
+    const run = Effect.fn(
+      "TaskTool.execute",
+    )(function* (params: Schema.Schema.Type<typeof Parameters>, ctx: Tool.Context) {
       const cfg = yield* config.get()
 
       if (!ctx.extra?.bypassAgentCheck) {
@@ -274,13 +273,12 @@ export const TaskTool = Tool.define(
             ctx.abort.removeEventListener("abort", cancel)
           }),
       )
-    })
+    }, Effect.orDie)
 
     return {
       description: DESCRIPTION,
       parameters: Parameters,
-      execute: (params: Schema.Schema.Type<typeof Parameters>, ctx: Tool.Context) =>
-        run(params, ctx).pipe(Effect.orDie),
+      execute: run,
     }
   }),
 )

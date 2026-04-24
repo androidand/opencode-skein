@@ -110,14 +110,13 @@ export const TaskStatusTool = Tool.define(
         if (result.state !== "running") return { result, timedOut: false }
         if (timeout <= 0) return { result, timedOut: true }
         const sleep = Math.min(POLL_MS, timeout)
-        yield* Effect.sleep(`${sleep} millis`)
+        yield* Effect.sleep(sleep)
         return yield* waitForTerminal(taskID, timeout - sleep)
       })
 
-    const run = Effect.fn("TaskStatusTool.execute")(function* (
-      params: Schema.Schema.Type<typeof Parameters>,
-      _ctx: Tool.Context,
-    ) {
+    const run = Effect.fn(
+      "TaskStatusTool.execute",
+    )(function* (params: Schema.Schema.Type<typeof Parameters>, _ctx: Tool.Context) {
       yield* sessions.get(params.task_id)
 
       const waited =
@@ -142,12 +141,12 @@ export const TaskStatusTool = Tool.define(
           text: outputText,
         }),
       }
-    })
+    }, Effect.orDie)
 
     return {
       description: DESCRIPTION,
       parameters: Parameters,
-      execute: (params: Schema.Schema.Type<typeof Parameters>, ctx: Tool.Context) => run(params, ctx).pipe(Effect.orDie),
+      execute: run,
     }
   }),
 )
