@@ -2,6 +2,7 @@ import { NotFoundError, eq, and } from "../storage"
 import { SyncEvent } from "@/sync"
 import * as Session from "./session"
 import { MessageV2 } from "./message-v2"
+import "../v2/session-event"
 import { SessionTable, MessageTable, PartTable } from "./session.sql"
 import { Log } from "../util"
 

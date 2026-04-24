@@ -8,6 +8,7 @@ export const SessionID = Schema.String.annotate({ [ZodOverride]: Identifier.sche
   Schema.brand("SessionID"),
   withStatics((s) => ({
     descending: (id?: string) => s.make(Identifier.descending("session", id)),
+    empty: () => s.make("ses_empty"),
     zod: zod(s),
   })),
 )

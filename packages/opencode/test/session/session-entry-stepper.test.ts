@@ -4,8 +4,10 @@ import * as FastCheck from "effect/testing/FastCheck"
 import { SessionEntry } from "../../src/v2/session-entry"
 import { SessionEntryStepper } from "../../src/v2/session-entry-stepper"
 import { SessionEvent } from "../../src/v2/session-event"
+import { SessionID } from "../../src/session/schema"
 
 const time = (n: number) => DateTime.makeUnsafe(n)
+const sessionID = SessionID.empty()
 
 const word = FastCheck.string({ minLength: 1, maxLength: 8 })
 const text = FastCheck.string({ maxLength: 16 })
@@ -147,24 +149,34 @@ describe("session-entry-stepper", () => {
       const store = adapterStore()
       store.committed.push(assistant())
 
-      SessionEntryStepper.stepWith(adapterFor(store), SessionEvent.Prompt.create({ text: "hello", timestamp: time(1) }))
-      SessionEntryStepper.stepWith(adapterFor(store), SessionEvent.Reasoning.Started.create({ timestamp: time(2) }))
       SessionEntryStepper.stepWith(
         adapterFor(store),
-        SessionEvent.Reasoning.Delta.create({ delta: "thinking", timestamp: time(3) }),
+        SessionEvent.Prompt.create({ sessionID, text: "hello", timestamp: time(1) }),
       )
       SessionEntryStepper.stepWith(
         adapterFor(store),
-        SessionEvent.Reasoning.Ended.create({ text: "thought", timestamp: time(4) }),
+        SessionEvent.Reasoning.Started.create({ sessionID, timestamp: time(2) }),
       )
-      SessionEntryStepper.stepWith(adapterFor(store), SessionEvent.Text.Started.create({ timestamp: time(5) }))
       SessionEntryStepper.stepWith(
         adapterFor(store),
-        SessionEvent.Text.Delta.create({ delta: "world", timestamp: time(6) }),
+        SessionEvent.Reasoning.Delta.create({ sessionID, delta: "thinking", timestamp: time(3) }),
+      )
+      SessionEntryStepper.stepWith(
+        adapterFor(store),
+        SessionEvent.Reasoning.Ended.create({ sessionID, text: "thought", timestamp: time(4) }),
+      )
+      SessionEntryStepper.stepWith(
+        adapterFor(store),
+        SessionEvent.Text.Started.create({ sessionID, timestamp: time(5) }),
+      )
+      SessionEntryStepper.stepWith(
+        adapterFor(store),
+        SessionEvent.Text.Delta.create({ sessionID, delta: "world", timestamp: time(6) }),
       )
       SessionEntryStepper.stepWith(
         adapterFor(store),
         SessionEvent.Step.Ended.create({
+          sessionID,
           reason: "stop",
           cost: 1,
           tokens: {
@@ -199,15 +211,12 @@ describe("session-entry-stepper", () => {
 
       SessionEntryStepper.stepWith(
         adapterFor(store),
-        SessionEvent.Retried.create({
-          attempt: 1,
-          error: retryError("rate limited"),
-          timestamp: time(1),
-        }),
+        SessionEvent.Retried.create({ sessionID, attempt: 1, error: retryError("rate limited"), timestamp: time(1) }),
       )
       SessionEntryStepper.stepWith(
         adapterFor(store),
         SessionEvent.Retried.create({
+          sessionID,
           attempt: 2,
           error: retryError("provider overloaded"),
           timestamp: time(2),
@@ -253,9 +262,11 @@ describe("session-entry-stepper", () => {
       const state = memoryState()
       const adapter = SessionEntryStepper.memory(state)
       const committed = SessionEntry.User.fromEvent(
-        SessionEvent.Prompt.create({ text: "committed", timestamp: time(1) }),
+        SessionEvent.Prompt.create({ sessionID, text: "committed", timestamp: time(1) }),
       )
-      const pending = SessionEntry.User.fromEvent(SessionEvent.Prompt.create({ text: "pending", timestamp: time(2) }))
+      const pending = SessionEntry.User.fromEvent(
+        SessionEvent.Prompt.create({ sessionID, text: "pending", timestamp: time(2) }),
+      )
 
       adapter.appendEntry(committed)
       adapter.appendPending(pending)
@@ -269,15 +280,15 @@ describe("session-entry-stepper", () => {
 
       SessionEntryStepper.stepWith(
         SessionEntryStepper.memory(state),
-        SessionEvent.Reasoning.Started.create({ timestamp: time(1) }),
+        SessionEvent.Reasoning.Started.create({ sessionID, timestamp: time(1) }),
       )
       SessionEntryStepper.stepWith(
         SessionEntryStepper.memory(state),
-        SessionEvent.Reasoning.Delta.create({ delta: "draft", timestamp: time(2) }),
+        SessionEvent.Reasoning.Delta.create({ sessionID, delta: "draft", timestamp: time(2) }),
       )
       SessionEntryStepper.stepWith(
         SessionEntryStepper.memory(state),
-        SessionEvent.Reasoning.Ended.create({ text: "final", timestamp: time(3) }),
+        SessionEvent.Reasoning.Ended.create({ sessionID, text: "final", timestamp: time(3) }),
       )
 
       expect(reasons(state)).toEqual([{ type: "reasoning", text: "final" }])
@@ -288,11 +299,7 @@ describe("session-entry-stepper", () => {
 
       SessionEntryStepper.stepWith(
         SessionEntryStepper.memory(state),
-        SessionEvent.Retried.create({
-          attempt: 1,
-          error: retryError("rate limited"),
-          timestamp: time(1),
-        }),
+        SessionEvent.Retried.create({ sessionID, attempt: 1, error: retryError("rate limited"), timestamp: time(1) }),
       )
 
       expect(retriesOf(state)).toEqual([retry(1, "rate limited", 1)])
@@ -306,7 +313,7 @@ describe("session-entry-stepper", () => {
           FastCheck.property(word, (body) => {
             const next = SessionEntryStepper.step(
               memoryState(),
-              SessionEvent.Prompt.create({ text: body, timestamp: time(1) }),
+              SessionEvent.Prompt.create({ sessionID, text: body, timestamp: time(1) }),
             )
             expect(next.entries).toHaveLength(1)
             expect(next.entries[0]?.type).toBe("user")
@@ -322,7 +329,7 @@ describe("session-entry-stepper", () => {
           FastCheck.property(word, (body) => {
             const next = SessionEntryStepper.step(
               active(),
-              SessionEvent.Prompt.create({ text: body, timestamp: time(1) }),
+              SessionEvent.Prompt.create({ sessionID, text: body, timestamp: time(1) }),
             )
             expect(next.pending).toHaveLength(1)
             expect(next.pending[0]?.type).toBe("user")
@@ -340,9 +347,9 @@ describe("session-entry-stepper", () => {
               (state, part, i) =>
                 SessionEntryStepper.step(
                   state,
-                  SessionEvent.Text.Delta.create({ delta: part, timestamp: time(i + 2) }),
+                  SessionEvent.Text.Delta.create({ sessionID, delta: part, timestamp: time(i + 2) }),
                 ),
-              SessionEntryStepper.step(active(), SessionEvent.Text.Started.create({ timestamp: time(1) })),
+              SessionEntryStepper.step(active(), SessionEvent.Text.Started.create({ sessionID, timestamp: time(1) })),
             )
 
             expect(texts_of(next)).toEqual([
@@ -361,10 +368,12 @@ describe("session-entry-stepper", () => {
           FastCheck.property(texts, texts, (a, b) => {
             const next = run(
               [
-                SessionEvent.Text.Started.create({ timestamp: time(1) }),
-                ...a.map((x, i) => SessionEvent.Text.Delta.create({ delta: x, timestamp: time(i + 2) })),
-                SessionEvent.Text.Started.create({ timestamp: time(a.length + 2) }),
-                ...b.map((x, i) => SessionEvent.Text.Delta.create({ delta: x, timestamp: time(i + a.length + 3) })),
+                SessionEvent.Text.Started.create({ sessionID, timestamp: time(1) }),
+                ...a.map((x, i) => SessionEvent.Text.Delta.create({ sessionID, delta: x, timestamp: time(i + 2) })),
+                SessionEvent.Text.Started.create({ sessionID, timestamp: time(a.length + 2) }),
+                ...b.map((x, i) =>
+                  SessionEvent.Text.Delta.create({ sessionID, delta: x, timestamp: time(i + a.length + 3) }),
+                ),
               ],
               active(),
             )
@@ -383,9 +392,11 @@ describe("session-entry-stepper", () => {
           FastCheck.property(texts, text, (parts, end) => {
             const next = run(
               [
-                SessionEvent.Reasoning.Started.create({ timestamp: time(1) }),
-                ...parts.map((x, i) => SessionEvent.Reasoning.Delta.create({ delta: x, timestamp: time(i + 2) })),
-                SessionEvent.Reasoning.Ended.create({ text: end, timestamp: time(parts.length + 2) }),
+                SessionEvent.Reasoning.Started.create({ sessionID, timestamp: time(1) }),
+                ...parts.map((x, i) =>
+                  SessionEvent.Reasoning.Delta.create({ sessionID, delta: x, timestamp: time(i + 2) }),
+                ),
+                SessionEvent.Reasoning.Ended.create({ sessionID, text: end, timestamp: time(parts.length + 2) }),
               ],
               active(),
             )
@@ -414,11 +425,12 @@ describe("session-entry-stepper", () => {
             (callID, title, input, output, metadata, attachments, parts) => {
               const next = run(
                 [
-                  SessionEvent.Tool.Input.Started.create({ callID, name: "bash", timestamp: time(1) }),
+                  SessionEvent.Tool.Input.Started.create({ sessionID, callID, name: "bash", timestamp: time(1) }),
                   ...parts.map((x, i) =>
-                    SessionEvent.Tool.Input.Delta.create({ callID, delta: x, timestamp: time(i + 2) }),
+                    SessionEvent.Tool.Input.Delta.create({ sessionID, callID, delta: x, timestamp: time(i + 2) }),
                   ),
                   SessionEvent.Tool.Called.create({
+                    sessionID,
                     callID,
                     tool: "bash",
                     input,
@@ -426,6 +438,7 @@ describe("session-entry-stepper", () => {
                     timestamp: time(parts.length + 2),
                   }),
                   SessionEvent.Tool.Success.create({
+                    sessionID,
                     callID,
                     title,
                     output,
@@ -459,8 +472,9 @@ describe("session-entry-stepper", () => {
           FastCheck.property(word, dict, word, maybe(dict), (callID, input, error, metadata) => {
             const next = run(
               [
-                SessionEvent.Tool.Input.Started.create({ callID, name: "bash", timestamp: time(1) }),
+                SessionEvent.Tool.Input.Started.create({ sessionID, callID, name: "bash", timestamp: time(1) }),
                 SessionEvent.Tool.Called.create({
+                  sessionID,
                   callID,
                   tool: "bash",
                   input,
@@ -468,6 +482,7 @@ describe("session-entry-stepper", () => {
                   timestamp: time(2),
                 }),
                 SessionEvent.Tool.Error.create({
+                  sessionID,
                   callID,
                   error,
                   metadata,
@@ -496,8 +511,9 @@ describe("session-entry-stepper", () => {
           FastCheck.property(word, word, (callID, title) => {
             const next = run(
               [
-                SessionEvent.Tool.Input.Started.create({ callID, name: "bash", timestamp: time(1) }),
+                SessionEvent.Tool.Input.Started.create({ sessionID, callID, name: "bash", timestamp: time(1) }),
                 SessionEvent.Tool.Success.create({
+                  sessionID,
                   callID,
                   title,
                   provider: { executed: true },
@@ -520,6 +536,7 @@ describe("session-entry-stepper", () => {
         FastCheck.assert(
           FastCheck.property(FastCheck.integer({ min: 1, max: 1000 }), (n) => {
             const event = SessionEvent.Step.Ended.create({
+              sessionID,
               reason: "stop",
               cost: 1,
               tokens: {
@@ -552,7 +569,10 @@ describe("session-entry-stepper", () => {
         FastCheck.assert(
           FastCheck.property(word, (body) => {
             const old = memoryState()
-            const next = SessionEntryStepper.step(old, SessionEvent.Prompt.create({ text: body, timestamp: time(1) }))
+            const next = SessionEntryStepper.step(
+              old,
+              SessionEvent.Prompt.create({ sessionID, text: body, timestamp: time(1) }),
+            )
             expect(old).not.toBe(next)
             expect(old.entries).toHaveLength(0)
             expect(next.entries).toHaveLength(1)
@@ -565,7 +585,10 @@ describe("session-entry-stepper", () => {
         FastCheck.assert(
           FastCheck.property(word, (body) => {
             const old = active()
-            const next = SessionEntryStepper.step(old, SessionEvent.Prompt.create({ text: body, timestamp: time(1) }))
+            const next = SessionEntryStepper.step(
+              old,
+              SessionEvent.Prompt.create({ sessionID, text: body, timestamp: time(1) }),
+            )
             expect(old).not.toBe(next)
             expect(old.pending).toHaveLength(0)
             expect(next.pending).toHaveLength(1)
@@ -579,15 +602,17 @@ describe("session-entry-stepper", () => {
           FastCheck.property(texts, (parts) => {
             const next = run([
               SessionEvent.Step.Started.create({
+                sessionID,
                 model: {
                   id: "model",
                   providerID: "provider",
                 },
                 timestamp: time(1),
               }),
-              SessionEvent.Text.Started.create({ timestamp: time(2) }),
-              ...parts.map((x, i) => SessionEvent.Text.Delta.create({ delta: x, timestamp: time(i + 3) })),
+              SessionEvent.Text.Started.create({ sessionID, timestamp: time(2) }),
+              ...parts.map((x, i) => SessionEvent.Text.Delta.create({ sessionID, delta: x, timestamp: time(i + 3) })),
               SessionEvent.Step.Ended.create({
+                sessionID,
                 reason: "stop",
                 cost: 1,
                 tokens: {
@@ -623,17 +648,19 @@ describe("session-entry-stepper", () => {
         FastCheck.assert(
           FastCheck.property(word, texts, (body, parts) => {
             const next = run([
-              SessionEvent.Prompt.create({ text: body, timestamp: time(0) }),
+              SessionEvent.Prompt.create({ sessionID, text: body, timestamp: time(0) }),
               SessionEvent.Step.Started.create({
+                sessionID,
                 model: {
                   id: "model",
                   providerID: "provider",
                 },
                 timestamp: time(1),
               }),
-              SessionEvent.Text.Started.create({ timestamp: time(2) }),
-              ...parts.map((x, i) => SessionEvent.Text.Delta.create({ delta: x, timestamp: time(i + 3) })),
+              SessionEvent.Text.Started.create({ sessionID, timestamp: time(2) }),
+              ...parts.map((x, i) => SessionEvent.Text.Delta.create({ sessionID, delta: x, timestamp: time(i + 3) })),
               SessionEvent.Step.Ended.create({
+                sessionID,
                 reason: "stop",
                 cost: 1,
                 tokens: {
@@ -680,19 +707,28 @@ describe("session-entry-stepper", () => {
             (body, reason, end, input, title, output, metadata, attachments) => {
               const callID = "call"
               const next = run([
-                SessionEvent.Prompt.create({ text: body, timestamp: time(0) }),
+                SessionEvent.Prompt.create({ sessionID, text: body, timestamp: time(0) }),
                 SessionEvent.Step.Started.create({
+                  sessionID,
                   model: {
                     id: "model",
                     providerID: "provider",
                   },
                   timestamp: time(1),
                 }),
-                SessionEvent.Reasoning.Started.create({ timestamp: time(2) }),
-                ...reason.map((x, i) => SessionEvent.Reasoning.Delta.create({ delta: x, timestamp: time(i + 3) })),
-                SessionEvent.Reasoning.Ended.create({ text: end, timestamp: time(reason.length + 3) }),
-                SessionEvent.Tool.Input.Started.create({ callID, name: "bash", timestamp: time(reason.length + 4) }),
+                SessionEvent.Reasoning.Started.create({ sessionID, timestamp: time(2) }),
+                ...reason.map((x, i) =>
+                  SessionEvent.Reasoning.Delta.create({ sessionID, delta: x, timestamp: time(i + 3) }),
+                ),
+                SessionEvent.Reasoning.Ended.create({ sessionID, text: end, timestamp: time(reason.length + 3) }),
+                SessionEvent.Tool.Input.Started.create({
+                  sessionID,
+                  callID,
+                  name: "bash",
+                  timestamp: time(reason.length + 4),
+                }),
                 SessionEvent.Tool.Called.create({
+                  sessionID,
                   callID,
                   tool: "bash",
                   input,
@@ -700,6 +736,7 @@ describe("session-entry-stepper", () => {
                   timestamp: time(reason.length + 5),
                 }),
                 SessionEvent.Tool.Success.create({
+                  sessionID,
                   callID,
                   title,
                   output,
@@ -709,6 +746,7 @@ describe("session-entry-stepper", () => {
                   timestamp: time(reason.length + 6),
                 }),
                 SessionEvent.Step.Ended.create({
+                  sessionID,
                   reason: "stop",
                   cost: 1,
                   tokens: {
@@ -747,6 +785,7 @@ describe("session-entry-stepper", () => {
         const next = run(
           [
             SessionEvent.Step.Started.create({
+              sessionID,
               model: {
                 id: "model",
                 providerID: "provider",
@@ -771,8 +810,9 @@ describe("session-entry-stepper", () => {
           FastCheck.property(dict, dict, word, word, (a, b, title, error) => {
             const next = run(
               [
-                SessionEvent.Tool.Input.Started.create({ callID: "a", name: "bash", timestamp: time(1) }),
+                SessionEvent.Tool.Input.Started.create({ sessionID, callID: "a", name: "bash", timestamp: time(1) }),
                 SessionEvent.Tool.Called.create({
+                  sessionID,
                   callID: "a",
                   tool: "bash",
                   input: a,
@@ -780,14 +820,16 @@ describe("session-entry-stepper", () => {
                   timestamp: time(2),
                 }),
                 SessionEvent.Tool.Success.create({
+                  sessionID,
                   callID: "a",
                   title,
                   output: "done",
                   provider: { executed: true },
                   timestamp: time(3),
                 }),
-                SessionEvent.Tool.Input.Started.create({ callID: "b", name: "grep", timestamp: time(4) }),
+                SessionEvent.Tool.Input.Started.create({ sessionID, callID: "b", name: "grep", timestamp: time(4) }),
                 SessionEvent.Tool.Called.create({
+                  sessionID,
                   callID: "b",
                   tool: "bash",
                   input: b,
@@ -795,6 +837,7 @@ describe("session-entry-stepper", () => {
                   timestamp: time(5),
                 }),
                 SessionEvent.Tool.Error.create({
+                  sessionID,
                   callID: "b",
                   error,
                   provider: { executed: true },
@@ -827,11 +870,12 @@ describe("session-entry-stepper", () => {
           FastCheck.property(dict, dict, word, word, text, text, (a, b, titleA, titleB, deltaA, deltaB) => {
             const next = run(
               [
-                SessionEvent.Tool.Input.Started.create({ callID: "a", name: "bash", timestamp: time(1) }),
-                SessionEvent.Tool.Input.Started.create({ callID: "b", name: "grep", timestamp: time(2) }),
-                SessionEvent.Tool.Input.Delta.create({ callID: "a", delta: deltaA, timestamp: time(3) }),
-                SessionEvent.Tool.Input.Delta.create({ callID: "b", delta: deltaB, timestamp: time(4) }),
+                SessionEvent.Tool.Input.Started.create({ sessionID, callID: "a", name: "bash", timestamp: time(1) }),
+                SessionEvent.Tool.Input.Started.create({ sessionID, callID: "b", name: "grep", timestamp: time(2) }),
+                SessionEvent.Tool.Input.Delta.create({ sessionID, callID: "a", delta: deltaA, timestamp: time(3) }),
+                SessionEvent.Tool.Input.Delta.create({ sessionID, callID: "b", delta: deltaB, timestamp: time(4) }),
                 SessionEvent.Tool.Called.create({
+                  sessionID,
                   callID: "a",
                   tool: "bash",
                   input: a,
@@ -839,6 +883,7 @@ describe("session-entry-stepper", () => {
                   timestamp: time(5),
                 }),
                 SessionEvent.Tool.Called.create({
+                  sessionID,
                   callID: "b",
                   tool: "grep",
                   input: b,
@@ -846,6 +891,7 @@ describe("session-entry-stepper", () => {
                   timestamp: time(6),
                 }),
                 SessionEvent.Tool.Success.create({
+                  sessionID,
                   callID: "a",
                   title: titleA,
                   output: "done-a",
@@ -853,6 +899,7 @@ describe("session-entry-stepper", () => {
                   timestamp: time(7),
                 }),
                 SessionEvent.Tool.Success.create({
+                  sessionID,
                   callID: "b",
                   title: titleB,
                   output: "done-b",
@@ -884,7 +931,7 @@ describe("session-entry-stepper", () => {
           FastCheck.property(word, (body) => {
             const next = SessionEntryStepper.step(
               memoryState(),
-              SessionEvent.Synthetic.create({ text: body, timestamp: time(1) }),
+              SessionEvent.Synthetic.create({ sessionID, text: body, timestamp: time(1) }),
             )
             expect(next.entries).toHaveLength(1)
             expect(next.entries[0]?.type).toBe("synthetic")
@@ -900,7 +947,7 @@ describe("session-entry-stepper", () => {
           FastCheck.property(FastCheck.boolean(), maybe(FastCheck.boolean()), (auto, overflow) => {
             const next = SessionEntryStepper.step(
               memoryState(),
-              SessionEvent.Compacted.create({ auto, overflow, timestamp: time(1) }),
+              SessionEvent.Compacted.create({ sessionID, auto, overflow, timestamp: time(1) }),
             )
             expect(next.entries).toHaveLength(1)
             expect(next.entries[0]?.type).toBe("compaction")
