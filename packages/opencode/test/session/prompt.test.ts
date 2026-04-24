@@ -1055,26 +1055,28 @@ unix("shell captures stdout and stderr in completed tool output", () =>
 )
 
 unix("shell completes a fast command on the preferred shell", () =>
-  provideTmpdirInstance(
-    (dir) =>
-      Effect.gen(function* () {
-        const { prompt, run, chat } = yield* boot()
-        const result = yield* prompt.shell({
-          sessionID: chat.id,
-          agent: "build",
-          command: "pwd",
-        })
+  withSh(() =>
+    provideTmpdirInstance(
+      (dir) =>
+        Effect.gen(function* () {
+          const { prompt, run, chat } = yield* boot()
+          const result = yield* prompt.shell({
+            sessionID: chat.id,
+            agent: "build",
+            command: "pwd",
+          })
 
-        expect(result.info.role).toBe("assistant")
-        const tool = completedTool(result.parts)
-        if (!tool) return
+          expect(result.info.role).toBe("assistant")
+          const tool = completedTool(result.parts)
+          if (!tool) return
 
-        expect(tool.state.input.command).toBe("pwd")
-        expect(tool.state.output).toContain(dir)
-        expect(tool.state.metadata.output).toContain(dir)
-        yield* run.assertNotBusy(chat.id)
-      }),
-    { git: true, config: cfg },
+          expect(tool.state.input.command).toBe("pwd")
+          expect(tool.state.output).toContain(dir)
+          expect(tool.state.metadata.output).toContain(dir)
+          yield* run.assertNotBusy(chat.id)
+        }),
+      { git: true, config: cfg },
+    ),
   ),
 )
 
