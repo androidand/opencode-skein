@@ -9,13 +9,16 @@ import { Instance } from "@/project/instance"
 import { Vcs } from "@/project"
 import { Agent } from "@/agent/agent"
 import { Skill } from "@/skill"
-import { Global } from "@/global"
+import { Global } from "@opencode-ai/core/global"
 import { LSP } from "@/lsp"
 import { Command } from "@/command"
 import { QuestionRoutes } from "./question"
 import { PermissionRoutes } from "./permission"
-import { Flag } from "@/flag/flag"
+import { Flag } from "@opencode-ai/core/flag/flag"
 import { ExperimentalHttpApiServer } from "./httpapi/server"
+import { FilePaths } from "./httpapi/file"
+import { InstancePaths } from "./httpapi/instance"
+import { McpPaths } from "./httpapi/mcp"
 import { ProjectRoutes } from "./project"
 import { SessionRoutes } from "./session"
 import { PtyRoutes } from "./pty"
@@ -48,6 +51,13 @@ export const InstanceRoutes = (upgrade: UpgradeWebSocket): Hono => {
     app.post("/provider/:providerID/oauth/callback", (c) => handler(c.req.raw, context))
     app.get("/project", (c) => handler(c.req.raw, context))
     app.get("/project/current", (c) => handler(c.req.raw, context))
+    app.get(FilePaths.list, (c) => handler(c.req.raw, context))
+    app.get(FilePaths.content, (c) => handler(c.req.raw, context))
+    app.get(FilePaths.status, (c) => handler(c.req.raw, context))
+    app.get(InstancePaths.path, (c) => handler(c.req.raw, context))
+    app.get(InstancePaths.vcs, (c) => handler(c.req.raw, context))
+    app.get(InstancePaths.vcsDiff, (c) => handler(c.req.raw, context))
+    app.get(McpPaths.status, (c) => handler(c.req.raw, context))
   }
 
   return app
@@ -136,7 +146,7 @@ export const InstanceRoutes = (upgrade: UpgradeWebSocket): Hono => {
             description: "VCS info",
             content: {
               "application/json": {
-                schema: resolver(Vcs.Info),
+                schema: resolver(Vcs.Info.zod),
               },
             },
           },
@@ -162,7 +172,7 @@ export const InstanceRoutes = (upgrade: UpgradeWebSocket): Hono => {
             description: "VCS diff",
             content: {
               "application/json": {
-                schema: resolver(Vcs.FileDiff.array()),
+                schema: resolver(Vcs.FileDiff.zod.array()),
               },
             },
           },
@@ -171,7 +181,7 @@ export const InstanceRoutes = (upgrade: UpgradeWebSocket): Hono => {
       validator(
         "query",
         z.object({
-          mode: Vcs.Mode,
+          mode: Vcs.Mode.zod,
         }),
       ),
       async (c) =>

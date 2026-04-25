@@ -12,12 +12,12 @@ import {
 import { Config } from "../config"
 import { ConfigMCP } from "../config/mcp"
 import { Log } from "../util"
-import { NamedError } from "@opencode-ai/shared/util/error"
+import { NamedError } from "@opencode-ai/core/util/error"
 import z from "zod/v4"
 import { Installation } from "../installation"
-import { InstallationVersion } from "../installation/version"
+import { InstallationVersion } from "@opencode-ai/core/installation/version"
 import { withTimeout } from "@/util/timeout"
-import { AppFileSystem } from "@opencode-ai/shared/filesystem"
+import { AppFileSystem } from "@opencode-ai/core/filesystem"
 import { McpOAuthProvider } from "./oauth-provider"
 import { McpOAuthCallback } from "./oauth-callback"
 import { McpAuth } from "./auth"
@@ -30,6 +30,8 @@ import { EffectBridge } from "@/effect"
 import { InstanceState } from "@/effect"
 import { ChildProcess, ChildProcessSpawner } from "effect/unstable/process"
 import * as CrossSpawnSpawner from "@/effect/cross-spawn-spawner"
+import { zod as effectZod } from "@/util/effect-zod"
+import { withStatics } from "@/util/schema"
 
 const log = Log.create({ service: "mcp" })
 const DEFAULT_TIMEOUT = 30_000
@@ -69,50 +71,33 @@ export const Failed = NamedError.create(
 
 type MCPClient = Client
 
-export const Status = z
-  .discriminatedUnion("status", [
-    z
-      .object({
-        status: z.literal("connected"),
-      })
-      .meta({
-        ref: "MCPStatusConnected",
-      }),
-    z
-      .object({
-        status: z.literal("disabled"),
-      })
-      .meta({
-        ref: "MCPStatusDisabled",
-      }),
-    z
-      .object({
-        status: z.literal("failed"),
-        error: z.string(),
-      })
-      .meta({
-        ref: "MCPStatusFailed",
-      }),
-    z
-      .object({
-        status: z.literal("needs_auth"),
-      })
-      .meta({
-        ref: "MCPStatusNeedsAuth",
-      }),
-    z
-      .object({
-        status: z.literal("needs_client_registration"),
-        error: z.string(),
-      })
-      .meta({
-        ref: "MCPStatusNeedsClientRegistration",
-      }),
-  ])
-  .meta({
-    ref: "MCPStatus",
-  })
-export type Status = z.infer<typeof Status>
+const StatusConnected = Schema.Struct({ status: Schema.Literal("connected") }).annotate({
+  identifier: "MCPStatusConnected",
+})
+const StatusDisabled = Schema.Struct({ status: Schema.Literal("disabled") }).annotate({
+  identifier: "MCPStatusDisabled",
+})
+const StatusFailed = Schema.Struct({ status: Schema.Literal("failed"), error: Schema.String }).annotate({
+  identifier: "MCPStatusFailed",
+})
+const StatusNeedsAuth = Schema.Struct({ status: Schema.Literal("needs_auth") }).annotate({
+  identifier: "MCPStatusNeedsAuth",
+})
+const StatusNeedsClientRegistration = Schema.Struct({
+  status: Schema.Literal("needs_client_registration"),
+  error: Schema.String,
+}).annotate({ identifier: "MCPStatusNeedsClientRegistration" })
+
+export const Status = Schema.Union([
+  StatusConnected,
+  StatusDisabled,
+  StatusFailed,
+  StatusNeedsAuth,
+  StatusNeedsClientRegistration,
+])
+  .annotate({ identifier: "MCPStatus", discriminator: "status" })
+  .pipe(withStatics((s) => ({ zod: effectZod(s) })))
+export type Status = Schema.Schema.Type<typeof Status>
 
 // Store transports for OAuth servers to allow finishing auth
 type TransportWithAuth = StreamableHTTPClientTransport | SSEClientTransport
