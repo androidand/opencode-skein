@@ -264,7 +264,7 @@ function profile(name: string, platform: NodeJS.Platform, limits: Limits) {
     commandSection: bashCommandSection(chain, limits),
     gitCommands: "bash commands",
     toolName: "Shell",
-    gitCommandRestriction: "git commands",
+    gitCommandRestriction: "git bash commands",
     createPrInstruction:
       "Create PR using gh pr create with the format below. Use a HEREDOC to pass the body to ensure correct formatting.",
     createPrExample: `gh pr create --title "the pr title" --body "$(cat <<'EOF'
