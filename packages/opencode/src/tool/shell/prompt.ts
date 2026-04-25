@@ -113,7 +113,7 @@ Usage notes:
     - Write files: Use Write (NOT echo >/cat <<EOF)
     - Communication: Output text directly (NOT echo/printf)
   - When issuing multiple commands:
-    - If the commands are independent and can run in parallel, make multiple Bash tool calls in a single message. For example, if you need to run "git status" and "git diff", send a single message with two Bash tool calls in parallel.
+    - If the commands are independent and can run in parallel, make multiple Shell tool calls in a single message. For example, if you need to run "git status" and "git diff", send a single message with two Shell tool calls in parallel.
     - ${chain}
     - Use ';' only when you need to run commands sequentially but don't care if earlier commands fail
     - DO NOT use newlines to separate commands (newlines are ok in quoted strings)
@@ -183,7 +183,7 @@ Before executing the command, please follow these steps:
 
 1. Directory Verification:
    - If the command will create new directories or files, first use \`if exist\` to verify the parent directory exists and is the correct location
-   - For example, before creating \`foo\\bar\`, first use \`if exist "foo" dir "foo"\` to check that \`foo\` exists and is the intended parent directory
+   - For example, before creating \`foo\\bar\`, first use \`if exist "foo\\" dir "foo"\` to check that \`foo\` exists and is the intended parent directory
 
 2. Command Execution:
    - Always quote file paths that contain spaces with double quotes (e.g., del "path with spaces\\file.txt")
@@ -263,8 +263,8 @@ function profile(name: string, platform: NodeJS.Platform, limits: Limits) {
       "All commands run in the current working directory by default. Use the `workdir` parameter if you need to run a command in a different directory. AVOID using `cd <directory> && <command>` patterns - use `workdir` instead.",
     commandSection: bashCommandSection(chain, limits),
     gitCommands: "bash commands",
-    toolName: "Bash",
-    gitCommandRestriction: "git bash commands",
+    toolName: "Shell",
+    gitCommandRestriction: "git commands",
     createPrInstruction:
       "Create PR using gh pr create with the format below. Use a HEREDOC to pass the body to ensure correct formatting.",
     createPrExample: `gh pr create --title "the pr title" --body "$(cat <<'EOF'
