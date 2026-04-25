@@ -24,6 +24,7 @@ import { ShellArity } from "./shell/arity"
 const MAX_METADATA_LENGTH = 30_000
 const DEFAULT_TIMEOUT = Flag.OPENCODE_EXPERIMENTAL_BASH_DEFAULT_TIMEOUT_MS || 2 * 60 * 1000
 const PS = new Set(["powershell", "pwsh"])
+const CMD = new Set(["cmd"])
 const CWD = new Set(["cd", "push-location", "set-location"])
 const FILES = new Set([
   ...CWD,
@@ -55,6 +56,8 @@ const describe = {
     "Clear, concise description of what this command does in 5-10 words. Examples:\nInput: ls\nOutput: Lists files in current directory\n\nInput: git status\nOutput: Shows working tree status\n\nInput: npm install\nOutput: Installs package dependencies\n\nInput: mkdir foo\nOutput: Creates directory 'foo'",
   powershell:
     'Clear, concise description of what this command does in 5-10 words. Examples:\nInput: Get-ChildItem -LiteralPath "."\nOutput: Lists current directory\n\nInput: git status\nOutput: Shows working tree status\n\nInput: npm install\nOutput: Installs package dependencies\n\nInput: New-Item -ItemType Directory -Path "tmp"\nOutput: Creates directory tmp',
+  cmd:
+    'Clear, concise description of what this command does in 5-10 words. Examples:\nInput: dir\nOutput: Lists current directory\n\nInput: if exist "package.json" type "package.json"\nOutput: Prints package.json when it exists\n\nInput: mkdir tmp\nOutput: Creates directory tmp',
 }
 
 function parameterSchema(description: string) {
@@ -88,6 +91,7 @@ function renderPrompt(template: string, values: Record<string, string>) {
 function shellDisplayName(name: string) {
   if (name === "pwsh") return "PowerShell (7+)"
   if (name === "powershell") return "Windows PowerShell (5.1)"
+  if (name === "cmd") return "cmd.exe"
   return name
 }
 
@@ -119,6 +123,9 @@ function chainGuidance(name: string) {
   }
   if (PS.has(name)) {
     return "If the commands depend on each other and must run sequentially, use a single Shell call with '&&' to chain them together (e.g., `git add . && git commit -m \"message\" && git push`). For instance, if one operation must complete before another starts (like New-Item before Copy-Item, Write before Shell for git operations, or git add before git commit), run these operations sequentially instead."
+  }
+  if (CMD.has(name)) {
+    return "If the commands depend on each other and must run sequentially, use a single Shell call with `&&` to chain them together (e.g., `mkdir out && dir out`). For instance, if one operation must complete before another starts, run these operations sequentially instead."
   }
   return "If the commands depend on each other and must run sequentially, use a single Bash call with '&&' to chain them together (e.g., `git add . && git commit -m \"message\" && git push`). For instance, if one operation must complete before another starts (like mkdir before cp, Write before Bash for git operations, or git add before git commit), run these operations sequentially instead."
 }
@@ -200,7 +207,7 @@ Usage notes:
     - Write files: Use Write (NOT Set-Content/Out-File or here-strings)
     - Communication: Output text directly (NOT Write-Output/Write-Host)
   - When issuing multiple commands:
-    - If the commands are independent and can run in parallel, make multiple Shell tool calls in a single message. For example, if you need to run "git status" and "git diff", send a single message with two Shell tool calls in parallel.
+    - If the commands are independent and can run in parallel, make multiple Shell tool calls in a single message. For example, if you need to run "dir" and "where cmd", send a single message with two Shell tool calls in parallel.
     - ${chain}
     - Use \`;\` only when you need to run commands sequentially but don't care if earlier commands fail
     - DO NOT use newlines to separate commands (newlines are ok in quoted strings)
@@ -213,9 +220,73 @@ Usage notes:
     </bad-example>`
 }
 
+function cmdCommandSection(chain: string, limits: Limits) {
+  return `# cmd.exe shell notes
+- Use double quotes for paths with spaces.
+- Use %VAR% for environment variables.
+- Use \`if exist\` for existence checks.
+- Use \`call\` when invoking batch files from another batch-style command.
+
+Before executing the command, please follow these steps:
+
+1. Directory Verification:
+   - If the command will create new directories or files, first use \`if exist\` to verify the parent directory exists and is the correct location
+   - For example, before creating \`foo\\bar\`, first use \`if exist "foo" dir "foo"\` to check that \`foo\` exists and is the intended parent directory
+
+2. Command Execution:
+   - Always quote file paths that contain spaces with double quotes (e.g., del "path with spaces\\file.txt")
+   - Examples of proper quoting:
+     - mkdir "My Documents" (correct)
+     - mkdir My Documents (incorrect - path is split)
+     - call "path with spaces\\script.bat" (correct)
+     - path with spaces\\script.bat (incorrect - path is split and not invoked correctly)
+   - After ensuring proper quoting, execute the command.
+   - Capture the output of the command.
+
+Usage notes:
+  - The command argument is required.
+  - You can specify an optional timeout in milliseconds. If not specified, commands will time out after 120000ms (2 minutes).
+  - It is very helpful if you write a clear, concise description of what this command does in 5-10 words.
+  - If the output exceeds ${limits.maxLines} lines or ${limits.maxBytes} bytes, it will be truncated and the full output will be written to a file. You can use Read with offset/limit to read specific sections or Grep to search the full content. Do NOT use \`more\` or other pagination commands to limit output; the full output will already be captured to a file for more precise searching.
+
+  - Avoid using Shell with cmd.exe file/content commands unless explicitly instructed or when these commands are truly necessary for the task. Instead, always prefer using the dedicated tools for these commands:
+    - File search: Use Glob (NOT dir /s)
+    - Content search: Use Grep (NOT findstr)
+    - Read files: Use Read (NOT type)
+    - Edit files: Use Edit (NOT copy)
+    - Write files: Use Write (NOT echo > file)
+    - Communication: Output text directly (NOT echo)
+  - When issuing multiple commands:
+    - If the commands are independent and can run in parallel, make multiple Shell tool calls in a single message. For example, if you need to run "git status" and "git diff", send a single message with two Shell tool calls in parallel.
+    - ${chain}
+    - Use \`&\` only when you need to run commands sequentially but don't care if earlier commands fail
+    - DO NOT use newlines to separate commands (newlines are ok in quoted strings)
+  - AVOID changing directories inside the command. Use the \`workdir\` parameter to change directories instead.
+    <good-example>
+    Use workdir="project\\subdir" with command: dir
+    </good-example>
+    <bad-example>
+    cd /d "project\\subdir" && dir
+    </bad-example>`
+}
+
 function promptProfile(name: string, platform: NodeJS.Platform, limits: Limits) {
   const isPowerShell = PS.has(name)
   const chain = chainGuidance(name)
+  if (CMD.has(name)) {
+    return {
+      intro: `Executes a given ${shellDisplayName(name)} command with optional timeout, ensuring proper handling and security measures.`,
+      workdirSection:
+        "All commands run in the current working directory by default. Use the `workdir` parameter if you need to run a command in a different directory. AVOID changing directories inside the command - use `workdir` instead.",
+      commandSection: cmdCommandSection(chain, limits),
+      gitCommands: "git commands",
+      toolName: "Shell",
+      gitCommandRestriction: "git commands",
+      createPrInstruction: "Create PR using a temporary body file so cmd.exe quoting stays simple.",
+      createPrExample: `(\n  echo ## Summary\n  echo - ^<1-3 bullet points^>\n) > pr-body.txt\ngh pr create --title "the pr title" --body-file pr-body.txt`,
+      parameterDescription: describe.cmd,
+    }
+  }
   if (isPowerShell) {
     return {
       intro: `Executes a given ${shellDisplayName(name)} command with optional timeout, ensuring proper handling and security measures.`,
