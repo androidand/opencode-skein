@@ -158,8 +158,8 @@ test("fromConfig - preserves top-level config key order", () => {
   const wildcardFirst = Permission.fromConfig({ "*": "deny", bash: "allow" })
   const specificFirst = Permission.fromConfig({ bash: "allow", "*": "deny" })
 
-  expect(wildcardFirst.map((r) => r.permission)).toEqual(["*", "bash"])
-  expect(specificFirst.map((r) => r.permission)).toEqual(["bash", "*"])
+  expect(wildcardFirst.map((r) => r.permission)).toEqual(["*", "shell"])
+  expect(specificFirst.map((r) => r.permission)).toEqual(["shell", "*"])
 
   expect(Permission.evaluate("bash", "ls", wildcardFirst).action).toBe("allow")
   expect(Permission.evaluate("bash", "ls", specificFirst).action).toBe("deny")
