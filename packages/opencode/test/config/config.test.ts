@@ -1501,10 +1501,8 @@ test("permission config canonicalises known keys first, preserves rest-key inser
   // todowrite, external_directory are declared in `config/permission.ts`),
   // followed by rest keys in the user's insertion order.
   //
-  // Rule precedence is NOT affected by this reordering: `Permission.fromConfig`
-  // sorts wildcards before specifics before iterating. See the
-  // "fromConfig - specific key beats wildcard regardless of JSON key order"
-  // test in test/permission/next.test.ts for the behavioural guarantee.
+  // Permission.fromConfig preserves this effective order, and permission
+  // evaluation uses last-match-wins precedence.
   await using tmp = await tmpdir({
     init: async (dir) => {
       await Filesystem.write(

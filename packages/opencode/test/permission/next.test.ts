@@ -130,49 +130,45 @@ test("fromConfig - does not expand tilde in middle of path", () => {
 
 // Top-level wildcard-vs-specific precedence semantics.
 //
-// fromConfig sorts top-level keys so wildcard permissions (containing "*")
-// come before specific permissions. Combined with `findLast` in evaluate(),
-// this gives the intuitive semantic "specific tool rules override the `*`
-// fallback", regardless of the order the user wrote the keys in their JSON.
+// fromConfig preserves top-level key order. Combined with `findLast` in
+// evaluate(), later matching rules win.
 //
 // Sub-pattern order inside a single permission key (e.g. `bash: { "*": "allow", "rm": "deny" }`)
-// still depends on insertion order — only top-level keys are sorted.
+// also depends on insertion order.
 
-test("fromConfig - specific key beats wildcard regardless of JSON key order", () => {
+test("fromConfig - top-level key order controls wildcard precedence", () => {
   const wildcardFirst = Permission.fromConfig({ "*": "deny", bash: "allow" })
   const specificFirst = Permission.fromConfig({ bash: "allow", "*": "deny" })
 
-  // Both orderings produce the same ruleset
-  expect(wildcardFirst).toEqual(specificFirst)
-
-  // And both evaluate bash → allow (bash rule wins over * fallback)
   expect(Permission.evaluate("bash", "ls", wildcardFirst).action).toBe("allow")
-  expect(Permission.evaluate("bash", "ls", specificFirst).action).toBe("allow")
+  expect(Permission.evaluate("bash", "ls", specificFirst).action).toBe("deny")
+})
+
+test("fromConfig - regression: trailing wildcard overrides earlier specific rule", () => {
+  const ruleset = Permission.fromConfig({ bash: "ask", "*": "allow" })
+  expect(Permission.evaluate("bash", "glab", ruleset).action).toBe("allow")
 })
 
 test("fromConfig - wildcard acts as fallback for permissions with no specific rule", () => {
-  const ruleset = Permission.fromConfig({ bash: "allow", "*": "ask" })
+  const ruleset = Permission.fromConfig({ "*": "ask", bash: "allow" })
   expect(Permission.evaluate("edit", "foo.ts", ruleset).action).toBe("ask")
   expect(Permission.evaluate("bash", "ls", ruleset).action).toBe("allow")
 })
 
-test("fromConfig - top-level ordering: wildcards first, specifics after", () => {
+test("fromConfig - preserves top-level ordering", () => {
   const ruleset = Permission.fromConfig({
     bash: "allow",
     "*": "ask",
     edit: "deny",
     "mcp_*": "allow",
   })
-  // wildcards (* and mcp_*) come before specifics (bash, edit)
-  const permissions = ruleset.map((r) => r.permission)
-  expect(permissions.slice(0, 2).sort()).toEqual(["*", "mcp_*"])
-  expect(permissions.slice(2)).toEqual(["bash", "edit"])
+  expect(ruleset.map((r) => r.permission)).toEqual(["bash", "*", "edit", "mcp_*"])
 })
 
-test("fromConfig - sub-pattern insertion order inside a tool key is preserved (only top-level sorts)", () => {
+test("fromConfig - sub-pattern insertion order inside a tool key is preserved", () => {
   // Sub-patterns within a single tool key use the documented "`*` first,
   // specific patterns after" convention (findLast picks specifics). The
-  // top-level sort must not touch sub-pattern ordering.
+  // top-level order must not affect sub-pattern ordering.
   const ruleset = Permission.fromConfig({ bash: { "*": "deny", "git *": "allow" } })
   expect(ruleset.map((r) => r.pattern)).toEqual(["*", "git *"])
   // * fallback for unknown commands
