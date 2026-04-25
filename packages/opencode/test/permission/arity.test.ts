@@ -36,4 +36,5 @@ test("powershell verb-noun structures", () => {
   expect(ShellArity.prefix(["Get-Content", "file.txt"], "pwsh")).toEqual(["Get-Content"])
   expect(ShellArity.prefix(["Remove-Item", "-Recurse", "dir"], "powershell")).toEqual(["Remove-Item"])
   expect(ShellArity.prefix(["git", "checkout", "main"], "pwsh")).toEqual(["git", "checkout"])
+  expect(ShellArity.prefix(["redis-cli", "ping"], "pwsh")).toEqual(["redis-cli", "ping"])
 })
