@@ -27,12 +27,16 @@ Chart.register(BarController, BarElement, CategoryScale, LinearScale, Tooltip, L
 async function getCosts(workspaceID: string, year: number, month: number) {
   "use server"
   return withActor(async () => {
-    const startDate = new Date(year, month, 1)
-    const endDate = new Date(year, month + 1, 1)
+    // Fetch a UTC buffer so client-side local dates at month boundaries are not dropped.
+    const startDate = new Date(Date.UTC(year, month, 1))
+    startDate.setUTCDate(startDate.getUTCDate() - 1)
+    const endDate = new Date(Date.UTC(year, month + 1, 1))
+    endDate.setUTCDate(endDate.getUTCDate() + 1)
+    const hourBucket = sql<number>`FLOOR(UNIX_TIMESTAMP(${UsageTable.timeCreated}) / 3600)`
     const usageData = await Database.use((tx) =>
       tx
         .select({
-          date: sql<string>`DATE(${UsageTable.timeCreated})`,
+          hourBucket: hourBucket.as("hour_bucket"),
           model: UsageTable.model,
           totalCost: sum(UsageTable.cost),
           keyId: UsageTable.keyID,
@@ -47,7 +51,7 @@ async function getCosts(workspaceID: string, year: number, month: number) {
           ),
         )
         .groupBy(
-          sql`DATE(${UsageTable.timeCreated})`,
+          hourBucket,
           UsageTable.model,
           UsageTable.keyID,
           sql`JSON_EXTRACT(${UsageTable.enrichment}, '$.plan')`,
@@ -55,6 +59,7 @@ async function getCosts(workspaceID: string, year: number, month: number) {
         .then((x) =>
           x.map((r) => ({
             ...r,
+            hourBucket: Number(r.hourBucket),
             totalCost: r.totalCost ? parseInt(r.totalCost) : 0,
             plan: r.plan as "sub" | "lite" | "byok" | null,
           })),
@@ -125,15 +130,13 @@ function getModelColor(model: string): string {
 }
 
 function formatDateLabel(dateStr: string): string {
-  const date = new Date()
-  const [y, m, d] = dateStr.split("-").map(Number)
-  date.setFullYear(y)
-  date.setMonth(m - 1)
-  date.setDate(d)
-  date.setHours(0, 0, 0, 0)
-  const month = date.toLocaleDateString(undefined, { month: "short" })
-  const day = date.getUTCDate().toString().padStart(2, "0")
-  return `${month} ${day}`
+  const [year, month, day] = dateStr.split("-").map(Number)
+  const date = new Date(year, month - 1, day)
+  return `${date.toLocaleDateString(undefined, { month: "short" })} ${day.toString().padStart(2, "0")}`
+}
+
+function formatDateKey(date: Date) {
+  return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}-${String(date.getDate()).padStart(2, "0")}`
 }
 
 function addOpacityToColor(color: string, opacity: number): string {
@@ -179,17 +182,24 @@ export function GraphSection() {
 
   const onSelectKey = (keyID: string | null) => setStore({ key: keyID, keyDropdownOpen: false })
 
-  const getModels = createMemo(() => {
-    if (!store.data?.usage) return []
-    return Array.from(new Set(store.data.usage.map((row) => row.model))).sort()
-  })
-
   const getDates = createMemo(() => {
     const daysInMonth = new Date(store.year, store.month + 1, 0).getDate()
-    return Array.from({ length: daysInMonth }, (_, i) => {
-      const date = new Date(store.year, store.month, i + 1)
-      return date.toISOString().split("T")[0]
-    })
+    const dates = Array.from({ length: daysInMonth }, (_, i) => formatDateKey(new Date(store.year, store.month, i + 1)))
+    const dateSet = new Set(dates)
+    return {
+      dates,
+      dateSet,
+    }
+  })
+
+  const getUsageForMonth = createMemo(() => {
+    if (!store.data?.usage) return []
+    const dateSet = getDates().dateSet
+    return store.data.usage.filter((row) => dateSet.has(formatDateKey(new Date(row.hourBucket * 3600 * 1000))))
+  })
+
+  const getModels = createMemo(() => {
+    return Array.from(new Set(getUsageForMonth().map((row) => row.model))).sort()
   })
 
   const getKeyName = (keyID: string | null): string => {
@@ -205,9 +215,9 @@ export function GraphSection() {
   const isCurrentMonth = () => store.year === now.getFullYear() && store.month === now.getMonth()
 
   const chartConfig = createMemo((): ChartConfiguration | null => {
-    const data = store.data
-    const dates = getDates()
-    if (!data?.usage?.length) return null
+    const dates = getDates().dates
+    const usage = getUsageForMonth()
+    if (usage.length === 0) return null
 
     store.colorScheme
     const styles = getComputedStyle(document.documentElement)
@@ -229,11 +239,12 @@ export function GraphSection() {
       dailyDataLite.set(dateKey, new Map())
     }
 
-    data.usage
+    usage
       .filter((row) => (store.key ? row.keyId === store.key : true))
       .forEach((row) => {
+        const dateKey = formatDateKey(new Date(row.hourBucket * 3600 * 1000))
         const targetMap = row.plan === "sub" ? dailyDataSub : row.plan === "lite" ? dailyDataLite : dailyDataRegular
-        const dayMap = targetMap.get(row.date)
+        const dayMap = targetMap.get(dateKey)
         if (!dayMap) return
         dayMap.set(row.model, (dayMap.get(row.model) ?? 0) + row.totalCost)
       })
@@ -285,6 +296,8 @@ export function GraphSection() {
           }
         }),
     ]
+
+    if (datasets.length === 0) return null
 
     return {
       type: "bar",
