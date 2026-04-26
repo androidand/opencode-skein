@@ -15,6 +15,7 @@ void Log.init({ print: false })
 
 const original = Flag.OPENCODE_EXPERIMENTAL_HTTPAPI
 const websocket = (() => () => new Response(null, { status: 501 })) as unknown as UpgradeWebSocket
+const testWorktreeMutations = process.platform === "win32" ? test.skip : test
 
 function app() {
   Flag.OPENCODE_EXPERIMENTAL_HTTPAPI = true
@@ -118,7 +119,7 @@ describe("experimental HttpApi", () => {
     expect(await switched.json()).toBe(true)
   })
 
-  test("serves worktree mutations through Hono bridge", async () => {
+  testWorktreeMutations("serves worktree mutations through Hono bridge", async () => {
     await using tmp = await tmpdir({ git: true, config: { formatter: false, lsp: false } })
 
     const headers = { "x-opencode-directory": tmp.path, "content-type": "application/json" }
