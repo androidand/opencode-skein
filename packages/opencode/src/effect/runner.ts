@@ -4,7 +4,7 @@ export interface Runner<A, E = never> {
   readonly state: State<A, E>
   readonly busy: boolean
   readonly ensureRunning: (work: Effect.Effect<A, E>) => Effect.Effect<A, E>
-  readonly startShell: (work: Effect.Effect<A, E>) => Effect.Effect<A, E>
+  readonly startShell: (work: Effect.Effect<A, E>, ready?: Deferred.Deferred<void>) => Effect.Effect<A, E>
   readonly cancel: Effect.Effect<void>
 }
 
@@ -19,6 +19,7 @@ interface RunHandle<A, E> {
 interface ShellHandle<A, E> {
   id: number
   cancelled: Deferred.Deferred<void>
+  ready?: Deferred.Deferred<void>
   fiber: Fiber.Fiber<A, E>
 }
 
@@ -106,6 +107,7 @@ export const make = <A, E = never>(
 
   const stopShell = (shell: ShellHandle<A, E>) =>
     Effect.gen(function* () {
+      if (shell.ready) yield* Deferred.await(shell.ready).pipe(Effect.exit, Effect.asVoid)
       yield* Deferred.succeed(shell.cancelled, undefined).pipe(Effect.asVoid)
       yield* Fiber.interrupt(shell.fiber)
     })
@@ -135,7 +137,7 @@ export const make = <A, E = never>(
       }),
     ).pipe(Effect.flatten)
 
-  const startShell = (work: Effect.Effect<A, E>) =>
+  const startShell = (work: Effect.Effect<A, E>, ready?: Deferred.Deferred<void>) =>
     SynchronizedRef.modifyEffect(
       ref,
       Effect.fnUntraced(function* (st) {
@@ -152,12 +154,12 @@ export const make = <A, E = never>(
         const id = next()
         const cancelled = yield* Deferred.make<void>()
         const fiber = yield* work.pipe(Effect.ensuring(finishShell(id)), Effect.forkChild)
-        const shell = { id, cancelled, fiber } satisfies ShellHandle<A, E>
+        const shell = { id, cancelled, ready, fiber } satisfies ShellHandle<A, E>
         return [
           Effect.gen(function* () {
             const exit = yield* Fiber.await(fiber)
             if (Exit.isSuccess(exit)) return exit.value
-            if ((yield* Deferred.isDone(cancelled)) || Cause.hasInterruptsOnly(exit.cause)) {
+            if (Cause.hasInterruptsOnly(exit.cause) || ((yield* Deferred.isDone(cancelled)) && !Cause.hasDies(exit.cause))) {
               if (onInterrupt) return yield* onInterrupt
               return yield* Effect.die(new Cancelled())
             }
@@ -192,8 +194,8 @@ export const make = <A, E = never>(
       case "ShellThenRun":
         return [
           Effect.gen(function* () {
-            yield* Deferred.fail(st.run.done, new Cancelled()).pipe(Effect.asVoid)
             yield* stopShell(st.shell)
+            yield* Deferred.fail(st.run.done, new Cancelled()).pipe(Effect.asVoid)
             yield* idleIfCurrent()
           }),
           { _tag: "Idle" } as const,
