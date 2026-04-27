@@ -25,6 +25,10 @@ function app(input?: { password?: string; username?: string }) {
   return InstanceRoutes(websocket)
 }
 
+function routeKey(route: ReturnType<typeof InstanceRoutes>["routes"][number]) {
+  return `${route.method} ${route.path}`
+}
+
 function authorization(username: string, password: string) {
   return `Basic ${Buffer.from(`${username}:${password}`).toString("base64")}`
 }
@@ -46,6 +50,20 @@ afterEach(async () => {
 })
 
 describe("HttpApi Hono bridge", () => {
+  test("mounts experimental handlers for every legacy instance route", () => {
+    Flag.OPENCODE_EXPERIMENTAL_HTTPAPI = false
+    const legacy = InstanceRoutes(websocket)
+    Flag.OPENCODE_EXPERIMENTAL_HTTPAPI = true
+    const experimental = InstanceRoutes(websocket)
+
+    const bridge = experimental.routes.slice(0, experimental.routes.length - legacy.routes.length)
+    const legacyRoutes = [...new Set(legacy.routes.map(routeKey))]
+    const bridgeRoutes = new Set(bridge.map(routeKey))
+
+    expect(legacyRoutes.filter((route) => !bridgeRoutes.has(route))).toEqual([])
+    expect([...bridgeRoutes].filter((route) => !legacyRoutes.includes(route)).sort()).toEqual([])
+  })
+
   test("allows requests when auth is disabled", async () => {
     await using tmp = await tmpdir({ git: true })
     await Bun.write(`${tmp.path}/hello.txt`, "hello")
