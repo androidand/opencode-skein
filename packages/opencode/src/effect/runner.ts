@@ -1,10 +1,10 @@
-import { Cause, Deferred, Effect, Exit, Fiber, Schema, Scope, SynchronizedRef } from "effect"
+import { Cause, Deferred, Effect, Exit, Fiber, Latch, Schema, Scope, SynchronizedRef } from "effect"
 
 export interface Runner<A, E = never> {
   readonly state: State<A, E>
   readonly busy: boolean
   readonly ensureRunning: (work: Effect.Effect<A, E>) => Effect.Effect<A, E>
-  readonly startShell: (work: Effect.Effect<A, E>, ready?: Deferred.Deferred<void>) => Effect.Effect<A, E>
+  readonly startShell: (work: Effect.Effect<A, E>, ready?: Latch.Latch) => Effect.Effect<A, E>
   readonly cancel: Effect.Effect<void>
 }
 
@@ -19,7 +19,7 @@ interface RunHandle<A, E> {
 interface ShellHandle<A, E> {
   id: number
   cancelled: Deferred.Deferred<void>
-  ready?: Deferred.Deferred<void>
+  ready?: Latch.Latch
   fiber: Fiber.Fiber<A, E>
 }
 
@@ -107,7 +107,7 @@ export const make = <A, E = never>(
 
   const stopShell = (shell: ShellHandle<A, E>) =>
     Effect.gen(function* () {
-      if (shell.ready) yield* Deferred.await(shell.ready).pipe(Effect.exit, Effect.asVoid)
+      if (shell.ready) yield* shell.ready.await.pipe(Effect.exit, Effect.asVoid)
       yield* Deferred.succeed(shell.cancelled, undefined).pipe(Effect.asVoid)
       yield* Fiber.interrupt(shell.fiber)
     })
@@ -137,7 +137,7 @@ export const make = <A, E = never>(
       }),
     ).pipe(Effect.flatten)
 
-  const startShell = (work: Effect.Effect<A, E>, ready?: Deferred.Deferred<void>) =>
+  const startShell = (work: Effect.Effect<A, E>, ready?: Latch.Latch) =>
     SynchronizedRef.modifyEffect(
       ref,
       Effect.fnUntraced(function* (st) {

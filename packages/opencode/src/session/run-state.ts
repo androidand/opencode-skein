@@ -1,6 +1,6 @@
 import { InstanceState } from "@/effect/instance-state"
 import { Runner } from "@/effect/runner"
-import { Deferred, Effect, Layer, Scope, Context } from "effect"
+import { Effect, Latch, Layer, Scope, Context } from "effect"
 import * as Session from "./session"
 import { MessageV2 } from "./message-v2"
 import { SessionID } from "./schema"
@@ -18,7 +18,7 @@ export interface Interface {
     sessionID: SessionID,
     onInterrupt: Effect.Effect<MessageV2.WithParts>,
     work: Effect.Effect<MessageV2.WithParts>,
-    ready?: Deferred.Deferred<void>,
+    ready?: Latch.Latch,
   ) => Effect.Effect<MessageV2.WithParts>
 }
 
@@ -96,7 +96,7 @@ export const layer = Layer.effect(
       sessionID: SessionID,
       onInterrupt: Effect.Effect<MessageV2.WithParts>,
       work: Effect.Effect<MessageV2.WithParts>,
-      ready?: Deferred.Deferred<void>,
+      ready?: Latch.Latch,
     ) {
       return yield* (yield* runner(sessionID, onInterrupt)).startShell(work, ready)
     })
