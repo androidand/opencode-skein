@@ -156,7 +156,7 @@ export const SessionApi = HttpApi.make("session")
         ),
         HttpApiEndpoint.get("get", SessionPaths.get, {
           params: { sessionID: SessionID },
-          success: Session.Info,
+          success: SessionInfoResponse,
         }).annotateMerge(
           OpenApi.annotations({
             identifier: "session.get",
@@ -166,7 +166,7 @@ export const SessionApi = HttpApi.make("session")
         ),
         HttpApiEndpoint.get("children", SessionPaths.children, {
           params: { sessionID: SessionID },
-          success: Schema.Array(Session.Info),
+          success: Schema.Array(SessionInfoResponse),
         }).annotateMerge(
           OpenApi.annotations({
             identifier: "session.children",
@@ -218,7 +218,7 @@ export const SessionApi = HttpApi.make("session")
         ),
         HttpApiEndpoint.post("create", SessionPaths.create, {
           payload: [HttpApiSchema.NoContent, Session.CreateInput],
-          success: Session.Info,
+          success: SessionInfoResponse,
         }).annotateMerge(
           OpenApi.annotations({
             identifier: "session.create",
@@ -239,7 +239,7 @@ export const SessionApi = HttpApi.make("session")
         HttpApiEndpoint.patch("update", SessionPaths.update, {
           params: { sessionID: SessionID },
           payload: UpdatePayload,
-          success: Session.Info,
+          success: SessionInfoResponse,
         }).annotateMerge(
           OpenApi.annotations({
             identifier: "session.update",
@@ -250,7 +250,7 @@ export const SessionApi = HttpApi.make("session")
         HttpApiEndpoint.post("fork", SessionPaths.fork, {
           params: { sessionID: SessionID },
           payload: ForkPayload,
-          success: Session.Info,
+          success: SessionInfoResponse,
         }).annotateMerge(
           OpenApi.annotations({
             identifier: "session.fork",
@@ -282,7 +282,7 @@ export const SessionApi = HttpApi.make("session")
         ),
         HttpApiEndpoint.post("share", SessionPaths.share, {
           params: { sessionID: SessionID },
-          success: Session.Info,
+          success: SessionInfoResponse,
         }).annotateMerge(
           OpenApi.annotations({
             identifier: "session.share",
@@ -292,7 +292,7 @@ export const SessionApi = HttpApi.make("session")
         ),
         HttpApiEndpoint.delete("unshare", SessionPaths.share, {
           params: { sessionID: SessionID },
-          success: Session.Info,
+          success: SessionInfoResponse,
         }).annotateMerge(
           OpenApi.annotations({
             identifier: "session.unshare",
@@ -359,7 +359,7 @@ export const SessionApi = HttpApi.make("session")
         HttpApiEndpoint.post("revert", SessionPaths.revert, {
           params: { sessionID: SessionID },
           payload: RevertPayload,
-          success: Session.Info,
+          success: SessionInfoResponse,
         }).annotateMerge(
           OpenApi.annotations({
             identifier: "session.revert",
@@ -370,7 +370,7 @@ export const SessionApi = HttpApi.make("session")
         ),
         HttpApiEndpoint.post("unrevert", SessionPaths.unrevert, {
           params: { sessionID: SessionID },
-          success: Session.Info,
+          success: SessionInfoResponse,
         }).annotateMerge(
           OpenApi.annotations({
             identifier: "session.unrevert",
