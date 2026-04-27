@@ -787,9 +787,8 @@ NOTE: At any point in time through this workflow you should feel free to ask the
               },
             }
             yield* sessions.updatePart(part)
-            yield* markReady
             return { msg, part, cwd: ctx.directory }
-          }).pipe(Effect.onExit(() => markReady))
+          }).pipe(Effect.ensuring(markReady))
 
           const cfg = yield* config.get()
           const sh = Shell.preferred(cfg.shell)
@@ -848,7 +847,7 @@ NOTE: At any point in time through this workflow you should feel free to ask the
             }).pipe(Effect.scoped, Effect.orDie),
           ).pipe(Effect.exit)
 
-          if (Exit.isFailure(exit) && Cause.hasInterrupts(exit.cause)) {
+          if (Exit.isFailure(exit) && Cause.hasInterrupts(exit.cause) && !Cause.hasDies(exit.cause)) {
             aborted = true
           }
           yield* finish
