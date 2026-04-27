@@ -3,6 +3,7 @@ import type { UpgradeWebSocket } from "hono/ws"
 import { Flag } from "@opencode-ai/core/flag/flag"
 import { Instance } from "../../src/project/instance"
 import { InstanceRoutes } from "../../src/server/routes/instance"
+import { WorkspaceRoutes } from "../../src/server/routes/control/workspace"
 import { FilePaths } from "../../src/server/routes/instance/httpapi/file"
 import * as Log from "@opencode-ai/core/util/log"
 import { resetDatabase } from "../fixture/db"
@@ -57,7 +58,11 @@ describe("HttpApi Hono bridge", () => {
     const experimental = InstanceRoutes(websocket)
 
     const bridge = experimental.routes.slice(0, experimental.routes.length - legacy.routes.length)
-    const legacyRoutes = [...new Set(legacy.routes.map(routeKey))]
+    const workspaceRoutes = WorkspaceRoutes().routes.map((route) => ({
+      ...route,
+      path: `/experimental/workspace${route.path === "/" ? "" : route.path}`,
+    }))
+    const legacyRoutes = [...new Set([...legacy.routes, ...workspaceRoutes].map(routeKey))]
     const bridgeRoutes = new Set(bridge.map(routeKey))
 
     expect(legacyRoutes.filter((route) => !bridgeRoutes.has(route))).toEqual([])
