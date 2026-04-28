@@ -1,6 +1,8 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test"
+import { Database } from "bun:sqlite"
 import { eq } from "drizzle-orm"
 import { relations } from "drizzle-orm/_relations"
+import { drizzle as drizzleBun } from "drizzle-orm/bun-sqlite"
 import { integer, sqliteTable, text } from "drizzle-orm/sqlite-core"
 import { Cause, Effect, Exit } from "effect"
 import { EffectDrizzleQueryError, make, type EffectSQLiteDatabase } from "../src"
@@ -49,6 +51,21 @@ afterEach(() => {
 })
 
 describe("effect drizzle sqlite", () => {
+  test("keeps normal Drizzle Bun SQLite clients usable after patching", async () => {
+    const sqlite = new Database(":memory:")
+    try {
+      const normal = drizzleBun({ client: sqlite })
+      sqlite.run("CREATE TABLE users (id INTEGER PRIMARY KEY, name TEXT NOT NULL)")
+
+      normal.insert(users).values({ id: 1, name: "Ada" }).run()
+
+      expect(normal.select().from(users).all()).toEqual([{ id: 1, name: "Ada" }])
+      expect(await normal.select().from(users)).toEqual([{ id: 1, name: "Ada" }])
+    } finally {
+      sqlite.close()
+    }
+  })
+
   testEffect("makes select/insert/update/delete query builders yieldable Effects", () =>
     Effect.gen(function* () {
       yield* db.insert(users).values({ id: 1, name: "Ada" })
@@ -138,6 +155,68 @@ describe("effect drizzle sqlite", () => {
       }).pipe(db.withTransaction)
 
       expect(yield* db.select().from(users)).toEqual([{ id: 2, name: "Grace" }])
+    }),
+  )
+
+  testEffect("supports count builders and prepared queries", () =>
+    Effect.gen(function* () {
+      yield* db.insert(users).values([
+        { id: 1, name: "Ada" },
+        { id: 2, name: "Grace" },
+      ])
+
+      expect(yield* db.$count(users)).toBe(2)
+
+      const prepared = db.select().from(users).orderBy(users.id).prepare()
+      expect(yield* prepared).toEqual([
+        { id: 1, name: "Ada" },
+        { id: 2, name: "Grace" },
+      ])
+    }),
+  )
+
+  testEffect("nested pipeable transactions commit or roll back with the outer transaction", () =>
+    Effect.gen(function* () {
+      yield* Effect.gen(function* () {
+        yield* db.insert(users).values({ id: 1, name: "Ada" })
+        yield* Effect.gen(function* () {
+          yield* db.insert(users).values({ id: 2, name: "Grace" })
+        }).pipe(db.withTransaction)
+      }).pipe(db.withTransaction)
+
+      expect(yield* db.select().from(users).orderBy(users.id)).toEqual([
+        { id: 1, name: "Ada" },
+        { id: 2, name: "Grace" },
+      ])
+
+      const exit = yield* Effect.gen(function* () {
+        yield* db.insert(users).values({ id: 3, name: "Katherine" })
+        yield* Effect.gen(function* () {
+          yield* db.insert(users).values({ id: 4, name: "Dorothy" })
+          return yield* Effect.fail("inner rollback")
+        }).pipe(db.withTransaction)
+      }).pipe(db.withTransaction, Effect.exit)
+
+      expect(Exit.isFailure(exit)).toBe(true)
+      expect(yield* db.select().from(users).orderBy(users.id)).toEqual([
+        { id: 1, name: "Ada" },
+        { id: 2, name: "Grace" },
+      ])
+    }),
+  )
+
+  testEffect("defects inside transactions roll back and stay defects", () =>
+    Effect.gen(function* () {
+      const exit = yield* Effect.gen(function* () {
+        yield* db.insert(users).values({ id: 1, name: "Ada" })
+        return yield* Effect.die("boom")
+      }).pipe(db.withTransaction, Effect.exit)
+
+      expect(Exit.isFailure(exit)).toBe(true)
+      if (Exit.isFailure(exit)) {
+        expect(exit.cause.reasons.some(Cause.isDieReason)).toBe(true)
+      }
+      expect(yield* db.select().from(users)).toEqual([])
     }),
   )
 

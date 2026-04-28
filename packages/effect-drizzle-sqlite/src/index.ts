@@ -7,7 +7,7 @@ import { SQLiteInsertBase } from "drizzle-orm/sqlite-core/query-builders/insert"
 import { SQLiteRelationalQuery, SQLiteSyncRelationalQuery } from "drizzle-orm/sqlite-core/query-builders/_query"
 import { SQLiteSelectBase } from "drizzle-orm/sqlite-core/query-builders/select"
 import { SQLiteUpdateBase } from "drizzle-orm/sqlite-core/query-builders/update"
-import type { SQLiteTransaction, SQLiteTransactionConfig } from "drizzle-orm/sqlite-core/session"
+import type { PreparedQueryConfig, SQLiteSession, SQLiteTransaction, SQLiteTransactionConfig } from "drizzle-orm/sqlite-core/session"
 import { SQLitePreparedQuery } from "drizzle-orm/sqlite-core/session"
 import type { DrizzleConfig } from "drizzle-orm/utils"
 import { Cause, Effect, Exit, Schema } from "effect"
@@ -239,5 +239,18 @@ export const drizzle = make
 declare module "drizzle-orm/query-promise" {
   interface QueryPromise<T> extends Effect.Effect<T, EffectDrizzleQueryError> {
     asEffect(): Effect.Effect<T, EffectDrizzleQueryError>
+  }
+}
+
+declare module "drizzle-orm/sqlite-core/session" {
+  interface SQLitePreparedQuery<T extends PreparedQueryConfig> extends Effect.Effect<T["execute"], EffectDrizzleQueryError> {
+    asEffect(): Effect.Effect<T["execute"], EffectDrizzleQueryError>
+  }
+}
+
+declare module "drizzle-orm/sqlite-core/query-builders/count" {
+  interface SQLiteCountBuilder<TSession extends SQLiteSession<any, any, any, any>>
+    extends Effect.Effect<number, EffectDrizzleQueryError> {
+    asEffect(): Effect.Effect<number, EffectDrizzleQueryError>
   }
 }
