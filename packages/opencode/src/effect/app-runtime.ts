@@ -52,6 +52,7 @@ import { SessionShare } from "@/share/session"
 import { SyncEvent } from "@/sync"
 import { Npm } from "@opencode-ai/core/npm"
 import { memoMap } from "@opencode-ai/core/effect/memo-map"
+import { lazy } from "@/util/lazy"
 
 export const AppLayer = Layer.mergeAll(
   Npm.defaultLayer,
@@ -127,5 +128,7 @@ export const AppRuntime: Runtime = {
   runCallback(effect) {
     return rt.runCallback(wrap(effect))
   },
-  dispose: () => rt.dispose(),
+  async dispose() {
+    await rt.dispose()
+  },
 }

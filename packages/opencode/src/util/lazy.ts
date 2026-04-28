@@ -15,6 +15,6 @@ export function lazy<T>(fn: () => T) {
   }
 
   result.loaded = () => loaded
-
+  result.peek = () => (loaded ? value : undefined)
   return result
 }

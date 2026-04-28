@@ -131,7 +131,7 @@ describe("ShareNext", () => {
       Effect.gen(function* () {
         yield* seed("https://control.example.com", "org-1")
 
-        const req = yield* ShareNext.Service.use((svc) => svc.request()).pipe(Effect.provide(live(none)))
+        const req = yield* ShareNext.Service.use((svc) => svc.request())
 
         expect(req.api.create).toBe("/api/shares")
         expect(req.api.sync("shr_123")).toBe("/api/shares/shr_123/sync")
@@ -142,33 +142,33 @@ describe("ShareNext", () => {
           authorization: "Bearer st_test_token",
           "x-org-id": "org-1",
         })
-      }),
+      }).pipe(Effect.provide(wired(none))),
     ),
   )
 
   it.live("create posts share, persists it, and returns the result", () =>
     provideTmpdirInstance(
-      () =>
-        Effect.gen(function* () {
-          const session = yield* Session.Service.use((svc) => svc.create({ title: "test" }))
-          const seen: HttpClientRequest.HttpClientRequest[] = []
-          const client = HttpClient.make((req) => {
-            seen.push(req)
-            if (req.url.endsWith("/api/share")) {
-              return Effect.succeed(
-                json(req, {
-                  id: "shr_abc",
-                  url: "https://legacy-share.example.com/share/abc",
-                  secret: "sec_123",
-                }),
-              )
-            }
-            return Effect.succeed(json(req, { ok: true }))
-          })
+      () => {
+        const seen: HttpClientRequest.HttpClientRequest[] = []
+        const client = HttpClient.make((req) => {
+          seen.push(req)
+          if (req.url.endsWith("/api/share")) {
+            return Effect.succeed(
+              json(req, {
+                id: "shr_abc",
+                url: "https://legacy-share.example.com/share/abc",
+                secret: "sec_123",
+              }),
+            )
+          }
+          return Effect.succeed(json(req, { ok: true }))
+        })
 
-          const result = yield* ShareNext.Service.use((svc) => svc.create(session.id)).pipe(
-            Effect.provide(live(client)),
-          )
+        return Effect.gen(function* () {
+          const sessions = yield* Session.Service
+          const shareNext = yield* ShareNext.Service
+          const session = yield* sessions.create({ title: "test" })
+          const result = yield* shareNext.create(session.id)
 
           expect(result.id).toBe("shr_abc")
           expect(result.url).toBe("https://legacy-share.example.com/share/abc")
@@ -182,60 +182,61 @@ describe("ShareNext", () => {
           expect(seen).toHaveLength(1)
           expect(seen[0].method).toBe("POST")
           expect(seen[0].url).toBe("https://legacy-share.example.com/api/share")
-        }),
+        }).pipe(Effect.provide(wired(client)))
+      },
       { config: { enterprise: { url: "https://legacy-share.example.com" } } },
     ),
   )
 
   it.live("remove deletes the persisted share and calls the delete endpoint", () =>
     provideTmpdirInstance(
-      () =>
-        Effect.gen(function* () {
-          const session = yield* Session.Service.use((svc) => svc.create({ title: "test" }))
-          const seen: HttpClientRequest.HttpClientRequest[] = []
-          const client = HttpClient.make((req) => {
-            seen.push(req)
-            if (req.method === "POST") {
-              return Effect.succeed(
-                json(req, {
-                  id: "shr_abc",
-                  url: "https://legacy-share.example.com/share/abc",
-                  secret: "sec_123",
-                }),
-              )
-            }
-            return Effect.succeed(HttpClientResponse.fromWeb(req, new Response(null, { status: 200 })))
-          })
+      () => {
+        const seen: HttpClientRequest.HttpClientRequest[] = []
+        const client = HttpClient.make((req) => {
+          seen.push(req)
+          if (req.method === "POST") {
+            return Effect.succeed(
+              json(req, {
+                id: "shr_abc",
+                url: "https://legacy-share.example.com/share/abc",
+                secret: "sec_123",
+              }),
+            )
+          }
+          return Effect.succeed(HttpClientResponse.fromWeb(req, new Response(null, { status: 200 })))
+        })
 
-          yield* Effect.gen(function* () {
-            yield* ShareNext.Service.use((svc) => svc.create(session.id))
-            yield* ShareNext.Service.use((svc) => svc.remove(session.id))
-          }).pipe(Effect.provide(live(client)))
-
+        return Effect.gen(function* () {
+          const sessions = yield* Session.Service
+          const shareNext = yield* ShareNext.Service
+          const session = yield* sessions.create({ title: "test" })
+          yield* shareNext.create(session.id)
+          yield* shareNext.remove(session.id)
           expect(share(session.id)).toBeUndefined()
           expect(seen.map((req) => [req.method, req.url])).toEqual([
             ["POST", "https://legacy-share.example.com/api/share"],
             ["DELETE", "https://legacy-share.example.com/api/share/shr_abc"],
           ])
-        }),
+        }).pipe(Effect.provide(wired(client)))
+      },
       { config: { enterprise: { url: "https://legacy-share.example.com" } } },
     ),
   )
 
   it.live("create fails on a non-ok response and does not persist a share", () =>
-    provideTmpdirInstance(() =>
-      Effect.gen(function* () {
-        const session = yield* Session.Service.use((svc) => svc.create({ title: "test" }))
-        const client = HttpClient.make((req) => Effect.succeed(json(req, { error: "bad" }, 500)))
+    provideTmpdirInstance(() => {
+      const client = HttpClient.make((req) => Effect.succeed(json(req, { error: "bad" }, 500)))
 
-        const exit = yield* ShareNext.Service.use((svc) => Effect.exit(svc.create(session.id))).pipe(
-          Effect.provide(live(client)),
-        )
+      return Effect.gen(function* () {
+        const sessions = yield* Session.Service
+        const shareNext = yield* ShareNext.Service
+        const session = yield* sessions.create({ title: "test" })
+        const exit = yield* Effect.exit(shareNext.create(session.id))
 
         expect(Exit.isFailure(exit)).toBe(true)
         expect(share(session.id)).toBeUndefined()
-      }),
-    ),
+      }).pipe(Effect.provide(wired(client)))
+    }),
   )
 
   it.live("ShareNext coalesces rapid diff events into one delayed sync with latest data", () =>
