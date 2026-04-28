@@ -104,26 +104,40 @@ describe("effect drizzle sqlite", () => {
 
   testEffect("runs synchronous Effect programs inside transactions", () =>
     Effect.gen(function* () {
-      yield* db.withTransaction((tx) =>
-        Effect.gen(function* () {
-          yield* tx.insert(users).values({ id: 1, name: "Ada" })
-          return yield* tx.select().from(users)
-        }),
-      )
+      yield* Effect.gen(function* () {
+        yield* db.insert(users).values({ id: 1, name: "Ada" })
+        return yield* db.select().from(users)
+      }).pipe(db.withTransaction)
 
       expect(yield* db.select().from(users)).toEqual([{ id: 1, name: "Ada" }])
 
       const exit = yield* Effect.exit(
-        db.withTransaction((tx) =>
-          Effect.gen(function* () {
-            yield* tx.insert(users).values({ id: 2, name: "Grace" })
-            return yield* Effect.fail("rollback")
-          }),
-        ),
+        Effect.gen(function* () {
+          yield* db.insert(users).values({ id: 2, name: "Grace" })
+          return yield* Effect.fail("rollback")
+        }).pipe(db.withTransaction),
       )
 
       expect(Exit.isFailure(exit)).toBe(true)
       expect(yield* db.select().from(users).orderBy(users.id)).toEqual([{ id: 1, name: "Ada" }])
+    }),
+  )
+
+  testEffect("supports pipeable transactions using the same database service", () =>
+    Effect.gen(function* () {
+      const exit = yield* Effect.gen(function* () {
+        yield* db.insert(users).values({ id: 1, name: "Ada" })
+        return yield* Effect.fail("rollback")
+      }).pipe(db.withTransaction, Effect.exit)
+
+      expect(Exit.isFailure(exit)).toBe(true)
+      expect(yield* db.select().from(users)).toEqual([])
+
+      yield* Effect.gen(function* () {
+        yield* db.insert(users).values({ id: 2, name: "Grace" })
+      }).pipe(db.withTransaction)
+
+      expect(yield* db.select().from(users)).toEqual([{ id: 2, name: "Grace" }])
     }),
   )
 

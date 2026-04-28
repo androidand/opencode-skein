@@ -31,10 +31,10 @@ export type EffectSQLiteDatabase<
   TRelations extends AnyRelations = EmptyRelations,
 > = SQLiteBunDatabase<TSchema, TRelations> & {
   readonly $client: Database
-  readonly withTransaction: <A, E>(
-    transaction: (tx: SQLiteTransaction<"sync", void, TSchema, TRelations>) => Effect.Effect<A, E>,
+  readonly withTransaction: <A, E, R>(
+    effect: Effect.Effect<A, E, R>,
     config?: SQLiteTransactionConfig,
-  ) => Effect.Effect<A, E>
+  ) => Effect.Effect<A, E, R>
 }
 
 export type MakeConfig<
@@ -176,33 +176,48 @@ const attachTransaction = <
   TSchema extends Record<string, unknown> = Record<string, never>,
   TRelations extends AnyRelations = EmptyRelations,
 >(db: SQLiteBunDatabase<TSchema, TRelations> & { readonly $client: Database }): EffectSQLiteDatabase<TSchema, TRelations> => {
-  const runTransaction = db.transaction.bind(db) as (
-    transaction: (tx: SQLiteTransaction<"sync", void, TSchema, TRelations>) => unknown,
-    config?: SQLiteTransactionConfig,
-  ) => unknown
-
-  return Object.assign(db, {
-    withTransaction: <A, E>(
-      transaction: (tx: SQLiteTransaction<"sync", void, TSchema, TRelations>) => Effect.Effect<A, E>,
+  const txStack: Array<SQLiteTransaction<"sync", void, TSchema, TRelations>> = []
+  const current = () => txStack.at(-1) ?? db
+  const runTransaction = (target: SQLiteBunDatabase<TSchema, TRelations> | SQLiteTransaction<"sync", void, TSchema, TRelations>) =>
+    target.transaction.bind(target) as (
+      transaction: (tx: SQLiteTransaction<"sync", void, TSchema, TRelations>) => unknown,
       config?: SQLiteTransactionConfig,
-    ) =>
-      Effect.sync(
-        () =>
-          runTransaction(
-            (tx) =>
-              Exit.match(Effect.runSyncExit(transaction(tx)), {
-                onSuccess: (value) => value,
-                onFailure: (cause) => {
-                  throw new TransactionFailure(cause)
-                },
-              }),
-            config,
-          ) as A,
-      ).pipe(
-        Effect.catchDefect((defect) =>
-          defect instanceof TransactionFailure ? Effect.failCause(defect.effectCause as Cause.Cause<E>) : Effect.die(defect),
+    ) => unknown
+
+  const withTransaction = <A, E, R>(
+    effect: Effect.Effect<A, E, R>,
+    config?: SQLiteTransactionConfig,
+  ): Effect.Effect<A, E, R> =>
+    Effect.context<R>().pipe(
+      Effect.flatMap((context) =>
+        Effect.sync(
+          () =>
+            runTransaction(current())((tx) => {
+              txStack.push(tx)
+              try {
+                const exit = Effect.runSyncExit(Effect.provideContext(effect, context))
+                if (Exit.isSuccess(exit)) return exit.value
+                throw new TransactionFailure(exit.cause)
+              } finally {
+                txStack.pop()
+              }
+            }, config) as A,
+        ).pipe(
+          Effect.catchDefect((defect) =>
+            defect instanceof TransactionFailure ? Effect.failCause(defect.effectCause as Cause.Cause<E>) : Effect.die(defect),
+          ),
         ),
       ),
+    )
+
+  return new Proxy(db, {
+    get(_target, property) {
+      if (property === "withTransaction") return withTransaction
+      if (property === "$client") return db.$client
+
+      const value = Reflect.get(current(), property)
+      return typeof value === "function" ? value.bind(current()) : value
+    },
   }) as EffectSQLiteDatabase<TSchema, TRelations>
 }
 
