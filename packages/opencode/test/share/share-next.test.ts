@@ -40,19 +40,6 @@ const json = (req: Parameters<typeof HttpClientResponse.fromWeb>[0], body: unkno
 
 const none = HttpClient.make(() => Effect.die("unexpected http call"))
 
-function live(client: HttpClient.HttpClient) {
-  const http = Layer.succeed(HttpClient.HttpClient, client)
-  return ShareNext.layer.pipe(
-    Layer.provide(Bus.layer),
-    Layer.provide(Account.layer.pipe(Layer.provide(AccountRepo.layer), Layer.provide(http))),
-    Layer.provide(Config.defaultLayer),
-    Layer.provide(http),
-    Layer.provide(Provider.defaultLayer),
-    Layer.provide(Session.defaultLayer),
-    Layer.provide(DatabaseEffect.layer),
-  )
-}
-
 function wired(client: HttpClient.HttpClient) {
   const http = Layer.succeed(HttpClient.HttpClient, client)
   return Layer.mergeAll(
@@ -107,7 +94,7 @@ describe("ShareNext", () => {
             expect(req.baseUrl).toBe("https://legacy-share.example.com")
             expect(req.headers).toEqual({})
           }),
-        ).pipe(Effect.provide(live(none))),
+        ).pipe(Effect.provide(wired(none))),
       { config: { enterprise: { url: "https://legacy-share.example.com" } } },
     ),
   )
@@ -122,7 +109,7 @@ describe("ShareNext", () => {
           expect(req.api.create).toBe("/api/share")
           expect(req.headers).toEqual({})
         }),
-      ).pipe(Effect.provide(live(none))),
+      ).pipe(Effect.provide(wired(none))),
     ),
   )
 

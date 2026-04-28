@@ -125,7 +125,7 @@ export const Client = lazy(open)
 export function close(client = Client.peek()) {
   if (!client) return
   client.$client.close()
-  if (Client.peek() === client) Client.reset()
+  Client.resetIf(client)
 }
 
 export type TxOrDb = Transaction | Client

@@ -42,7 +42,6 @@ export type MakeConfig<
   TRelations extends AnyRelations = EmptyRelations,
 > = DrizzleConfig<TSchema, TRelations> & {
   readonly client?: Database
-  readonly filename?: string
 }
 
 type EffectLikeQuery<A = unknown> = {
@@ -76,9 +75,22 @@ class TransactionFailure extends Error {
   }
 }
 
+// These keys are Effect runtime internals (effect/internal/core.ts). They are
+// not exported from the `effect` public API. We rely on them to make Drizzle
+// query builders directly yieldable. If a future Effect version renames or
+// removes them, the module-load assertion below fails loudly instead of
+// failing silently with "Effect.evaluate: Not implemented" defects deep in
+// the fiber executor.
 const EffectTypeId = "~effect/Effect"
 const EffectIdentifier = `${EffectTypeId}/identifier`
 const EffectEvaluate = `${EffectTypeId}/evaluate`
+
+if (!(Effect.succeed(0) as unknown as Record<PropertyKey, unknown>)[EffectTypeId]) {
+  throw new Error(
+    "@opencode-ai/effect-drizzle-sqlite: Effect protocol keys are missing on Effect.succeed(0). " +
+      "The installed `effect` version is incompatible with this adapter.",
+  )
+}
 
 const effectVariance = {
   _A: (value: unknown) => value,
@@ -151,26 +163,23 @@ const patchClass = <A>(ctor: { readonly prototype: object }, asEffect: (self: A)
   })
 }
 
-const patchQueryBuilders = (() => {
-  let patched = false
-  return () => {
-    if (patched) return
-    patched = true
-
-    patchClass(SQLitePreparedQuery, (query: PreparedLike) => fromSync(query, () => fromExecuteResult(query.execute())))
-    patchClass(SQLiteSelectBase, (query: SelectLike) => fromSync(query, () => query.all()))
-    patchClass(SQLiteInsertBase, fromMutation)
-    patchClass(SQLiteUpdateBase, fromMutation)
-    patchClass(SQLiteDeleteBase, fromMutation)
-    patchClass(SQLiteRelationalQuery, (query: EffectLikeQuery & { readonly executeRaw: () => unknown }) =>
-      fromSync(query, () => query.executeRaw()),
-    )
-    patchClass(SQLiteSyncRelationalQuery, (query: EffectLikeQuery & { readonly executeRaw: () => unknown }) =>
-      fromSync(query, () => query.executeRaw()),
-    )
-    patchClass(SQLiteCountBuilder, fromCount)
-  }
-})()
+// `patchClass` is idempotent via `hasOwnProperty` check, so calling this
+// repeatedly is cheap. Patches are applied to Drizzle prototypes globally and
+// survive any Database close/reopen cycle.
+const patchQueryBuilders = () => {
+  patchClass(SQLitePreparedQuery, (query: PreparedLike) => fromSync(query, () => fromExecuteResult(query.execute())))
+  patchClass(SQLiteSelectBase, (query: SelectLike) => fromSync(query, () => query.all()))
+  patchClass(SQLiteInsertBase, fromMutation)
+  patchClass(SQLiteUpdateBase, fromMutation)
+  patchClass(SQLiteDeleteBase, fromMutation)
+  patchClass(SQLiteRelationalQuery, (query: EffectLikeQuery & { readonly executeRaw: () => unknown }) =>
+    fromSync(query, () => query.executeRaw()),
+  )
+  patchClass(SQLiteSyncRelationalQuery, (query: EffectLikeQuery & { readonly executeRaw: () => unknown }) =>
+    fromSync(query, () => query.executeRaw()),
+  )
+  patchClass(SQLiteCountBuilder, fromCount)
+}
 
 const attachTransaction = <
   TSchema extends Record<string, unknown> = Record<string, never>,
@@ -227,11 +236,10 @@ export const make = <
   TRelations extends AnyRelations = EmptyRelations,
 >(config: MakeConfig<TSchema, TRelations> = {}): EffectSQLiteDatabase<TSchema, TRelations> => {
   patchQueryBuilders()
-  const { client, filename, ...drizzleConfig } = config
   return attachTransaction(
     drizzleBun({
-      ...drizzleConfig,
-      client: client ?? new Database(filename ?? ":memory:"),
+      ...config,
+      client: config.client ?? new Database(":memory:"),
     }),
   )
 }

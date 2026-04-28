@@ -1,5 +1,6 @@
-import { Layer, ManagedRuntime } from "effect"
+import { Layer } from "effect"
 import { attach } from "./run-service"
+import { makeManagedRuntime } from "./managed-runtime"
 import * as Observability from "@opencode-ai/core/effect/observability"
 
 import { AppFileSystem } from "@opencode-ai/core/filesystem"
@@ -51,8 +52,6 @@ import { ShareNext } from "@/share/share-next"
 import { SessionShare } from "@/share/session"
 import { SyncEvent } from "@/sync"
 import { Npm } from "@opencode-ai/core/npm"
-import { memoMap } from "@opencode-ai/core/effect/memo-map"
-import { lazy } from "@/util/lazy"
 
 export const AppLayer = Layer.mergeAll(
   Npm.defaultLayer,
@@ -128,7 +127,5 @@ export const AppRuntime: Runtime = {
   runCallback(effect) {
     return rt.runCallback(wrap(effect))
   },
-  async dispose() {
-    await rt.dispose()
-  },
+  dispose: () => rt.dispose(),
 }
