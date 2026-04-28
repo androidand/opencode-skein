@@ -152,6 +152,7 @@ describe("effect drizzle sqlite", () => {
 
       yield* Effect.gen(function* () {
         yield* db.insert(users).values({ id: 2, name: "Grace" })
+        expect(yield* db.$count(users)).toBe(1)
       }).pipe(db.withTransaction)
 
       expect(yield* db.select().from(users)).toEqual([{ id: 2, name: "Grace" }])

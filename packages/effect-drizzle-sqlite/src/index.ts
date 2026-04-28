@@ -65,7 +65,10 @@ type MutationLike<A = unknown> = EffectLikeQuery<A> & {
   readonly config?: { readonly returning?: unknown }
 }
 
-type CountLike = EffectLikeQuery<number> & PromiseLike<number>
+type CountLike = EffectLikeQuery<number> & {
+  readonly session: { readonly values: (sql: unknown) => unknown[][] }
+  readonly sql: unknown
+}
 
 class TransactionFailure extends Error {
   constructor(readonly effectCause: Cause.Cause<unknown>) {
@@ -104,6 +107,8 @@ const fromSync = <A>(query: EffectLikeQuery, run: () => A) =>
   })
 
 const fromMutation = (query: MutationLike) => fromSync(query, () => (query.config?.returning ? query.all() : query.run()))
+
+const fromCount = (query: CountLike) => fromSync(query, () => Number(query.session.values(query.sql)[0]?.[0] ?? 0))
 
 const fromExecuteResult = (result: unknown) => {
   if (result && typeof result === "object" && "sync" in result && typeof result.sync === "function") {
@@ -163,12 +168,7 @@ const patchQueryBuilders = (() => {
     patchClass(SQLiteSyncRelationalQuery, (query: EffectLikeQuery & { readonly executeRaw: () => unknown }) =>
       fromSync(query, () => query.executeRaw()),
     )
-    patchClass(SQLiteCountBuilder, (query: CountLike) =>
-      Effect.tryPromise({
-        try: () => Promise.resolve(query),
-        catch: (cause) => queryError(query, cause),
-      }),
-    )
+    patchClass(SQLiteCountBuilder, fromCount)
   }
 })()
 
@@ -215,8 +215,9 @@ const attachTransaction = <
       if (property === "withTransaction") return withTransaction
       if (property === "$client") return db.$client
 
-      const value = Reflect.get(current(), property)
-      return typeof value === "function" ? value.bind(current()) : value
+      const target = current()
+      const value = Reflect.get(target, property)
+      return typeof value === "function" ? value.bind(target) : value
     },
   }) as EffectSQLiteDatabase<TSchema, TRelations>
 }
@@ -226,10 +227,11 @@ export const make = <
   TRelations extends AnyRelations = EmptyRelations,
 >(config: MakeConfig<TSchema, TRelations> = {}): EffectSQLiteDatabase<TSchema, TRelations> => {
   patchQueryBuilders()
+  const { client, filename, ...drizzleConfig } = config
   return attachTransaction(
     drizzleBun({
-      ...config,
-      client: config.client ?? new Database(config.filename ?? ":memory:"),
+      ...drizzleConfig,
+      client: client ?? new Database(filename ?? ":memory:"),
     }),
   )
 }
