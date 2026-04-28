@@ -307,6 +307,19 @@
         "@lydell/node-pty-win32-x64": "1.2.0-beta.10",
       },
     },
+    "packages/effect-drizzle-sqlite": {
+      "name": "@opencode-ai/effect-drizzle-sqlite",
+      "version": "0.0.0",
+      "dependencies": {
+        "drizzle-orm": "catalog:",
+        "effect": "catalog:",
+      },
+      "devDependencies": {
+        "@tsconfig/bun": "catalog:",
+        "@types/bun": "catalog:",
+        "@typescript/native-preview": "catalog:",
+      },
+    },
     "packages/enterprise": {
       "name": "@opencode-ai/enterprise",
       "version": "1.14.33",
@@ -1571,6 +1584,8 @@
     "@opencode-ai/desktop": ["@opencode-ai/desktop@workspace:packages/desktop"],
 
     "@opencode-ai/desktop-electron": ["@opencode-ai/desktop-electron@workspace:packages/desktop-electron"],
+
+    "@opencode-ai/effect-drizzle-sqlite": ["@opencode-ai/effect-drizzle-sqlite@workspace:packages/effect-drizzle-sqlite"],
 
     "@opencode-ai/enterprise": ["@opencode-ai/enterprise@workspace:packages/enterprise"],
 

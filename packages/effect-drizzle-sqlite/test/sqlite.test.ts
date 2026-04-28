@@ -1,0 +1,143 @@
+import { afterEach, beforeEach, describe, expect, test } from "bun:test"
+import { eq } from "drizzle-orm"
+import { relations } from "drizzle-orm/_relations"
+import { integer, sqliteTable, text } from "drizzle-orm/sqlite-core"
+import { Cause, Effect, Exit } from "effect"
+import { EffectDrizzleQueryError, make, type EffectSQLiteDatabase } from "../src"
+
+const users = sqliteTable("users", {
+  id: integer().primaryKey(),
+  name: text().notNull(),
+})
+
+const posts = sqliteTable("posts", {
+  id: integer().primaryKey(),
+  user_id: integer()
+    .notNull()
+    .references(() => users.id),
+  title: text().notNull(),
+})
+
+const usersRelations = relations(users, ({ many }) => ({
+  posts: many(posts),
+}))
+
+const postsRelations = relations(posts, ({ one }) => ({
+  user: one(users, {
+    fields: [posts.user_id],
+    references: [users.id],
+  }),
+}))
+
+const schema = { users, posts, usersRelations, postsRelations }
+
+let db: EffectSQLiteDatabase<typeof schema>
+
+const testEffect = <A, E>(name: string, effect: () => Effect.Effect<A, E>) => test(name, () => Effect.runPromise(effect()))
+
+beforeEach(() => {
+  db = make({ schema })
+  db.$client.run("PRAGMA foreign_keys = ON")
+  db.$client.run("CREATE TABLE users (id INTEGER PRIMARY KEY, name TEXT NOT NULL)")
+  db.$client.run(
+    "CREATE TABLE posts (id INTEGER PRIMARY KEY, user_id INTEGER NOT NULL REFERENCES users(id), title TEXT NOT NULL)",
+  )
+})
+
+afterEach(() => {
+  db.$client.close()
+})
+
+describe("effect drizzle sqlite", () => {
+  testEffect("makes select/insert/update/delete query builders yieldable Effects", () =>
+    Effect.gen(function* () {
+      yield* db.insert(users).values({ id: 1, name: "Ada" })
+      yield* db.insert(users).values({ id: 2, name: "Grace" })
+
+      const selected = yield* db.select().from(users).orderBy(users.id)
+      expect(selected).toEqual([
+        { id: 1, name: "Ada" },
+        { id: 2, name: "Grace" },
+      ])
+
+      const updated = yield* db.update(users).set({ name: "Lovelace" }).where(eq(users.id, 1)).returning()
+      expect(updated).toEqual([{ id: 1, name: "Lovelace" }])
+
+      const deleted = yield* db.delete(users).where(eq(users.id, 2)).returning({ id: users.id })
+      expect(deleted).toEqual([{ id: 2 }])
+
+      expect(yield* db.select().from(users)).toEqual([{ id: 1, name: "Lovelace" }])
+    }),
+  )
+
+  testEffect("supports direct Effect combinators on queries", () =>
+    Effect.gen(function* () {
+      yield* db.insert(users).values({ id: 1, name: "Ada" })
+
+      expect(
+        yield* (db.select().from(users) as Effect.Effect<Array<{ readonly name: string }>, EffectDrizzleQueryError>).pipe(
+          Effect.map((rows) => rows.map((row) => row.name)),
+        ),
+      ).toEqual(["Ada"])
+    }),
+  )
+
+  testEffect("supports relational query builders", () =>
+    Effect.gen(function* () {
+      yield* db.insert(users).values({ id: 1, name: "Ada" })
+      yield* db.insert(posts).values({ id: 1, user_id: 1, title: "Notes" })
+      expect(
+        yield* db._query.users.findMany({
+          with: {
+            posts: true,
+          },
+        }),
+      ).toEqual([
+        {
+          id: 1,
+          name: "Ada",
+          posts: [{ id: 1, user_id: 1, title: "Notes" }],
+        },
+      ])
+    }),
+  )
+
+  testEffect("runs synchronous Effect programs inside transactions", () =>
+    Effect.gen(function* () {
+      yield* db.withTransaction((tx) =>
+        Effect.gen(function* () {
+          yield* tx.insert(users).values({ id: 1, name: "Ada" })
+          return yield* tx.select().from(users)
+        }),
+      )
+
+      expect(yield* db.select().from(users)).toEqual([{ id: 1, name: "Ada" }])
+
+      const exit = yield* Effect.exit(
+        db.withTransaction((tx) =>
+          Effect.gen(function* () {
+            yield* tx.insert(users).values({ id: 2, name: "Grace" })
+            return yield* Effect.fail("rollback")
+          }),
+        ),
+      )
+
+      expect(Exit.isFailure(exit)).toBe(true)
+      expect(yield* db.select().from(users).orderBy(users.id)).toEqual([{ id: 1, name: "Ada" }])
+    }),
+  )
+
+  testEffect("wraps query failures with query text and parameters", () =>
+    Effect.gen(function* () {
+      const exit = yield* Effect.exit(db.insert(posts).values({ id: 1, user_id: 404, title: "Missing" }))
+
+      expect(Exit.isFailure(exit)).toBe(true)
+      if (Exit.isFailure(exit)) {
+        const error = exit.cause.reasons.filter(Cause.isFailReason)[0]?.error
+        expect(error).toBeInstanceOf(EffectDrizzleQueryError)
+        expect((error as EffectDrizzleQueryError).query).toContain("insert into")
+        expect((error as EffectDrizzleQueryError).params).toEqual([1, 404, "Missing"])
+      }
+    }),
+  )
+})
