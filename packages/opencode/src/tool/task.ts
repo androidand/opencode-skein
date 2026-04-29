@@ -6,6 +6,7 @@ import { MessageV2 } from "../session/message-v2"
 import { Agent } from "../agent/agent"
 import type { SessionPrompt } from "../session/prompt"
 import { Config } from "@/config/config"
+import { Provider } from "@/provider/provider"
 import { Effect, Schema } from "effect"
 
 export interface TaskPromptOps {
@@ -32,6 +33,7 @@ export const TaskTool = Tool.define(
   Effect.gen(function* () {
     const agent = yield* Agent.Service
     const config = yield* Config.Service
+    const provider = yield* Provider.Service
     const sessions = yield* Session.Service
 
     const run = Effect.fn("TaskTool.execute")(function* (
@@ -99,9 +101,10 @@ export const TaskTool = Tool.define(
       const msg = yield* Effect.sync(() => MessageV2.get({ sessionID: ctx.sessionID, messageID: ctx.messageID }))
       if (msg.info.role !== "assistant") return yield* Effect.fail(new Error("Not an assistant message"))
 
+      const smallModel = next.model ? undefined : yield* provider.getSmallModel(msg.info.providerID)
       const model = next.model ?? {
-        modelID: msg.info.modelID,
-        providerID: msg.info.providerID,
+        modelID: smallModel?.id ?? msg.info.modelID,
+        providerID: smallModel?.providerID ?? msg.info.providerID,
       }
 
       yield* ctx.metadata({

@@ -2,6 +2,7 @@ import { afterEach, describe, expect } from "bun:test"
 import { Effect, Layer } from "effect"
 import { Agent } from "../../src/agent/agent"
 import { Config } from "@/config/config"
+import { Provider } from "@/provider/provider"
 import { CrossSpawnSpawner } from "@opencode-ai/core/cross-spawn-spawner"
 import { Instance } from "../../src/project/instance"
 import { Session } from "@/session/session"
@@ -28,6 +29,7 @@ const it = testEffect(
   Layer.mergeAll(
     Agent.defaultLayer,
     Config.defaultLayer,
+    Provider.defaultLayer,
     CrossSpawnSpawner.defaultLayer,
     Session.defaultLayer,
     Truncate.defaultLayer,
@@ -35,7 +37,7 @@ const it = testEffect(
   ),
 )
 
-const seed = Effect.fn("TaskToolTest.seed")(function* (title = "Pinned") {
+const seed = Effect.fn("TaskToolTest.seed")(function* (title = "Pinned", model = ref) {
   const session = yield* Session.Service
   const chat = yield* session.create({ title })
   const user = yield* session.updateMessage({
@@ -43,7 +45,7 @@ const seed = Effect.fn("TaskToolTest.seed")(function* (title = "Pinned") {
     role: "user",
     sessionID: chat.id,
     agent: "build",
-    model: ref,
+    model,
     time: { created: Date.now() },
   })
   const assistant: MessageV2.Assistant = {
@@ -56,8 +58,8 @@ const seed = Effect.fn("TaskToolTest.seed")(function* (title = "Pinned") {
     cost: 0,
     path: { cwd: "/tmp", root: "/tmp" },
     tokens: { input: 0, output: 0, reasoning: 0, cache: { read: 0, write: 0 } },
-    modelID: ref.modelID,
-    providerID: ref.providerID,
+    modelID: model.modelID,
+    providerID: model.providerID,
     time: { created: Date.now() },
   }
   yield* session.updateMessage(assistant)
@@ -271,6 +273,56 @@ describe("tool.task", () => {
           },
         })
       }),
+    ),
+  )
+
+  it.live("execute defaults subagents to the provider small model", () =>
+    provideTmpdirInstance(
+      () =>
+        Effect.gen(function* () {
+          const current = {
+            providerID: ProviderID.openai,
+            modelID: ModelID.make("gpt-5"),
+          }
+          const { chat, assistant } = yield* seed("Pinned", current)
+          const tool = yield* TaskTool
+          const def = yield* tool.init()
+          let seen: SessionPrompt.PromptInput | undefined
+          const promptOps = stubOps({ onPrompt: (input) => (seen = input) })
+
+          const result = yield* def.execute(
+            {
+              description: "inspect bug",
+              prompt: "look into the cache key path",
+              subagent_type: "general",
+            },
+            {
+              sessionID: chat.id,
+              messageID: assistant.id,
+              agent: "build",
+              abort: new AbortController().signal,
+              extra: { promptOps },
+              messages: [],
+              metadata: () => Effect.void,
+              ask: () => Effect.void,
+            },
+          )
+
+          expect(result.metadata.model).toEqual({
+            providerID: ProviderID.openai,
+            modelID: ModelID.make("gpt-5.4-mini"),
+          })
+          expect(seen?.model).toEqual(result.metadata.model)
+        }),
+      {
+        config: {
+          provider: {
+            openai: {
+              options: { apiKey: "test" },
+            },
+          },
+        },
+      },
     ),
   )
 
