@@ -1089,19 +1089,37 @@ export function schema(model: Provider.Model, schema: JSONSchema.BaseSchema | JS
   }
   */
 
+  // Moonshot models want their tools in MFJS format: https://github.com/MoonshotAI/walle/blob/main/docs/mfjs-spec.md
   if (model.providerID === "moonshotai" || model.api.id.toLowerCase().includes("kimi")) {
-    const sanitizeMoonshot = (obj: unknown): unknown => {
-      if (obj === null || typeof obj !== "object") return obj
-      if (Array.isArray(obj)) return obj.map(sanitizeMoonshot)
+    const isRecord = (obj: unknown): obj is Record<string, unknown> =>
+      typeof obj === "object" && obj !== null && !Array.isArray(obj)
+    const sanitizeMoonshot = (obj: unknown): void => {
+      if (Array.isArray(obj)) return obj.forEach(sanitizeMoonshot)
+      if (!isRecord(obj)) return
       // Moonshot expands $ref before validation and rejects sibling keywords like description on the same node.
-      if ("$ref" in obj && typeof obj.$ref === "string") return { $ref: obj.$ref }
-      const result = Object.fromEntries(Object.entries(obj).map(([key, value]) => [key, sanitizeMoonshot(value)]))
+      if (typeof obj.$ref === "string") {
+        for (const key of Object.keys(obj)) {
+          if (key !== "$ref") delete obj[key]
+        }
+        return
+      }
+      for (const key of ["title", "$comment", "format"]) {
+        delete obj[key]
+      }
+      for (const key of ["exclusiveMinimum", "exclusiveMaximum", "minContains", "maxContains"]) {
+        delete obj[key]
+      }
+      // MFJS does not support tuple-style arrays (`prefixItems`) or open-ended tuple controls.
+      const prefixItems = Array.isArray(obj.prefixItems) ? obj.prefixItems : undefined
+      delete obj.unevaluatedItems
+      Object.values(obj).forEach(sanitizeMoonshot)
       // MFJS does not support tuple-style `items` arrays; it requires one schema object for all array items.
-      if (Array.isArray(result.items)) result.items = result.items[0] ?? {}
-      return result
+      if (Array.isArray(obj.items)) obj.items = obj.items[0] ?? {}
+      if (prefixItems && !isRecord(obj.items)) obj.items = prefixItems[0] ?? {}
+      delete obj.prefixItems
     }
 
-    schema = sanitizeMoonshot(schema) as JSONSchema.BaseSchema | JSONSchema7
+    sanitizeMoonshot(schema)
   }
 
   // Convert integer enums to string enums for Google/Gemini

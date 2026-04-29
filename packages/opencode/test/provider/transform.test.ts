@@ -997,6 +997,80 @@ describe("ProviderTransform.schema - moonshot $ref siblings", () => {
       type: "number",
     })
   })
+
+  test("converts prefixItems tuples to a single item schema", () => {
+    const result = ProviderTransform.schema(moonshotModel, {
+      type: "object",
+      properties: {
+        renderedSize: {
+          description: "Rendered size [width, height] in px",
+          type: "array",
+          prefixItems: [{ type: "number", title: "Width" }, { type: "number" }],
+          unevaluatedItems: false,
+        },
+      },
+    } as any) as any
+
+    expect(result.properties.renderedSize.prefixItems).toBeUndefined()
+    expect(result.properties.renderedSize.unevaluatedItems).toBeUndefined()
+    expect(result.properties.renderedSize.items).toEqual({
+      type: "number",
+    })
+  })
+
+  test("removes unsupported annotation fields", () => {
+    const result = ProviderTransform.schema(moonshotModel, {
+      title: "Tool input",
+      $comment: "Internal note",
+      type: "object",
+      properties: {
+        count: {
+          title: "Count",
+          $comment: "Generated from int32",
+          description: "How many items to include.",
+          default: 10,
+          format: "int32",
+          type: "integer",
+        },
+      },
+    } as any) as any
+
+    expect(result.title).toBeUndefined()
+    expect(result.$comment).toBeUndefined()
+    expect(result.properties.count.title).toBeUndefined()
+    expect(result.properties.count.$comment).toBeUndefined()
+    expect(result.properties.count.format).toBeUndefined()
+    expect(result.properties.count.description).toBe("How many items to include.")
+    expect(result.properties.count.default).toBe(10)
+  })
+
+  test("removes unsupported complex validation fields", () => {
+    const result = ProviderTransform.schema(moonshotModel, {
+      type: "object",
+      properties: {
+        count: {
+          type: "integer",
+          minimum: 1,
+          exclusiveMinimum: 0,
+          exclusiveMaximum: 10,
+        },
+        values: {
+          type: "array",
+          items: { type: "string" },
+          contains: { type: "string" },
+          minContains: 1,
+          maxContains: 3,
+        },
+      },
+    } as any) as any
+
+    expect(result.properties.count.exclusiveMinimum).toBeUndefined()
+    expect(result.properties.count.exclusiveMaximum).toBeUndefined()
+    expect(result.properties.count.minimum).toBe(1)
+    expect(result.properties.values.minContains).toBeUndefined()
+    expect(result.properties.values.maxContains).toBeUndefined()
+    expect(result.properties.values.contains).toEqual({ type: "string" })
+  })
 })
 
 describe("ProviderTransform.message - DeepSeek reasoning content", () => {
