@@ -276,7 +276,7 @@ describe("tool.task", () => {
     ),
   )
 
-  it.live("execute defaults subagents to the provider small model", () =>
+  it.live("execute defaults explore agents to the provider small model", () =>
     provideTmpdirInstance(
       () =>
         Effect.gen(function* () {
@@ -294,7 +294,7 @@ describe("tool.task", () => {
             {
               description: "inspect bug",
               prompt: "look into the cache key path",
-              subagent_type: "general",
+              subagent_type: "explore",
             },
             {
               sessionID: chat.id,

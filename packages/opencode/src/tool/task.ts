@@ -101,7 +101,7 @@ export const TaskTool = Tool.define(
       const msg = yield* Effect.sync(() => MessageV2.get({ sessionID: ctx.sessionID, messageID: ctx.messageID }))
       if (msg.info.role !== "assistant") return yield* Effect.fail(new Error("Not an assistant message"))
 
-      const smallModel = next.model ? undefined : yield* provider.getSmallModel(msg.info.providerID)
+      const smallModel = !next.model && next.name === "explore" ? yield* provider.getSmallModel(msg.info.providerID) : undefined
       const model = next.model ?? {
         modelID: smallModel?.id ?? msg.info.modelID,
         providerID: smallModel?.providerID ?? msg.info.providerID,
