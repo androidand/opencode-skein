@@ -59,13 +59,103 @@ export interface Interface {
 
 export class Service extends Context.Service<Service, Interface>()("@opencode/SyncEvent") {}
 
-export const layer = Layer.succeed(
-  Service,
-  Service.of({
-    run: (def, data, options) => Effect.sync(() => run(def, data, options)),
-    replay: (event, options) => Effect.sync(() => replay(event, options)),
-    replayAll: (events, options) => Effect.sync(() => replayAll(events, options)),
-    remove: (aggregateID) => Effect.sync(() => remove(aggregateID)),
+export const layer = Layer.effect(Service)(
+  Effect.gen(function* () {
+    const replay: Interface["replay"] = Effect.fn("SyncEvent.replay")(function* (event, options) {
+      const def = registry.get(event.type)
+      if (!def) {
+        throw new Error(`Unknown event type: ${event.type}`)
+      }
+
+      const row = Database.use((db) =>
+        db
+          .select({ seq: EventSequenceTable.seq })
+          .from(EventSequenceTable)
+          .where(eq(EventSequenceTable.aggregate_id, event.aggregateID))
+          .get(),
+      )
+
+      const latest = row?.seq ?? -1
+      if (event.seq <= latest) return
+
+      const expected = latest + 1
+      if (event.seq !== expected) {
+        throw new Error(
+          `Sequence mismatch for aggregate "${event.aggregateID}": expected ${expected}, got ${event.seq}`,
+        )
+      }
+
+      process(def, event, { publish: !!options?.publish })
+    })
+
+    const replayAll: Interface["replayAll"] = Effect.fn("SyncEvent.replayAll")(function* (events, options) {
+      const source = events[0]?.aggregateID
+      if (!source) return undefined
+      if (events.some((item) => item.aggregateID !== source)) {
+        throw new Error("Replay events must belong to the same session")
+      }
+      const start = events[0].seq
+      for (const [i, item] of events.entries()) {
+        const seq = start + i
+        if (item.seq !== seq) {
+          throw new Error(`Replay sequence mismatch at index ${i}: expected ${seq}, got ${item.seq}`)
+        }
+      }
+      for (const item of events) {
+        yield* replay(item, options)
+      }
+      return source
+    })
+
+    const run: Interface["run"] = Effect.fn("SyncEvent.run")(function* (def, data, options) {
+      const agg = (data as Record<string, string>)[def.aggregate]
+      // This should never happen: we've enforced it via typescript in
+      // the definition
+      if (agg == null) {
+        throw new Error(`SyncEvent.run: "${def.aggregate}" required but not found: ${JSON.stringify(data)}`)
+      }
+
+      if (def.version !== versions.get(def.type)) {
+        throw new Error(`SyncEvent.run: running old versions of events is not allowed: ${def.type}`)
+      }
+
+      const { publish = true } = options || {}
+
+      // Note that this is an "immediate" transaction which is critical.
+      // We need to make sure we can safely read and write with nothing
+      // else changing the data from under us
+      Database.transaction(
+        (tx) => {
+          const id = EventID.ascending()
+          const row = tx
+            .select({ seq: EventSequenceTable.seq })
+            .from(EventSequenceTable)
+            .where(eq(EventSequenceTable.aggregate_id, agg))
+            .get()
+          const seq = row?.seq != null ? row.seq + 1 : 0
+
+          const event = { id, seq, aggregateID: agg, data }
+          process(def, event, { publish })
+        },
+        {
+          behavior: "immediate",
+        },
+      )
+    })
+
+    const remove: Interface["remove"] = Effect.fn("SyncEvent.remove")(function* (aggregateID) {
+      Database.transaction((tx) => {
+        tx.delete(EventSequenceTable).where(eq(EventSequenceTable.aggregate_id, aggregateID)).run()
+        tx.delete(EventTable).where(eq(EventTable.aggregate_id, aggregateID)).run()
+      })
+    })
+
+    return Service.of({
+      run,
+      replay,
+      replayAll,
+      remove,
+    })
   }),
 )
 
@@ -211,92 +301,19 @@ function process<Def extends Definition>(def: Def, event: Event<Def>, options: {
 }
 
 export function replay(event: SerializedEvent, options?: { publish: boolean }) {
-  const def = registry.get(event.type)
-  if (!def) {
-    throw new Error(`Unknown event type: ${event.type}`)
-  }
-
-  const row = Database.use((db) =>
-    db
-      .select({ seq: EventSequenceTable.seq })
-      .from(EventSequenceTable)
-      .where(eq(EventSequenceTable.aggregate_id, event.aggregateID))
-      .get(),
-  )
-
-  const latest = row?.seq ?? -1
-  if (event.seq <= latest) {
-    return
-  }
-
-  const expected = latest + 1
-  if (event.seq !== expected) {
-    throw new Error(`Sequence mismatch for aggregate "${event.aggregateID}": expected ${expected}, got ${event.seq}`)
-  }
-
-  process(def, event, { publish: !!options?.publish })
+  return Effect.runSync(Service.use((sync) => sync.replay(event, options)).pipe(Effect.provide(defaultLayer)))
 }
 
 export function replayAll(events: SerializedEvent[], options?: { publish: boolean }) {
-  const source = events[0]?.aggregateID
-  if (!source) return
-  if (events.some((item) => item.aggregateID !== source)) {
-    throw new Error("Replay events must belong to the same session")
-  }
-  const start = events[0].seq
-  for (const [i, item] of events.entries()) {
-    const seq = start + i
-    if (item.seq !== seq) {
-      throw new Error(`Replay sequence mismatch at index ${i}: expected ${seq}, got ${item.seq}`)
-    }
-  }
-  for (const item of events) {
-    replay(item, options)
-  }
-  return source
+  return Effect.runSync(Service.use((sync) => sync.replayAll(events, options)).pipe(Effect.provide(defaultLayer)))
 }
 
 export function run<Def extends Definition>(def: Def, data: Event<Def>["data"], options?: { publish?: boolean }) {
-  const agg = (data as Record<string, string>)[def.aggregate]
-  // This should never happen: we've enforced it via typescript in
-  // the definition
-  if (agg == null) {
-    throw new Error(`SyncEvent.run: "${def.aggregate}" required but not found: ${JSON.stringify(data)}`)
-  }
-
-  if (def.version !== versions.get(def.type)) {
-    throw new Error(`SyncEvent.run: running old versions of events is not allowed: ${def.type}`)
-  }
-
-  const { publish = true } = options || {}
-
-  // Note that this is an "immediate" transaction which is critical.
-  // We need to make sure we can safely read and write with nothing
-  // else changing the data from under us
-  Database.transaction(
-    (tx) => {
-      const id = EventID.ascending()
-      const row = tx
-        .select({ seq: EventSequenceTable.seq })
-        .from(EventSequenceTable)
-        .where(eq(EventSequenceTable.aggregate_id, agg))
-        .get()
-      const seq = row?.seq != null ? row.seq + 1 : 0
-
-      const event = { id, seq, aggregateID: agg, data }
-      process(def, event, { publish })
-    },
-    {
-      behavior: "immediate",
-    },
-  )
+  return Effect.runSync(Service.use((sync) => sync.run(def, data, options)).pipe(Effect.provide(defaultLayer)))
 }
 
 export function remove(aggregateID: string) {
-  Database.transaction((tx) => {
-    tx.delete(EventSequenceTable).where(eq(EventSequenceTable.aggregate_id, aggregateID)).run()
-    tx.delete(EventTable).where(eq(EventTable.aggregate_id, aggregateID)).run()
-  })
+  return Effect.runSync(Service.use((sync) => sync.remove(aggregateID)).pipe(Effect.provide(defaultLayer)))
 }
 
 export function payloads() {
