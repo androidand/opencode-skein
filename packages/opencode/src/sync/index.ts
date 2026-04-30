@@ -9,7 +9,7 @@ import { EventSequenceTable, EventTable } from "./event.sql"
 import { WorkspaceContext } from "@/control-plane/workspace-context"
 import { EventID } from "./schema"
 import { Flag } from "@opencode-ai/core/flag/flag"
-import { Schema as EffectSchema } from "effect"
+import { Context, Effect, Layer, Schema as EffectSchema } from "effect"
 import { zodObject } from "@/util/effect-zod"
 import type { DeepMutable } from "@/util/schema"
 
@@ -45,6 +45,31 @@ export type SerializedEvent<Def extends Definition = Definition> = Event<Def> & 
 
 type ProjectorFunc = (db: Database.TxOrDb, data: unknown) => void
 type ConvertEvent = (type: string, data: Event["data"]) => unknown | Promise<unknown>
+
+export interface Interface {
+  readonly run: <Def extends Definition>(
+    def: Def,
+    data: Event<Def>["data"],
+    options?: { publish?: boolean },
+  ) => Effect.Effect<void>
+  readonly replay: (event: SerializedEvent, options?: { publish: boolean }) => Effect.Effect<void>
+  readonly replayAll: (events: SerializedEvent[], options?: { publish: boolean }) => Effect.Effect<string | undefined>
+  readonly remove: (aggregateID: string) => Effect.Effect<void>
+}
+
+export class Service extends Context.Service<Service, Interface>()("@opencode/SyncEvent") {}
+
+export const layer = Layer.succeed(
+  Service,
+  Service.of({
+    run: (def, data, options) => Effect.sync(() => run(def, data, options)),
+    replay: (event, options) => Effect.sync(() => replay(event, options)),
+    replayAll: (events, options) => Effect.sync(() => replayAll(events, options)),
+    remove: (aggregateID) => Effect.sync(() => remove(aggregateID)),
+  }),
+)
+
+export const defaultLayer = layer
 
 export const registry = new Map<string, Definition>()
 let projectors: Map<Definition, ProjectorFunc> | undefined
