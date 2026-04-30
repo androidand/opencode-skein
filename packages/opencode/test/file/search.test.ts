@@ -41,6 +41,53 @@ describe("file.search", () => {
     ),
   )
 
+  it.live("keeps fuzzy file abbreviation matches", () =>
+    provideTmpdirInstance((dir) =>
+      Effect.gen(function* () {
+        expect(Fff.available()).toBe(true)
+        yield* Effect.promise(() => Bun.write(path.join(dir, "README.md"), "hello\n"))
+
+        const search = yield* Search.Service
+        const results = yield* search.file({ cwd: dir, query: "rdme", limit: 10 })
+
+        expect(results).toContain("README.md")
+      }),
+    ),
+  )
+
+  it.live("keeps paging grep results without an explicit limit", () =>
+    provideTmpdirInstance((dir) =>
+      Effect.gen(function* () {
+        expect(Fff.available()).toBe(true)
+        yield* Effect.promise(() =>
+          Bun.write(
+            path.join(dir, "matches.txt"),
+            Array.from({ length: 150 }, (_, idx) => `needle ${idx}\n`).join(""),
+          ),
+        )
+
+        const search = yield* Search.Service
+        const result = yield* search.search({ cwd: dir, pattern: "needle" })
+
+        expect(result.items).toHaveLength(150)
+      }),
+    ),
+  )
+
+  it.live("uses byte ranges for UTF-8 grep submatches", () =>
+    provideTmpdirInstance((dir) =>
+      Effect.gen(function* () {
+        expect(Fff.available()).toBe(true)
+        yield* Effect.promise(() => Bun.write(path.join(dir, "unicode.txt"), "éneedle\n"))
+
+        const search = yield* Search.Service
+        const result = yield* search.search({ cwd: dir, pattern: "needle", limit: 10 })
+
+        expect(result.items[0]?.submatches[0]?.match.text).toBe("needle")
+      }),
+    ),
+  )
+
   it.live("records query history when a searched file is opened", () =>
     provideTmpdirInstance((dir) =>
       Effect.gen(function* () {

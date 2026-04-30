@@ -127,14 +127,8 @@ function remember(state: State, dir: string, text: string, files: string[]) {
   if (state.recent.length > 32) state.recent.length = 32
 }
 
-function matchesTokens(query: string, file: string) {
-  const tokens = query.toLowerCase().split(/[^a-z0-9]+/).filter(Boolean)
-  if (!tokens.length) return true
-  const normalized = normalize(file).toLowerCase()
-  return tokens.every((token) => normalized.includes(token))
-}
-
 function item(hit: Fff.Hit): Item {
+  const line = Buffer.from(hit.lineContent)
   return {
     path: { text: normalize(hit.relativePath) },
     lines: { text: hit.lineContent },
@@ -142,7 +136,7 @@ function item(hit: Fff.Hit): Item {
     absolute_offset: hit.byteOffset,
     submatches: hit.matchRanges
       .map(([start, end]) => {
-        const text = hit.lineContent.slice(start, end)
+        const text = line.subarray(start, end).toString("utf8")
         if (!text) return undefined
         return {
           match: { text },
@@ -281,15 +275,14 @@ export const layer: Layer.Layer<Service, never, AppFileSystem.Service | Ripgrep.
           }),
         ),
       )
-      const output = query.length >= 4 ? rows.filter((row) => matchesTokens(query, row)) : rows
       const current = yield* InstanceState.get(state)
       remember(
         current,
         dir,
         query,
-        output.map((row) => path.join(dir, row)),
+        rows.map((row) => path.join(dir, row)),
       )
-      return output.slice(0, input.limit ?? 100)
+      return rows.slice(0, input.limit ?? 100)
     })
 
     const search: Interface["search"] = Effect.fn("Search.search")(function* (input) {
@@ -300,19 +293,18 @@ export const layer: Layer.Layer<Service, never, AppFileSystem.Service | Ripgrep.
       if (!pick) return yield* rip(input)
 
       const dir = AppFileSystem.resolve(input.cwd)
-      const limit = input.limit ?? 100
       const rows: Item[] = []
       const seen = new Set<string>()
       let cursor: Fff.Cursor = null
       let regexFallbackError: string | undefined
 
-      while (rows.length < limit) {
+      while (input.limit === undefined || rows.length < input.limit) {
         input.signal?.throwIfAborted()
         const out = yield* Effect.sync(() =>
           pick.grep(input.pattern, {
             mode: "regex",
             cursor,
-            maxMatchesPerFile: limit,
+            maxMatchesPerFile: input.limit ?? 0,
             timeBudgetMs: 1_500,
           }),
         )
@@ -329,7 +321,7 @@ export const layer: Layer.Layer<Service, never, AppFileSystem.Service | Ripgrep.
           if (seen.has(id)) continue
           seen.add(id)
           rows.push(item(hit))
-          if (rows.length >= limit) break
+          if (input.limit !== undefined && rows.length >= input.limit) break
         }
 
         if (!out.value.nextCursor) break
