@@ -12,6 +12,8 @@ import { Flag } from "@opencode-ai/core/flag/flag"
 import { Context, Effect, Layer, Schema as EffectSchema } from "effect"
 import { zodObject } from "@/util/effect-zod"
 import type { DeepMutable } from "@/util/schema"
+import { makeRuntime } from "@/effect/run-service"
+import { serviceUse } from "@/effect/service-use"
 
 // Keep `Event["data"]` mutable because projectors mutate the persisted shape
 // when writing to the database. Bus payloads (`Properties`) stay readonly —
@@ -161,6 +163,10 @@ export const layer = Layer.effect(Service)(
 
 export const defaultLayer = layer
 
+export const use = serviceUse(Service)
+
+const runtime = makeRuntime(Service, defaultLayer)
+
 export const registry = new Map<string, Definition>()
 let projectors: Map<Definition, ProjectorFunc> | undefined
 const versions = new Map<string, number>()
@@ -301,19 +307,19 @@ function process<Def extends Definition>(def: Def, event: Event<Def>, options: {
 }
 
 export function replay(event: SerializedEvent, options?: { publish: boolean }) {
-  return Effect.runSync(Service.use((sync) => sync.replay(event, options)).pipe(Effect.provide(defaultLayer)))
+  return runtime.runSync((sync) => sync.replay(event, options))
 }
 
 export function replayAll(events: SerializedEvent[], options?: { publish: boolean }) {
-  return Effect.runSync(Service.use((sync) => sync.replayAll(events, options)).pipe(Effect.provide(defaultLayer)))
+  return runtime.runSync((sync) => sync.replayAll(events, options))
 }
 
 export function run<Def extends Definition>(def: Def, data: Event<Def>["data"], options?: { publish?: boolean }) {
-  return Effect.runSync(Service.use((sync) => sync.run(def, data, options)).pipe(Effect.provide(defaultLayer)))
+  return runtime.runSync((sync) => sync.run(def, data, options))
 }
 
 export function remove(aggregateID: string) {
-  return Effect.runSync(Service.use((sync) => sync.remove(aggregateID)).pipe(Effect.provide(defaultLayer)))
+  return runtime.runSync((sync) => sync.remove(aggregateID))
 }
 
 export function payloads() {
