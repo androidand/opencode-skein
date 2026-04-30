@@ -3,8 +3,8 @@ import { mkdir } from "node:fs/promises"
 import path from "node:path"
 import { Effect } from "effect"
 import { Flag } from "@opencode-ai/core/flag/flag"
-import { registerAdaptor } from "../../src/control-plane/adaptors"
-import type { WorkspaceAdaptor } from "../../src/control-plane/types"
+import { registerAdapter } from "../../src/control-plane/adapters"
+import type { WorkspaceAdapter } from "../../src/control-plane/types"
 import { Workspace } from "../../src/control-plane/workspace"
 import { WorkspacePaths } from "../../src/server/routes/instance/httpapi/groups/workspace"
 import { Session } from "@/session/session"
@@ -37,7 +37,7 @@ function runSession<A, E>(fx: Effect.Effect<A, E, Session.Service>, workspaceID?
   )
 }
 
-function localAdaptor(directory: string): WorkspaceAdaptor {
+function localAdapter(directory: string): WorkspaceAdapter {
   return {
     name: "Local Test",
     description: "Create a local test workspace",
@@ -61,7 +61,7 @@ function localAdaptor(directory: string): WorkspaceAdaptor {
   }
 }
 
-function remoteAdaptor(directory: string, url: string, headers?: HeadersInit): WorkspaceAdaptor {
+function remoteAdapter(directory: string, url: string, headers?: HeadersInit): WorkspaceAdapter {
   return {
     name: "Remote Test",
     description: "Create a remote test workspace",
@@ -139,14 +139,14 @@ describe("workspace HttpApi", () => {
   test("serves read endpoints", async () => {
     await using tmp = await tmpdir({ git: true })
 
-    const [adaptors, workspaces, status] = await Promise.all([
-      request(WorkspacePaths.adaptors, tmp.path),
+    const [adapters, workspaces, status] = await Promise.all([
+      request(WorkspacePaths.adapters, tmp.path),
       request(WorkspacePaths.list, tmp.path),
       request(WorkspacePaths.status, tmp.path),
     ])
 
-    expect(adaptors.status).toBe(200)
-    expect(await adaptors.json()).toEqual([
+    expect(adapters.status).toBe(200)
+    expect(await adapters.json()).toEqual([
       {
         type: "worktree",
         name: "Worktree",
@@ -167,7 +167,7 @@ describe("workspace HttpApi", () => {
     await Instance.provide({
       directory: tmp.path,
       fn: async () =>
-        registerAdaptor(Instance.project.id, "local-test", localAdaptor(path.join(tmp.path, ".workspace"))),
+        registerAdapter(Instance.project.id, "local-test", localAdapter(path.join(tmp.path, ".workspace"))),
     })
 
     const created = await request(WorkspacePaths.list, tmp.path, {
@@ -207,7 +207,7 @@ describe("workspace HttpApi", () => {
     const workspace = await Instance.provide({
       directory: tmp.path,
       fn: async () => {
-        registerAdaptor(Instance.project.id, "local-target", localAdaptor(workspaceDir))
+        registerAdapter(Instance.project.id, "local-target", localAdapter(workspaceDir))
         return Workspace.create({
           type: "local-target",
           branch: null,
@@ -261,10 +261,10 @@ describe("workspace HttpApi", () => {
     const workspace = await Instance.provide({
       directory: tmp.path,
       fn: async () => {
-        registerAdaptor(
+        registerAdapter(
           Instance.project.id,
           "remote-target",
-          remoteAdaptor(path.join(tmp.path, ".remote"), `http://127.0.0.1:${remote.port}/base`, {
+          remoteAdapter(path.join(tmp.path, ".remote"), `http://127.0.0.1:${remote.port}/base`, {
             "x-target-auth": "secret",
           }),
         )
@@ -332,10 +332,10 @@ describe("workspace HttpApi", () => {
     const workspace = await Instance.provide({
       directory: tmp.path,
       fn: async () => {
-        registerAdaptor(
+        registerAdapter(
           Instance.project.id,
           "remote-session-target",
-          remoteAdaptor(path.join(tmp.path, ".remote-session"), `http://127.0.0.1:${remote.port}/base`),
+          remoteAdapter(path.join(tmp.path, ".remote-session"), `http://127.0.0.1:${remote.port}/base`),
         )
         return Workspace.create({
           type: "remote-session-target",

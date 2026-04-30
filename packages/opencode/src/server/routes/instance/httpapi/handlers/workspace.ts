@@ -1,4 +1,4 @@
-import { listAdaptors } from "@/control-plane/adaptors"
+import { listAdapters } from "@/control-plane/adapters"
 import { Workspace } from "@/control-plane/workspace"
 import * as InstanceState from "@/effect/instance-state"
 import { Instance } from "@/project/instance"
@@ -9,9 +9,9 @@ import { CreatePayload, SessionRestorePayload } from "../groups/workspace"
 
 export const workspaceHandlers = HttpApiBuilder.group(InstanceHttpApi, "workspace", (handlers) =>
   Effect.gen(function* () {
-    const adaptors = Effect.fn("WorkspaceHttpApi.adaptors")(function* () {
+    const adapters = Effect.fn("WorkspaceHttpApi.adapters")(function* () {
       const instance = yield* InstanceState.context
-      return yield* Effect.promise(() => listAdaptors(instance.project.id))
+      return yield* Effect.promise(() => listAdapters(instance.project.id))
     })
 
     const list = Effect.fn("WorkspaceHttpApi.list")(function* () {
@@ -56,7 +56,7 @@ export const workspaceHandlers = HttpApiBuilder.group(InstanceHttpApi, "workspac
     })
 
     return handlers
-      .handle("adaptors", adaptors)
+      .handle("adapters", adapters)
       .handle("list", list)
       .handle("create", create)
       .handle("status", status)

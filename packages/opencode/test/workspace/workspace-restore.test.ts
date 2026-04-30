@@ -2,8 +2,8 @@ import { afterEach, beforeEach, describe, expect, mock, spyOn, test } from "bun:
 import fs from "node:fs/promises"
 import path from "node:path"
 import { GlobalBus } from "../../src/bus/global"
-import { registerAdaptor } from "../../src/control-plane/adaptors"
-import type { WorkspaceAdaptor } from "../../src/control-plane/types"
+import { registerAdapter } from "../../src/control-plane/adapters"
+import type { WorkspaceAdapter } from "../../src/control-plane/types"
 import { Workspace } from "../../src/control-plane/workspace"
 import { AppRuntime } from "../../src/effect/app-runtime"
 import { Flag } from "@opencode-ai/core/flag/flag"
@@ -71,7 +71,7 @@ async function user(sessionID: SessionID, text: string) {
   })
 }
 
-function remote(dir: string, url: string): WorkspaceAdaptor {
+function remote(dir: string, url: string): WorkspaceAdapter {
   return {
     name: "remote",
     description: "remote",
@@ -94,7 +94,7 @@ function remote(dir: string, url: string): WorkspaceAdaptor {
   }
 }
 
-function local(dir: string): WorkspaceAdaptor {
+function local(dir: string): WorkspaceAdapter {
   return {
     name: "local",
     description: "local",
@@ -166,7 +166,7 @@ describe("Workspace.sessionRestore", () => {
       const setup = await Instance.provide({
         directory: tmp.path,
         fn: async () => {
-          registerAdaptor(Instance.project.id, "worktree", remote(dir, "https://workspace.test/base"))
+          registerAdapter(Instance.project.id, "worktree", remote(dir, "https://workspace.test/base"))
           const space = await Workspace.create({
             type: "worktree",
             branch: null,
@@ -247,7 +247,7 @@ describe("Workspace.sessionRestore", () => {
       const setup = await Instance.provide({
         directory: tmp.path,
         fn: async () => {
-          registerAdaptor(Instance.project.id, "local-restore", local(dir))
+          registerAdapter(Instance.project.id, "local-restore", local(dir))
           const space = await Workspace.create({
             type: "local-restore",
             branch: null,

@@ -17,7 +17,7 @@ import { Filesystem } from "@/util/filesystem"
 import { ProjectID } from "@/project/schema"
 import { Slug } from "@opencode-ai/core/util/slug"
 import { WorkspaceTable } from "./workspace.sql"
-import { getAdaptor } from "./adaptors"
+import { getAdapter } from "./adapters"
 import { type WorkspaceInfo, WorkspaceInfo as WorkspaceInfoSchema } from "./types"
 import { WorkspaceID } from "./schema"
 import { parseSSE } from "./sse"
@@ -87,9 +87,9 @@ export type CreateInput = Schema.Schema.Type<typeof CreateInput>
 
 export const create = fn(CreateInput.zod, async (input) => {
   const id = WorkspaceID.ascending(input.id)
-  const adaptor = await getAdaptor(input.projectID, input.type)
+  const adapter = await getAdapter(input.projectID, input.type)
 
-  const config = await adaptor.configure({ ...input, id, name: Slug.create(), directory: null })
+  const config = await adapter.configure({ ...input, id, name: Slug.create(), directory: null })
 
   const info: Info = {
     id,
@@ -123,7 +123,7 @@ export const create = fn(CreateInput.zod, async (input) => {
     OTEL_EXPORTER_OTLP_ENDPOINT: process.env.OTEL_EXPORTER_OTLP_ENDPOINT,
     OTEL_RESOURCE_ATTRIBUTES: process.env.OTEL_RESOURCE_ATTRIBUTES,
   }
-  await adaptor.create(config, env)
+  await adapter.create(config, env)
 
   startSync(info)
 
@@ -156,8 +156,8 @@ export const sessionRestore = fn(SessionRestoreInput.zod, async (input) => {
     const space = await get(input.workspaceID)
     if (!space) throw new Error(`Workspace not found: ${input.workspaceID}`)
 
-    const adaptor = await getAdaptor(space.projectID, space.type)
-    const target = await adaptor.target(space)
+    const adapter = await getAdapter(space.projectID, space.type)
+    const target = await adapter.target(space)
 
     // Need to switch the workspace of the session
     SyncEvent.run(Session.Event.Updated, {
@@ -329,10 +329,10 @@ export const remove = fn(WorkspaceID.zod, async (id) => {
 
     const info = fromRow(row)
     try {
-      const adaptor = await getAdaptor(info.projectID, row.type)
-      await adaptor.remove(info)
+      const adapter = await getAdapter(info.projectID, row.type)
+      await adapter.remove(info)
     } catch {
-      log.error("adaptor not available when removing workspace", { type: row.type })
+      log.error("adapter not available when removing workspace", { type: row.type })
     }
     Database.use((db) => db.delete(WorkspaceTable).where(eq(WorkspaceTable.id, id)).run())
     return info
@@ -501,8 +501,8 @@ async function syncHistory(space: Info, url: URL | string, headers: HeadersInit 
 }
 
 async function syncWorkspaceLoop(space: Info, signal: AbortSignal) {
-  const adaptor = await getAdaptor(space.projectID, space.type)
-  const target = await adaptor.target(space)
+  const adapter = await getAdapter(space.projectID, space.type)
+  const target = await adapter.target(space)
 
   if (target.type === "local") return null
 
@@ -568,8 +568,8 @@ async function syncWorkspaceLoop(space: Info, signal: AbortSignal) {
 async function startSync(space: Info) {
   if (!Flag.OPENCODE_EXPERIMENTAL_WORKSPACES) return
 
-  const adaptor = await getAdaptor(space.projectID, space.type)
-  const target = await adaptor.target(space)
+  const adapter = await getAdapter(space.projectID, space.type)
+  const target = await adapter.target(space)
 
   if (target.type === "local") {
     void Filesystem.exists(target.directory).then((exists) => {
