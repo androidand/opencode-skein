@@ -223,8 +223,14 @@ function custom(dep: CustomDep): Record<string, CustomLoader> {
         },
       }
     }),
-    "azure-cognitive-services": Effect.fnUntraced(function* () {
-      const resourceName = yield* dep.get("AZURE_COGNITIVE_SERVICES_RESOURCE_NAME")
+    "azure-cognitive-services": Effect.fnUntraced(function* (provider: Info) {
+      const env = yield* dep.env()
+      const resource = iife(() => {
+        const name = provider.options?.resourceName
+        if (typeof name === "string" && name.trim() !== "") return name
+        return env["AZURE_COGNITIVE_SERVICES_RESOURCE_NAME"]
+      })
+
       return {
         autoload: false,
         async getModel(sdk: any, modelID: string, options?: Record<string, any>) {
@@ -235,8 +241,11 @@ function custom(dep: CustomDep): Record<string, CustomLoader> {
             return sdk.responses(modelID)
           }
         },
-        options: {
-          baseURL: resourceName ? `https://${resourceName}.cognitiveservices.azure.com/openai` : undefined,
+        options: {},
+        vars(_options) {
+          return {
+            ...(resource && { AZURE_COGNITIVE_SERVICES_RESOURCE_NAME: resource }),
+          }
         },
       }
     }),
