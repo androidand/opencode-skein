@@ -1,14 +1,23 @@
 import path from "path"
-import z from "zod"
-import { Effect } from "effect"
-import { InstanceState } from "@/effect"
-import { AppFileSystem } from "@opencode-ai/shared/filesystem"
+import { Effect, Schema } from "effect"
+import { InstanceState } from "@/effect/instance-state"
+import { AppFileSystem } from "@opencode-ai/core/filesystem"
 import { Search } from "../file/search"
 import { assertExternalDirectoryEffect } from "./external-directory"
 import DESCRIPTION from "./grep.txt"
 import * as Tool from "./tool"
 
 const MAX_LINE_LENGTH = 2000
+
+export const Parameters = Schema.Struct({
+  pattern: Schema.String.annotate({ description: "The regex pattern to search for in file contents" }),
+  path: Schema.optional(Schema.String).annotate({
+    description: "The directory to search in. Defaults to the current working directory.",
+  }),
+  include: Schema.optional(Schema.String).annotate({
+    description: 'File pattern to include in the search (e.g. "*.js", "*.{ts,tsx}")',
+  }),
+})
 
 export const GrepTool = Tool.define(
   "grep",
@@ -18,11 +27,7 @@ export const GrepTool = Tool.define(
 
     return {
       description: DESCRIPTION,
-      parameters: z.object({
-        pattern: z.string().describe("The regex pattern to search for in file contents"),
-        path: z.string().optional().describe("The directory to search in. Defaults to the current working directory."),
-        include: z.string().optional().describe('File pattern to include in the search (e.g. "*.js", "*.{ts,tsx}")'),
-      }),
+      parameters: Parameters,
       execute: (params: { pattern: string; path?: string; include?: string }, ctx: Tool.Context) =>
         Effect.gen(function* () {
           const empty = {

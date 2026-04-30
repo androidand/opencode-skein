@@ -1,13 +1,13 @@
 import path from "path"
-import { AppFileSystem } from "@opencode-ai/shared/filesystem"
-import { Glob } from "@opencode-ai/shared/util/glob"
+import { AppFileSystem } from "@opencode-ai/core/filesystem"
+import { Glob } from "@opencode-ai/core/util/glob"
 import { Context, Deferred, Effect, Layer, Option } from "effect"
 import * as Stream from "effect/Stream"
 import z from "zod"
 import * as InstanceState from "@/effect/instance-state"
 import { makeRuntime } from "@/effect/run-service"
-import { Global } from "@/global"
-import { Log } from "@/util"
+import { Global } from "@opencode-ai/core/global"
+import * as Log from "@opencode-ai/core/util/log"
 import { Fff } from "#fff"
 import { Ripgrep } from "./ripgrep"
 
@@ -37,7 +37,7 @@ export const Match = z.object({
 export type Item = z.infer<typeof Match>
 
 export interface Result {
-  readonly items: Item[]
+  readonly items: Ripgrep.Item[]
   readonly partial: boolean
   readonly engine: "fff" | "ripgrep"
   readonly regexFallbackError?: string

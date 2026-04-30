@@ -1,12 +1,18 @@
 import path from "path"
-import z from "zod"
-import { Effect } from "effect"
-import { InstanceState } from "@/effect"
-import { AppFileSystem } from "@opencode-ai/shared/filesystem"
+import { Effect, Schema } from "effect"
+import { InstanceState } from "@/effect/instance-state"
+import { AppFileSystem } from "@opencode-ai/core/filesystem"
 import { Search } from "../file/search"
 import { assertExternalDirectoryEffect } from "./external-directory"
 import DESCRIPTION from "./glob.txt"
 import * as Tool from "./tool"
+
+export const Parameters = Schema.Struct({
+  pattern: Schema.String.annotate({ description: "The glob pattern to match files against" }),
+  path: Schema.optional(Schema.String).annotate({
+    description: `The directory to search in. If not specified, the current working directory will be used. IMPORTANT: Omit this field to use the default directory. DO NOT enter "undefined" or "null" - simply omit it for the default behavior. Must be a valid directory path if provided.`,
+  }),
+})
 
 export const GlobTool = Tool.define(
   "glob",
@@ -16,15 +22,7 @@ export const GlobTool = Tool.define(
 
     return {
       description: DESCRIPTION,
-      parameters: z.object({
-        pattern: z.string().describe("The glob pattern to match files against"),
-        path: z
-          .string()
-          .optional()
-          .describe(
-            `The directory to search in. If not specified, the current working directory will be used. IMPORTANT: Omit this field to use the default directory. DO NOT enter "undefined" or "null" - simply omit it for the default behavior. Must be a valid directory path if provided.`,
-          ),
-      }),
+      parameters: Parameters,
       execute: (params: { pattern: string; path?: string }, ctx: Tool.Context) =>
         Effect.gen(function* () {
           const ins = yield* InstanceState.context
