@@ -518,6 +518,7 @@ export const layer = Layer.effect(
         const adaptor = getAdaptor(space.projectID, space.type)
         const target = yield* Effect.promise(() => Promise.resolve(adaptor.target(space)))
 
+        // Update the local copy to point to the new workspace
         yield* Effect.sync(() =>
           SyncEvent.run(Session.Event.Updated, {
             sessionID: input.sessionID,

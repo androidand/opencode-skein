@@ -2,7 +2,7 @@ import { useDialog } from "@tui/ui/dialog"
 import { DialogSelect } from "@tui/ui/dialog-select"
 import { useRoute } from "@tui/context/route"
 import { useSync } from "@tui/context/sync"
-import { createMemo, createResource, createSignal, onMount } from "solid-js"
+import { createMemo, createResource, createSignal, onMount, type JSX } from "solid-js"
 import { Locale } from "@/util/locale"
 import { useProject } from "@tui/context/project"
 import { useKeybind } from "../context/keybind"
@@ -10,15 +10,13 @@ import { useTheme } from "../context/theme"
 import { useSDK } from "../context/sdk"
 import { Flag } from "@opencode-ai/core/flag/flag"
 import { DialogSessionRename } from "./dialog-session-rename"
-import { Keybind } from "@/util/keybind"
 import { createDebouncedSignal } from "../util/signal"
 import { useToast } from "../ui/toast"
-import { DialogWorkspaceCreate, openWorkspaceSession, restoreWorkspaceSession } from "./dialog-workspace-create"
+import { DialogWorkspaceCreate, restoreWorkspaceSession } from "./dialog-workspace-create"
 import { Spinner } from "./spinner"
 import { errorMessage } from "@/util/error"
 import { DialogSessionDeleteFailed } from "./dialog-session-delete-failed"
-
-type WorkspaceStatus = "connected" | "connecting" | "disconnected" | "error"
+import { WorkspaceLabel } from "./workspace-label"
 
 export function DialogSessionList() {
   const dialog = useDialog()
@@ -43,23 +41,6 @@ export function DialogSessionList() {
 
   const currentSessionID = createMemo(() => (route.data.type === "session" ? route.data.sessionID : undefined))
   const sessions = createMemo(() => searchResults() ?? sync.data.session)
-
-  function createWorkspace() {
-    dialog.replace(() => (
-      <DialogWorkspaceCreate
-        onSelect={(workspaceID) =>
-          openWorkspaceSession({
-            dialog,
-            route,
-            sdk,
-            sync,
-            toast,
-            workspaceID,
-          })
-        }
-      />
-    ))
-  }
 
   function recover(session: NonNullable<ReturnType<typeof sessions>[number]>) {
     const workspace = project.workspace.get(session.workspaceID!)
@@ -124,30 +105,18 @@ export function DialogSessionList() {
       .map((x) => {
         const workspace = x.workspaceID ? project.workspace.get(x.workspaceID) : undefined
 
-        let workspaceStatus: WorkspaceStatus | null = null
-        if (x.workspaceID) {
-          workspaceStatus = project.workspace.status(x.workspaceID) || "error"
-        }
-
-        let footer = ""
+        let footer: JSX.Element | string = ""
         if (Flag.OPENCODE_EXPERIMENTAL_WORKSPACES) {
           if (x.workspaceID) {
-            let desc = "unknown"
-            if (workspace) {
-              desc = `${workspace.type}: ${workspace.name}`
-            }
-
-            footer = (
-              <>
-                {desc}{" "}
-                <span
-                  style={{
-                    fg: workspaceStatus === "connected" ? theme.success : theme.error,
-                  }}
-                >
-                  ●
-                </span>
-              </>
+            footer = workspace ? (
+              <WorkspaceLabel
+                type={workspace.type}
+                name={workspace.name}
+                status={project.workspace.status(x.workspaceID) ?? "error"}
+                icon
+              />
+            ) : (
+              <WorkspaceLabel type="unknown" name={x.workspaceID} status="error" icon />
             )
           }
         } else {
@@ -248,15 +217,6 @@ export function DialogSessionList() {
           title: "rename",
           onTrigger: async (option) => {
             dialog.replace(() => <DialogSessionRename session={option.value} />)
-          },
-        },
-        {
-          keybind: Keybind.parse("ctrl+w")[0],
-          title: "new workspace",
-          side: "right",
-          disabled: !Flag.OPENCODE_EXPERIMENTAL_WORKSPACES,
-          onTrigger: () => {
-            createWorkspace()
           },
         },
       ]}

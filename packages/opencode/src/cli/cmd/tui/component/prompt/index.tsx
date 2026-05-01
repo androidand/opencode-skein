@@ -7,6 +7,7 @@ import { Filesystem } from "@/util/filesystem"
 import { useLocal } from "@tui/context/local"
 import { tint, useTheme } from "@tui/context/theme"
 import { EmptyBorder, SplitBorder } from "@tui/component/border"
+import { Spinner } from "@tui/component/spinner"
 import { useSDK } from "@tui/context/sdk"
 import { useRoute } from "@tui/context/route"
 import { useProject } from "@tui/context/project"
@@ -40,13 +41,23 @@ import { useKV } from "../../context/kv"
 import { createFadeIn } from "../../util/signal"
 import { useTextareaKeybindings } from "../textarea-keybindings"
 import { DialogSkill } from "../dialog-skill"
-import { DialogWorkspaceCreate, restoreWorkspaceSession } from "../dialog-workspace-create"
+import {
+  DialogWorkspaceCreate,
+  DialogWorkspaceSelect,
+  restoreWorkspaceSession,
+  type WorkspaceSelection,
+} from "../dialog-workspace-create"
 import { DialogWorkspaceUnavailable } from "../dialog-workspace-unavailable"
 import { useArgs } from "@tui/context/args"
+import { Flag } from "@opencode-ai/core/flag/flag"
+import { WorkspaceLabel, type WorkspaceStatus } from "../workspace-label"
 
 export type PromptProps = {
   sessionID?: string
   workspaceID?: string
+  workspaceSelection?: WorkspaceSelection
+  onWorkspaceSelectionChange?: (selection: WorkspaceSelection | undefined) => void
+  onWorkspaceCreatingChange?: (creating: boolean) => void
   visible?: boolean
   disabled?: boolean
   onSubmit?: () => void
@@ -149,8 +160,31 @@ export function Prompt(props: PromptProps) {
   })
   let lastSubmittedEditorSelectionKey: string | undefined
   const [auto, setAuto] = createSignal<AutocompleteRef>()
+  const [workspaceSelection, setWorkspaceSelection] = createSignal<WorkspaceSelection>()
+  const [workspaceCreating, setWorkspaceCreating] = createSignal(false)
+  const [workspaceCreatingDots, setWorkspaceCreatingDots] = createSignal(3)
   const currentProviderLabel = createMemo(() => local.model.parsed().provider)
   const hasRightContent = createMemo(() => Boolean(props.right))
+  const selectedWorkspace = () => props.workspaceSelection ?? workspaceSelection()
+
+  function selectWorkspace(selection: WorkspaceSelection | undefined) {
+    setWorkspaceSelection(selection)
+    props.onWorkspaceSelectionChange?.(selection)
+  }
+
+  function setCreatingWorkspace(creating: boolean) {
+    setWorkspaceCreating(creating)
+    props.onWorkspaceCreatingChange?.(creating)
+  }
+
+  createEffect(() => {
+    if (!workspaceCreating()) {
+      setWorkspaceCreatingDots(3)
+      return
+    }
+    const timer = setInterval(() => setWorkspaceCreatingDots((dots) => (dots % 3) + 1), 1000)
+    onCleanup(() => clearInterval(timer))
+  })
 
   function promptModelWarning() {
     toast.show({
@@ -184,8 +218,9 @@ export function Prompt(props: PromptProps) {
   })
 
   createEffect(() => {
-    if (props.disabled) input.cursorColor = theme.backgroundElement
-    if (!props.disabled) input.cursorColor = theme.text
+    if (!input || input.isDestroyed) return
+    if (props.disabled || workspaceCreating()) input.cursorColor = theme.backgroundElement
+    if (!props.disabled && !workspaceCreating()) input.cursorColor = theme.text
   })
 
   const lastUserMessage = createMemo(() => {
@@ -450,6 +485,27 @@ export function Prompt(props: PromptProps) {
           ))
         },
       },
+      {
+        title: "Warp",
+        description: "Change the workspace for the session",
+        value: "workspace.set",
+        category: "Session",
+        enabled: Flag.OPENCODE_EXPERIMENTAL_WORKSPACES,
+        slash: {
+          name: "warp",
+        },
+        onSelect: (dialog) => {
+          dialog.replace(() => (
+            <DialogWorkspaceSelect
+              current={selectedWorkspace()}
+              onSelect={(selection) => {
+                selectWorkspace(selection)
+                dialog.clear()
+              }}
+            />
+          ))
+        },
+      },
     ]
   })
 
@@ -507,7 +563,7 @@ export function Prompt(props: PromptProps) {
 
   createEffect(() => {
     if (!input || input.isDestroyed) return
-    if (props.visible === false || dialog.stack.length > 0) {
+    if (props.visible === false || dialog.stack.length > 0 || workspaceCreating()) {
       if (input.focused) input.blur()
       return
     }
@@ -527,13 +583,13 @@ export function Prompt(props: PromptProps) {
         : undefined
     input.traits = {
       capture,
-      suspend: !!props.disabled || store.mode === "shell",
+      suspend: !!props.disabled || workspaceCreating() || store.mode === "shell",
       status: store.mode === "shell" ? "SHELL" : undefined,
     }
   })
 
   function restoreExtmarksFromParts(parts: PromptInfo["parts"]) {
-    input.extmarks.clear()
+    if (!input.isDestroyed) input.extmarks.clear()
     setStore("extmarkToPartIndex", new Map())
 
     parts.forEach((part, partIndex) => {
@@ -673,7 +729,7 @@ export function Prompt(props: PromptProps) {
       setStore("prompt", "input", input.plainText)
       syncExtmarksWithPromptParts()
     }
-    if (props.disabled) return false
+    if (props.disabled || workspaceCreating()) return false
     if (autocomplete?.visible) return false
     if (!store.prompt.input) return false
     const agent = local.agent.current()
@@ -717,24 +773,6 @@ export function Prompt(props: PromptProps) {
       return false
     }
 
-    let sessionID = props.sessionID
-    if (sessionID == null) {
-      const res = await sdk.client.session.create({ workspace: props.workspaceID })
-
-      if (res.error) {
-        console.log("Creating a session failed:", res.error)
-
-        toast.show({
-          message: "Creating a session failed. Open console for more details.",
-          variant: "error",
-        })
-
-        return true
-      }
-
-      sessionID = res.data.id
-    }
-
     const messageID = MessageID.ascending()
     let inputText = store.prompt.input
 
@@ -759,6 +797,7 @@ export function Prompt(props: PromptProps) {
 
     // Capture mode before it gets reset
     const currentMode = store.mode
+    const submittedPrompt = unwrap(store.prompt)
     const variant = local.model.variant.current()
     const editorSelection = fileContextEnabled() ? editor.selection() : undefined
     const editorSelectionKey = editorSelection ? getEditorSelectionKey(editorSelection) : undefined
@@ -793,6 +832,53 @@ export function Prompt(props: PromptProps) {
             },
           ]
         : []
+
+    let sessionID = props.sessionID
+    if (sessionID == null) {
+      const workspace = selectedWorkspace()
+      if (workspace?.type === "new") {
+        setCreatingWorkspace(true)
+        await new Promise((resolve) => setTimeout(resolve, 10_000))
+      }
+      const workspaceID = await iife(async () => {
+        if (!workspace) return undefined
+        if (workspace.type === "none") return undefined
+        if (workspace.type === "existing") return workspace.workspaceID
+
+        const result = await sdk.client.experimental.workspace
+          .create({ type: workspace.workspaceType, branch: null })
+          .catch(() => undefined)
+        if (result == undefined || result.error || !result.data) return undefined
+
+        await project.workspace.sync()
+        return result.data.id
+      })
+
+      if (workspace?.type === "new" && !workspaceID) {
+        setCreatingWorkspace(false)
+        toast.show({
+          message: "Creating workspace failed",
+          variant: "error",
+        })
+        return true
+      }
+
+      const res = await sdk.client.session.create({ workspace: workspaceID })
+
+      if (res.error) {
+        setCreatingWorkspace(false)
+        console.log("Creating a session failed:", res.error)
+
+        toast.show({
+          message: "Creating a session failed. Open console for more details.",
+          variant: "error",
+        })
+
+        return true
+      }
+
+      sessionID = res.data.id
+    }
 
     if (store.mode === "shell") {
       void sdk.client.session.shell({
@@ -858,7 +944,7 @@ export function Prompt(props: PromptProps) {
       lastSubmittedEditorSelectionKey = editorSelectionKey
     }
     history.append({
-      ...store.prompt,
+      ...submittedPrompt,
       mode: currentMode,
     })
     input.extmarks.clear()
@@ -877,7 +963,7 @@ export function Prompt(props: PromptProps) {
           sessionID,
         })
       }, 50)
-    input.clear()
+    if (!input.isDestroyed) input.clear()
     return true
   }
   const exit = useExit()
@@ -998,6 +1084,28 @@ export function Prompt(props: PromptProps) {
     return `Ask anything... "${list()[store.placeholder % list().length]}"`
   })
 
+  const workspaceLabel = createMemo<
+    | { type: "new"; workspaceType: string }
+    | { type: "existing"; workspaceType: string; workspaceName: string; status?: WorkspaceStatus }
+    | undefined
+  >(() => {
+    const selected = selectedWorkspace()
+    if (!selected) return
+    if (selected.type === "none") return
+    if (selected.type === "new") {
+      return {
+        type: "new",
+        workspaceType: selected.workspaceType,
+      }
+    }
+    return {
+      type: "existing",
+      workspaceType: selected.workspaceType,
+      workspaceName: selected.workspaceName,
+      status: selected.type === "existing" ? "connected" : undefined,
+    }
+  })
+
   const spinnerDef = createMemo(() => {
     const agent = local.agent.current()
     const color = agent ? local.agent.color(agent.name) : theme.border
@@ -1076,7 +1184,7 @@ export function Prompt(props: PromptProps) {
               }}
               keyBindings={textareaKeybindings()}
               onKeyDown={async (e) => {
-                if (props.disabled) {
+                if (props.disabled || workspaceCreating()) {
                   e.preventDefault()
                   return
                 }
@@ -1159,7 +1267,7 @@ export function Prompt(props: PromptProps) {
                 setTimeout(() => setTimeout(() => submit(), 0), 0)
               }}
               onPaste={async (event: PasteEvent) => {
-                if (props.disabled) {
+                if (props.disabled || workspaceCreating()) {
                   event.preventDefault()
                   return
                 }
@@ -1254,7 +1362,7 @@ export function Prompt(props: PromptProps) {
               }}
               onMouseDown={(r: MouseEvent) => r.target?.focus()}
               focusedBackgroundColor={theme.backgroundElement}
-              cursorColor={theme.text}
+              cursorColor={workspaceCreating() ? theme.backgroundElement : theme.text}
               syntaxStyle={syntax()}
             />
             <box flexDirection="row" flexShrink={0} paddingTop={1} gap={1} justifyContent="space-between">
@@ -1324,86 +1432,117 @@ export function Prompt(props: PromptProps) {
           />
         </box>
         <box width="100%" flexDirection="row" justifyContent="space-between">
-          <Show when={status().type !== "idle"} fallback={props.hint ?? <text />}>
-            <box
-              flexDirection="row"
-              gap={1}
-              flexGrow={1}
-              justifyContent={status().type === "retry" ? "space-between" : "flex-start"}
-            >
-              <box flexShrink={0} flexDirection="row" gap={1}>
-                <box marginLeft={1}>
-                  <Show when={kv.get("animations_enabled", true)} fallback={<text fg={theme.textMuted}>[⋯]</text>}>
-                    <spinner color={spinnerDef().color} frames={spinnerDef().frames} interval={40} />
+          <Switch>
+            <Match when={workspaceLabel()}>
+              {(workspace) => (
+                <box paddingLeft={3} flexDirection="row" gap={1}>
+                  <Show when={workspaceCreating()}>
+                    <Spinner color={theme.accent} />
                   </Show>
-                </box>
-                <box flexDirection="row" gap={1} flexShrink={0}>
-                  {(() => {
-                    const retry = createMemo(() => {
-                      const s = status()
-                      if (s.type !== "retry") return
-                      return s
-                    })
-                    const message = createMemo(() => {
-                      const r = retry()
-                      if (!r) return
-                      if (r.message.includes("exceeded your current quota") && r.message.includes("gemini"))
-                        return "gemini is way too hot right now"
-                      if (r.message.length > 80) return r.message.slice(0, 80) + "..."
-                      return r.message
-                    })
-                    const isTruncated = createMemo(() => {
-                      const r = retry()
-                      if (!r) return false
-                      return r.message.length > 120
-                    })
-                    const [seconds, setSeconds] = createSignal(0)
-                    onMount(() => {
-                      const timer = setInterval(() => {
-                        const next = retry()?.next
-                        if (next) setSeconds(Math.round((next - Date.now()) / 1000))
-                      }, 1000)
-
-                      onCleanup(() => {
-                        clearInterval(timer)
-                      })
-                    })
-                    const handleMessageClick = () => {
-                      const r = retry()
-                      if (!r) return
-                      if (isTruncated()) {
-                        void DialogAlert.show(dialog, "Retry Error", r.message)
+                  <text fg={workspaceCreating() ? theme.accent : theme.text}>
+                    {(() => {
+                      const item = workspace()
+                      if (item.type === "new") {
+                        if (workspaceCreating()) return `Creating ${item.workspaceType}${".".repeat(workspaceCreatingDots())}`
+                        return (
+                          <>
+                            Workspace <span style={{ fg: theme.textMuted }}>(new {item.workspaceType})</span>
+                          </>
+                        )
                       }
-                    }
-
-                    const retryText = () => {
-                      const r = retry()
-                      if (!r) return ""
-                      const baseMessage = message()
-                      const truncatedHint = isTruncated() ? " (click to expand)" : ""
-                      const duration = formatDuration(seconds())
-                      const retryInfo = ` [retrying ${duration ? `in ${duration} ` : ""}attempt #${r.attempt}]`
-                      return baseMessage + truncatedHint + retryInfo
-                    }
-
-                    return (
-                      <Show when={retry()}>
-                        <box onMouseUp={handleMessageClick}>
-                          <text fg={theme.error}>{retryText()}</text>
-                        </box>
-                      </Show>
-                    )
-                  })()}
+                      return (
+                        <>
+                          Workspace <span style={{ fg: theme.textMuted }}>{item.workspaceName}</span>
+                        </>
+                      )
+                    })()}
+                  </text>
                 </box>
-              </box>
-              <text fg={store.interrupt > 0 ? theme.primary : theme.text}>
-                esc{" "}
-                <span style={{ fg: store.interrupt > 0 ? theme.primary : theme.textMuted }}>
-                  {store.interrupt > 0 ? "again to interrupt" : "interrupt"}
-                </span>
-              </text>
-            </box>
-          </Show>
+              )}
+            </Match>
+            <Match when={true}>
+              <Show when={status().type !== "idle"} fallback={props.hint ?? <text />}>
+                <box
+                  flexDirection="row"
+                  gap={1}
+                  flexGrow={1}
+                  justifyContent={status().type === "retry" ? "space-between" : "flex-start"}
+                >
+                  <box flexShrink={0} flexDirection="row" gap={1}>
+                    <box marginLeft={1}>
+                      <Show when={kv.get("animations_enabled", true)} fallback={<text fg={theme.textMuted}>[⋯]</text>}>
+                        <spinner color={spinnerDef().color} frames={spinnerDef().frames} interval={40} />
+                      </Show>
+                    </box>
+                    <box flexDirection="row" gap={1} flexShrink={0}>
+                      {(() => {
+                        const retry = createMemo(() => {
+                          const s = status()
+                          if (s.type !== "retry") return
+                          return s
+                        })
+                        const message = createMemo(() => {
+                          const r = retry()
+                          if (!r) return
+                          if (r.message.includes("exceeded your current quota") && r.message.includes("gemini"))
+                            return "gemini is way too hot right now"
+                          if (r.message.length > 80) return r.message.slice(0, 80) + "..."
+                          return r.message
+                        })
+                        const isTruncated = createMemo(() => {
+                          const r = retry()
+                          if (!r) return false
+                          return r.message.length > 120
+                        })
+                        const [seconds, setSeconds] = createSignal(0)
+                        onMount(() => {
+                          const timer = setInterval(() => {
+                            const next = retry()?.next
+                            if (next) setSeconds(Math.round((next - Date.now()) / 1000))
+                          }, 1000)
+
+                          onCleanup(() => {
+                            clearInterval(timer)
+                          })
+                        })
+                        const handleMessageClick = () => {
+                          const r = retry()
+                          if (!r) return
+                          if (isTruncated()) {
+                            void DialogAlert.show(dialog, "Retry Error", r.message)
+                          }
+                        }
+
+                        const retryText = () => {
+                          const r = retry()
+                          if (!r) return ""
+                          const baseMessage = message()
+                          const truncatedHint = isTruncated() ? " (click to expand)" : ""
+                          const duration = formatDuration(seconds())
+                          const retryInfo = ` [retrying ${duration ? `in ${duration} ` : ""}attempt #${r.attempt}]`
+                          return baseMessage + truncatedHint + retryInfo
+                        }
+
+                        return (
+                          <Show when={retry()}>
+                            <box onMouseUp={handleMessageClick}>
+                              <text fg={theme.error}>{retryText()}</text>
+                            </box>
+                          </Show>
+                        )
+                      })()}
+                    </box>
+                  </box>
+                  <text fg={store.interrupt > 0 ? theme.primary : theme.text}>
+                    esc{" "}
+                    <span style={{ fg: store.interrupt > 0 ? theme.primary : theme.textMuted }}>
+                      {store.interrupt > 0 ? "again to interrupt" : "interrupt"}
+                    </span>
+                  </text>
+                </box>
+              </Show>
+            </Match>
+          </Switch>
           <Show when={status().type !== "retry"}>
             <box gap={2} flexDirection="row">
               <Show when={editorFileLabelDisplay()}>{(file) => <text fg={theme.secondary}>{file()}</text>}</Show>
