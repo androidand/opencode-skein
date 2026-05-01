@@ -1,80 +1,81 @@
 import { app } from "electron"
+import { Effect } from "effect"
 import { DEFAULT_SERVER_URL_KEY, WSL_ENABLED_KEY } from "./constants"
 import { getUserShell, loadShellEnv } from "./shell-env"
 import { getStore } from "./store"
 
 export type WslConfig = { enabled: boolean }
 
-export type HealthCheck = { wait: Promise<void> }
-
-export function getDefaultServerUrl(): string | null {
+export const getDefaultServerUrl = Effect.sync((): string | null => {
   const value = getStore().get(DEFAULT_SERVER_URL_KEY)
   return typeof value === "string" ? value : null
-}
+})
 
-export function setDefaultServerUrl(url: string | null) {
-  if (url) {
-    getStore().set(DEFAULT_SERVER_URL_KEY, url)
-    return
-  }
-
-  getStore().delete(DEFAULT_SERVER_URL_KEY)
-}
-
-export function getWslConfig(): WslConfig {
-  const value = getStore().get(WSL_ENABLED_KEY)
-  return { enabled: typeof value === "boolean" ? value : false }
-}
-
-export function setWslConfig(config: WslConfig) {
-  getStore().set(WSL_ENABLED_KEY, config.enabled)
-}
-
-export async function spawnLocalServer(hostname: string, port: number, password: string) {
-  prepareServerEnv(password)
-  const { Log, Server } = await import("virtual:opencode-server")
-  await Log.init({ level: "WARN" })
-  const listener = await Server.listen({
-    port,
-    hostname,
-    username: "opencode",
-    password,
-    cors: ["oc://renderer"],
+export const setDefaultServerUrl = (url: string | null) =>
+  Effect.sync(() => {
+    if (url) {
+      getStore().set(DEFAULT_SERVER_URL_KEY, url)
+      return
+    }
+    getStore().delete(DEFAULT_SERVER_URL_KEY)
   })
 
-  const wait = (async () => {
-    const url = `http://${hostname}:${port}`
+export const getWslConfig = Effect.sync((): WslConfig => {
+  const value = getStore().get(WSL_ENABLED_KEY)
+  return { enabled: typeof value === "boolean" ? value : false }
+})
 
-    const ready = async () => {
+export const setWslConfig = (config: WslConfig) =>
+  Effect.sync(() => getStore().set(WSL_ENABLED_KEY, config.enabled))
+
+export const spawnLocalServerEffect = Effect.fn("Server.spawnLocalServer")(
+  function* (hostname: string, port: number, password: string) {
+    yield* prepareServerEnv(password)
+    const { Log, Server } = yield* Effect.promise(() =>
+      import("virtual:opencode-server") as Promise<typeof import("virtual:opencode-server")>,
+    )
+    yield* Effect.promise(() => Log.init({ level: "WARN" }))
+    const listener = yield* Effect.promise(() =>
+      Server.listen({
+        port,
+        hostname,
+        username: "opencode",
+        password,
+        cors: ["oc://renderer"],
+      }),
+    )
+
+    const healthCheck = Effect.gen(function* () {
+      const url = `http://${hostname}:${port}`
       while (true) {
-        await new Promise((resolve) => setTimeout(resolve, 100))
-        if (await checkHealth(url, password)) return
+        const healthy = yield* checkHealthEffect(url, password)
+        if (healthy) return
+        yield* Effect.sleep("100 millis")
       }
+    })
+
+    return { listener, health: healthCheck }
+  },
+)
+
+const prepareServerEnv = (password: string) =>
+  Effect.sync(() => {
+    const shell = process.platform === "win32" ? null : getUserShell()
+    const shellEnv = shell ? (loadShellEnv(shell) ?? {}) : {}
+    const env = {
+      ...process.env,
+      ...shellEnv,
+      OPENCODE_EXPERIMENTAL_ICON_DISCOVERY: "true",
+      OPENCODE_EXPERIMENTAL_FILEWATCHER: "true",
+      OPENCODE_CLIENT: "desktop",
+      OPENCODE_SERVER_USERNAME: "opencode",
+      OPENCODE_SERVER_PASSWORD: password,
+      XDG_STATE_HOME: app.getPath("userData"),
     }
+    Object.assign(process.env, env)
+  })
 
-    await ready()
-  })()
-
-  return { listener, health: { wait } }
-}
-
-function prepareServerEnv(password: string) {
-  const shell = process.platform === "win32" ? null : getUserShell()
-  const shellEnv = shell ? (loadShellEnv(shell) ?? {}) : {}
-  const env = {
-    ...process.env,
-    ...shellEnv,
-    OPENCODE_EXPERIMENTAL_ICON_DISCOVERY: "true",
-    OPENCODE_EXPERIMENTAL_FILEWATCHER: "true",
-    OPENCODE_CLIENT: "desktop",
-    OPENCODE_SERVER_USERNAME: "opencode",
-    OPENCODE_SERVER_PASSWORD: password,
-    XDG_STATE_HOME: app.getPath("userData"),
-  }
-  Object.assign(process.env, env)
-}
-
-export async function checkHealth(url: string, password?: string | null): Promise<boolean> {
+export const checkHealthEffect = Effect.fn("Server.checkHealth")(function* (url: string, password?: string | null) {
   let healthUrl: URL
   try {
     healthUrl = new URL("/global/health", url)
@@ -89,13 +90,15 @@ export async function checkHealth(url: string, password?: string | null): Promis
   }
 
   try {
-    const res = await fetch(healthUrl, {
-      method: "GET",
-      headers,
-      signal: AbortSignal.timeout(3000),
-    })
+    const res = yield* Effect.promise(() =>
+      fetch(healthUrl, {
+        method: "GET",
+        headers,
+        signal: AbortSignal.timeout(3000),
+      }),
+    )
     return res.ok
   } catch {
     return false
   }
-}
+})

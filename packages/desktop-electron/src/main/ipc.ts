@@ -191,14 +191,7 @@ export function registerIpcHandlers(deps: Deps) {
   })
 }
 
-export function sendSqliteMigrationProgress(win: BrowserWindow, progress: SqliteMigrationProgress) {
+export const sendSqliteMigrationProgress = (win: BrowserWindow, progress: SqliteMigrationProgress) =>
   win.webContents.send("sqlite-migration-progress", progress)
-}
-
-export function sendMenuCommand(win: BrowserWindow, id: string) {
-  win.webContents.send("menu-command", id)
-}
-
-export function sendDeepLinks(win: BrowserWindow, urls: string[]) {
-  win.webContents.send("deep-link", urls)
-}
+export const sendMenuCommand = (win: BrowserWindow, id: string) => win.webContents.send("menu-command", id)
+export const sendDeepLinks = (win: BrowserWindow, urls: string[]) => win.webContents.send("deep-link", urls)

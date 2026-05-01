@@ -1,4 +1,11 @@
-export type InitStep = { phase: "server_waiting" } | { phase: "sqlite_waiting" } | { phase: "done" }
+import { Data } from "effect"
+
+export type InitStep = Data.TaggedEnum<{
+  ServerWaiting: {}
+  SqliteWaiting: {}
+  Done: {}
+}>
+export const InitStep = Data.taggedEnum<InitStep>()
 
 export type ServerReadyData = {
   url: string

@@ -1,5 +1,4 @@
 import { Menu, shell } from "electron"
-
 import { UPDATER_ENABLED } from "./constants"
 import { createMainWindow } from "./windows"
 
@@ -47,7 +46,9 @@ export function createMenu(deps: Deps) {
         {
           label: "New Window",
           accelerator: "Cmd+Shift+N",
-          click: () => createMainWindow(),
+          click: () => {
+            void createMainWindow()
+          },
         },
         { type: "separator" },
         { role: "close" },

@@ -20,15 +20,13 @@ protocol.registerSchemesAsPrivileged([
   },
 ])
 
-let backgroundColor: string | undefined
+let backgroundColor: string | undefined = undefined
 
-export function setBackgroundColor(color: string) {
+export const setBackgroundColor = (color: string) => {
   backgroundColor = color
 }
 
-export function getBackgroundColor(): string | undefined {
-  return backgroundColor
-}
+export const getBackgroundColor = () => backgroundColor
 
 function iconsDir() {
   return app.isPackaged ? join(process.resourcesPath, "icons") : join(root, "../../resources/icons")
@@ -52,7 +50,7 @@ function overlay(theme: Partial<TitlebarTheme> = {}) {
   }
 }
 
-export function setTitlebar(win: BrowserWindow, theme: Partial<TitlebarTheme> = {}) {
+export const setTitlebar = (win: BrowserWindow, theme: Partial<TitlebarTheme> = {}) => {
   if (process.platform !== "win32") return
   win.setTitleBarOverlay(overlay(theme))
 }
@@ -70,6 +68,7 @@ export function createMainWindow() {
   })
 
   const mode = tone()
+  const bg = getBackgroundColor()
   const win = new BrowserWindow({
     x: state.x,
     y: state.y,
@@ -78,7 +77,7 @@ export function createMainWindow() {
     show: false,
     title: "OpenCode",
     icon: iconPath(),
-    backgroundColor,
+    backgroundColor: bg,
     ...(process.platform === "darwin"
       ? {
           titleBarStyle: "hidden" as const,
@@ -126,6 +125,7 @@ export function createMainWindow() {
 
 export function createLoadingWindow() {
   const mode = tone()
+  const bg = getBackgroundColor()
   const win = new BrowserWindow({
     width: 640,
     height: 480,
@@ -133,7 +133,7 @@ export function createLoadingWindow() {
     center: true,
     show: true,
     icon: iconPath(),
-    backgroundColor,
+    backgroundColor: bg,
     ...(process.platform === "darwin" ? { titleBarStyle: "hidden" as const } : {}),
     ...(process.platform === "win32"
       ? {

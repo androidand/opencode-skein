@@ -17,14 +17,14 @@ render(() => {
   const [line, setLine] = createSignal(0)
   const [percent, setPercent] = createSignal(0)
 
-  const phase = createMemo(() => step()?.phase)
+  const phase = createMemo(() => step()?._tag)
 
   const value = createMemo(() => {
-    if (phase() === "done") return 100
+    if (phase() === "Done") return 100
     return Math.max(25, Math.min(100, percent()))
   })
 
-  window.api.awaitInitialization((next) => setStep(next as InitStep)).catch(() => undefined)
+  window.api.awaitInitialization((next) => setStep(next)).catch(() => undefined)
 
   onMount(() => {
     setLine(0)
@@ -36,7 +36,7 @@ render(() => {
       if (progress.type === "InProgress") setPercent(Math.max(0, Math.min(100, progress.value)))
       if (progress.type === "Done") {
         setPercent(100)
-        setStep({ phase: "done" })
+        setStep({ _tag: "Done" })
       }
     })
 
@@ -47,15 +47,15 @@ render(() => {
   })
 
   createEffect(() => {
-    if (phase() !== "done") return
+    if (phase() !== "Done") return
 
     const timer = setTimeout(() => window.api.loadingWindowComplete(), 1000)
     onCleanup(() => clearTimeout(timer))
   })
 
   const status = createMemo(() => {
-    if (phase() === "done") return "All done"
-    if (phase() === "sqlite_waiting") return lines[line()]
+    if (phase() === "Done") return "All done"
+    if (phase() === "SqliteWaiting") return lines[line()]
     return "Just a moment..."
   })
 
