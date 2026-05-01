@@ -1,9 +1,9 @@
 import * as Tool from "./tool"
 import DESCRIPTION from "./task_status.txt"
-import { Session } from "../session"
-import { SessionID } from "../session/schema"
-import { MessageV2 } from "../session/message-v2"
-import { SessionStatus } from "../session/status"
+import { Session } from "@/session/session"
+import { SessionID } from "@/session/schema"
+import { MessageV2 } from "@/session/message-v2"
+import { SessionStatus } from "@/session/status"
 import { PositiveInt } from "@/util/schema"
 import { Effect, Option, Schema } from "effect"
 

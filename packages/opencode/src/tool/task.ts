@@ -1,15 +1,15 @@
 import * as Tool from "./tool"
 import DESCRIPTION from "./task.txt"
-import { Bus } from "../bus"
-import { Session } from "../session"
+import { Bus } from "@/bus"
+import { Session } from "@/session/session"
 import { SessionID, MessageID } from "../session/schema"
 import { MessageV2 } from "../session/message-v2"
 import { Agent } from "../agent/agent"
 import type { SessionPrompt } from "../session/prompt"
-import { SessionStatus } from "../session/status"
-import { Config } from "../config"
+import { SessionStatus } from "@/session/status"
 import { TuiEvent } from "@/cli/cmd/tui/event"
 import { Cause, Effect, Option, Schema } from "effect"
+import { Config } from "@/config/config"
 
 export interface TaskPromptOps {
   cancel(sessionID: SessionID): void
@@ -110,12 +110,16 @@ export const TaskTool = Tool.define(
       const session = taskID
         ? yield* sessions.get(taskID).pipe(Effect.catchCause(() => Effect.succeed(undefined)))
         : undefined
+      const parent = yield* sessions.get(ctx.sessionID)
       const nextSession =
         session ??
         (yield* sessions.create({
           parentID: ctx.sessionID,
           title: params.description + ` (@${next.name} subagent)`,
           permission: [
+            ...(parent.permission ?? []).filter(
+              (rule) => rule.permission === "external_directory" || rule.action === "deny",
+            ),
             ...(canTodo
               ? []
               : [
