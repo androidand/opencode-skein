@@ -1,6 +1,5 @@
 import type { MiddlewareHandler } from "hono"
 import type { UpgradeWebSocket } from "hono/ws"
-import { getAdapter } from "@/control-plane/adapters"
 import { WorkspaceID } from "@/control-plane/schema"
 import { WorkspaceContext } from "@/control-plane/workspace-context"
 import { Workspace } from "@/control-plane/workspace"
@@ -10,7 +9,7 @@ import { Instance } from "@/project/instance"
 import { Session } from "@/session/session"
 import { SessionID } from "@/session/schema"
 import { AppRuntime } from "@/effect/app-runtime"
-import { Effect } from "effect"
+import { Cause, Effect, Exit } from "effect"
 import * as Log from "@opencode-ai/core/util/log"
 import { ServerProxy } from "./proxy"
 
@@ -91,8 +90,16 @@ export function WorkspaceRouterMiddleware(upgrade: UpgradeWebSocket): Middleware
       return next()
     }
 
-    const adapter = getAdapter(workspace.projectID, workspace.type)
-    const target = await adapter.target(workspace)
+    const targetExit = await AppRuntime.runPromiseExit(Workspace.Service.use((svc) => svc.target(workspace)))
+    if (Exit.isFailure(targetExit)) {
+      return new Response(`Workspace target unavailable: ${workspace.id}\n${Cause.pretty(targetExit.cause)}`, {
+        status: 503,
+        headers: {
+          "content-type": "text/plain; charset=utf-8",
+        },
+      })
+    }
+    const target = targetExit.value
 
     if (target.type === "local") {
       return WorkspaceContext.provide({

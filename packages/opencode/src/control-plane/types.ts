@@ -1,4 +1,4 @@
-import { Schema } from "effect"
+import { Effect, Schema } from "effect"
 import { ProjectID } from "@/project/schema"
 import { WorkspaceID } from "./schema"
 import { zod } from "@/util/effect-zod"
@@ -35,11 +35,20 @@ export type Target =
       headers?: HeadersInit
     }
 
+export class WorkspaceAdapterError extends Schema.TaggedErrorClass<WorkspaceAdapterError>()("WorkspaceAdapterError", {
+  message: Schema.String,
+  cause: Schema.optional(Schema.Defect),
+}) {}
+
 export type WorkspaceAdapter = {
   name: string
   description: string
-  configure(info: WorkspaceInfo): WorkspaceInfo | Promise<WorkspaceInfo>
-  create(info: WorkspaceInfo, env: Record<string, string | undefined>, from?: WorkspaceInfo): Promise<void>
-  remove(info: WorkspaceInfo): Promise<void>
-  target(info: WorkspaceInfo): Target | Promise<Target>
+  configure(info: WorkspaceInfo): Effect.Effect<WorkspaceInfo, WorkspaceAdapterError>
+  create(
+    info: WorkspaceInfo,
+    env: Record<string, string | undefined>,
+    from?: WorkspaceInfo,
+  ): Effect.Effect<void, WorkspaceAdapterError>
+  remove(info: WorkspaceInfo): Effect.Effect<void, WorkspaceAdapterError>
+  target(info: WorkspaceInfo): Effect.Effect<Target, WorkspaceAdapterError>
 }

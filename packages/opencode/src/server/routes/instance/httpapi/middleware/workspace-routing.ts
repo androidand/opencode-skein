@@ -1,6 +1,5 @@
-import { getAdapter } from "@/control-plane/adapters"
 import { WorkspaceID } from "@/control-plane/schema"
-import type { Target } from "@/control-plane/types"
+import type { Target, WorkspaceAdapterError } from "@/control-plane/types"
 import { Workspace } from "@/control-plane/workspace"
 import { Instance } from "@/project/instance"
 import { Session } from "@/session/session"
@@ -8,7 +7,7 @@ import { HttpApiProxy } from "./proxy"
 import * as Fence from "@/server/fence"
 import { getWorkspaceRouteSessionID, isLocalWorkspaceRoute, workspaceProxyURL } from "@/server/workspace"
 import { Flag } from "@opencode-ai/core/flag/flag"
-import { Context, Data, Effect, Layer } from "effect"
+import { Cause, Context, Data, Effect, Exit, Layer } from "effect"
 import { HttpClient, HttpRouter, HttpServerRequest, HttpServerResponse } from "effect/unstable/http"
 import { HttpApiMiddleware } from "effect/unstable/httpapi"
 import * as Socket from "effect/unstable/socket/Socket"
@@ -17,6 +16,7 @@ type RemoteTarget = Extract<Target, { type: "remote" }>
 
 type RequestPlan = Data.TaggedEnum<{
   MissingWorkspace: { readonly workspaceID: WorkspaceID }
+  TargetError: { readonly workspaceID: WorkspaceID; readonly message: string }
   Local: { readonly directory: string; readonly workspaceID?: WorkspaceID }
   Remote: {
     readonly request: HttpServerRequest.HttpServerRequest
@@ -87,11 +87,15 @@ function missingWorkspaceResponse(id: WorkspaceID): HttpServerResponse.HttpServe
   })
 }
 
-function resolveTarget(workspace: Workspace.Info): Effect.Effect<Target> {
-  return Effect.gen(function* () {
-    const adapter = yield* Effect.sync(() => getAdapter(workspace.projectID, workspace.type))
-    return yield* Effect.promise(() => Promise.resolve(adapter.target(workspace)))
+function targetErrorResponse(id: WorkspaceID, message: string): HttpServerResponse.HttpServerResponse {
+  return HttpServerResponse.text(`Workspace target unavailable: ${id}\n${message}`, {
+    status: 503,
+    contentType: "text/plain; charset=utf-8",
   })
+}
+
+function resolveTarget(workspace: Workspace.Info): Effect.Effect<Target, WorkspaceAdapterError, Workspace.Service> {
+  return Workspace.Service.use((svc) => svc.target(workspace))
 }
 
 function proxyRemote(
@@ -135,7 +139,11 @@ function planWorkspaceRequest(
   workspace: Workspace.Info,
 ): Effect.Effect<RequestPlan, never, Workspace.Service> {
   return Effect.gen(function* () {
-    const target = yield* resolveTarget(workspace)
+    const exit = yield* resolveTarget(workspace).pipe(Effect.exit)
+    if (Exit.isFailure(exit)) {
+      return RequestPlan.TargetError({ workspaceID: workspace.id, message: Cause.pretty(exit.cause) })
+    }
+    const target = exit.value
     if (target.type === "remote") return RequestPlan.Remote({ request, workspace, target, url })
     return RequestPlan.Local({ directory: target.directory, workspaceID: workspace.id })
   })
@@ -170,6 +178,7 @@ function routeWorkspace<E>(
 ): Effect.Effect<HttpServerResponse.HttpServerResponse, E, Socket.WebSocketConstructor | Workspace.Service> {
   return RequestPlan.$match(plan, {
     MissingWorkspace: ({ workspaceID }) => Effect.succeed(missingWorkspaceResponse(workspaceID)),
+    TargetError: ({ workspaceID, message }) => Effect.succeed(targetErrorResponse(workspaceID, message)),
     Remote: ({ request, workspace, target, url }) => proxyRemote(client, request, workspace, target, url),
     Local: ({ directory, workspaceID }) =>
       effect.pipe(Effect.provideService(WorkspaceRouteContext, WorkspaceRouteContext.of({ directory, workspaceID }))),

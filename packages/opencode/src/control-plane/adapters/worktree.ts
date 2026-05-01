@@ -1,5 +1,6 @@
-import { Schema } from "effect"
-import { type WorkspaceAdapter, WorkspaceInfo } from "../types"
+import { Cause, Effect, Schema } from "effect"
+import type { Interface as WorktreeService } from "@/worktree"
+import { type WorkspaceAdapter, WorkspaceAdapterError, WorkspaceInfo } from "../types"
 
 const WorktreeConfig = Schema.Struct({
   name: WorkspaceInfo.fields.name,
@@ -8,47 +9,68 @@ const WorktreeConfig = Schema.Struct({
 })
 const decodeWorktreeConfig = Schema.decodeUnknownSync(WorktreeConfig)
 
-async function loadWorktree() {
-  const [{ AppRuntime }, { Worktree }] = await Promise.all([import("@/effect/app-runtime"), import("@/worktree")])
-  return { AppRuntime, Worktree }
-}
-
-export const WorktreeAdapter: WorkspaceAdapter = {
+export const WorktreeAdapterEntry = {
   name: "Worktree",
   description: "Create a git worktree",
-  async configure(info) {
-    const { AppRuntime, Worktree } = await loadWorktree()
-    const next = await AppRuntime.runPromise(Worktree.Service.use((svc) => svc.makeWorktreeInfo()))
-    return {
-      ...info,
-      name: next.name,
-      branch: next.branch,
-      directory: next.directory,
-    }
-  },
-  async create(info) {
-    const { AppRuntime, Worktree } = await loadWorktree()
-    const config = decodeWorktreeConfig(info)
-    await AppRuntime.runPromise(
-      Worktree.Service.use((svc) =>
-        svc.createFromInfo({
-          name: config.name,
-          directory: config.directory,
-          branch: config.branch,
+}
+
+const adapterError = (message: string, cause: unknown) => new WorkspaceAdapterError({ message, cause })
+
+const catchWorktreeError = <A, R>(effect: Effect.Effect<A, never, R>) =>
+  effect.pipe(
+    Effect.catchCause((cause) =>
+      Cause.hasInterruptsOnly(cause) ? Effect.failCause(cause) : Effect.fail(adapterError(Cause.pretty(cause), cause)),
+    ),
+  )
+
+const decodeConfig = (info: WorkspaceInfo) =>
+  Effect.try({
+    try: () => decodeWorktreeConfig(info),
+    catch: (cause) => adapterError(cause instanceof Error ? cause.message : String(cause), cause),
+  })
+
+export function worktreeAdapter(worktree: WorktreeService): WorkspaceAdapter {
+  return {
+    ...WorktreeAdapterEntry,
+    configure(info) {
+      return catchWorktreeError(
+        Effect.gen(function* () {
+          const next = yield* worktree.makeWorktreeInfo()
+          return {
+            ...info,
+            name: next.name,
+            branch: next.branch,
+            directory: next.directory,
+          }
         }),
-      ),
-    )
-  },
-  async remove(info) {
-    const { AppRuntime, Worktree } = await loadWorktree()
-    const config = decodeWorktreeConfig(info)
-    await AppRuntime.runPromise(Worktree.Service.use((svc) => svc.remove({ directory: config.directory })))
-  },
-  target(info) {
-    const config = decodeWorktreeConfig(info)
-    return {
-      type: "local",
-      directory: config.directory,
-    }
-  },
+      )
+    },
+    create(info) {
+      return Effect.gen(function* () {
+        const config = yield* decodeConfig(info)
+        yield* catchWorktreeError(
+          worktree.createFromInfo({
+            name: config.name,
+            directory: config.directory,
+            branch: config.branch,
+          }),
+        )
+      })
+    },
+    remove(info) {
+      return Effect.gen(function* () {
+        const config = yield* decodeConfig(info)
+        yield* catchWorktreeError(worktree.remove({ directory: config.directory }))
+      })
+    },
+    target(info) {
+      return Effect.gen(function* () {
+        const config = yield* decodeConfig(info)
+        return {
+          type: "local" as const,
+          directory: config.directory,
+        }
+      })
+    },
+  }
 }

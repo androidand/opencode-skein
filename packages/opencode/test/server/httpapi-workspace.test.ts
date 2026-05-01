@@ -5,7 +5,7 @@ import path from "node:path"
 import { Effect, Layer } from "effect"
 import { Flag } from "@opencode-ai/core/flag/flag"
 import { registerAdapter } from "../../src/control-plane/adapters"
-import type { WorkspaceAdapter } from "../../src/control-plane/types"
+import type { WorkspaceAdapter } from "@opencode-ai/plugin"
 import { Workspace } from "../../src/control-plane/workspace"
 import { WorkspacePaths } from "../../src/server/routes/instance/httpapi/groups/workspace"
 import { Session } from "@/session/session"
@@ -192,6 +192,53 @@ describe("workspace HttpApi", () => {
       const listed = yield* request(WorkspacePaths.list, dir)
       expect(listed.status).toBe(200)
       expect(yield* Effect.promise(() => listed.json())).toEqual([])
+    }),
+  )
+
+  it.live("creates built-in worktree workspace through HttpApi instance context", () =>
+    Effect.gen(function* () {
+      Flag.OPENCODE_EXPERIMENTAL_WORKSPACES = true
+      const dir = yield* tmpdirScoped({ git: true })
+
+      const created = yield* request(WorkspacePaths.list, dir, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ type: "worktree", branch: null, extra: null }),
+      })
+      const createdBody = yield* Effect.promise(() => created.clone().text())
+
+      expect({ status: created.status, body: createdBody }).toMatchObject({ status: 200 })
+      const workspace = (yield* Effect.promise(() => created.json())) as Workspace.Info
+      expect(workspace.type).toBe("worktree")
+      expect(workspace.directory).toBeString()
+
+      yield* request(WorkspacePaths.remove.replace(":id", workspace.id), dir, { method: "DELETE" })
+    }),
+  )
+
+  it.live("runs promise workspace adapters with legacy instance context", () =>
+    Effect.gen(function* () {
+      Flag.OPENCODE_EXPERIMENTAL_WORKSPACES = true
+      const dir = yield* tmpdirScoped({ git: true })
+      const workspaceDir = path.join(dir, ".workspace-context")
+      const project = yield* Project.use.fromDirectory(dir)
+      let adapterDirectory: string | undefined
+      registerAdapter(project.project.id, "promise-context", {
+        ...localAdapter(workspaceDir),
+        async create() {
+          adapterDirectory = Instance.directory
+          await mkdir(workspaceDir, { recursive: true })
+        },
+      })
+
+      const created = yield* request(WorkspacePaths.list, dir, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ type: "promise-context", branch: null, extra: null }),
+      })
+
+      expect(created.status).toBe(200)
+      expect(adapterDirectory).toBe(dir)
     }),
   )
 

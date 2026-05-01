@@ -4,6 +4,7 @@ import Http from "node:http"
 import path from "node:path"
 import { setTimeout as delay } from "node:timers/promises"
 import { NodeHttpServer } from "@effect/platform-node"
+import type { WorkspaceAdapter, WorkspaceInfo as PluginWorkspaceInfo } from "@opencode-ai/plugin"
 import { Effect, Layer } from "effect"
 import { HttpServer, HttpServerRequest, HttpServerResponse } from "effect/unstable/http"
 import { asc, eq } from "drizzle-orm"
@@ -26,7 +27,7 @@ import { testEffect } from "../lib/effect"
 import { registerAdapter } from "../../src/control-plane/adapters"
 import { WorkspaceID } from "../../src/control-plane/schema"
 import { WorkspaceTable } from "../../src/control-plane/workspace.sql"
-import type { Target, WorkspaceAdapter, WorkspaceInfo } from "../../src/control-plane/types"
+import type { Target, WorkspaceInfo } from "../../src/control-plane/types"
 import * as WorkspaceOld from "../../src/control-plane/workspace"
 import { AppRuntime } from "@/effect/app-runtime"
 
@@ -48,18 +49,18 @@ const originalEnv = {
 }
 
 type RecordedCreate = {
-  info: WorkspaceInfo
+  info: PluginWorkspaceInfo
   env: Record<string, string | undefined>
-  from?: WorkspaceInfo
+  from?: PluginWorkspaceInfo
 }
 
 type RecordedAdapter = {
   adapter: WorkspaceAdapter
   calls: {
-    configure: WorkspaceInfo[]
+    configure: PluginWorkspaceInfo[]
     create: RecordedCreate[]
-    remove: WorkspaceInfo[]
-    target: WorkspaceInfo[]
+    remove: PluginWorkspaceInfo[]
+    target: PluginWorkspaceInfo[]
   }
 }
 
@@ -166,10 +167,14 @@ function eventuallyEffect(effect: Effect.Effect<void>, timeout = 1500) {
 }
 
 function recordedAdapter(input: {
-  target: (info: WorkspaceInfo) => Target | Promise<Target>
-  configure?: (info: WorkspaceInfo) => WorkspaceInfo | Promise<WorkspaceInfo>
-  create?: (info: WorkspaceInfo, env: Record<string, string | undefined>, from?: WorkspaceInfo) => Promise<void>
-  remove?: (info: WorkspaceInfo) => Promise<void>
+  target: (info: PluginWorkspaceInfo) => Target | Promise<Target>
+  configure?: (info: PluginWorkspaceInfo) => PluginWorkspaceInfo | Promise<PluginWorkspaceInfo>
+  create?: (
+    info: PluginWorkspaceInfo,
+    env: Record<string, string | undefined>,
+    from?: PluginWorkspaceInfo,
+  ) => Promise<void>
+  remove?: (info: PluginWorkspaceInfo) => Promise<void>
 }): RecordedAdapter {
   const calls: RecordedAdapter["calls"] = {
     configure: [],
@@ -207,7 +212,7 @@ function recordedAdapter(input: {
   }
 }
 
-function localAdapter(dir: string, input?: { createDir?: boolean; remove?: (info: WorkspaceInfo) => Promise<void> }) {
+function localAdapter(dir: string, input?: { createDir?: boolean; remove?: (info: PluginWorkspaceInfo) => Promise<void> }) {
   return recordedAdapter({
     configure(info) {
       return { ...info, directory: dir }

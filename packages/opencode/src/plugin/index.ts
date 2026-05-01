@@ -25,7 +25,6 @@ import { errorMessage } from "@/util/error"
 import { PluginLoader } from "./loader"
 import { parsePluginSpecifier, readPluginId, readV1Plugin, resolvePluginId } from "./shared"
 import { registerAdapter } from "@/control-plane/adapters"
-import type { WorkspaceAdapter } from "@/control-plane/types"
 
 const log = Log.create({ service: "plugin" })
 
@@ -139,7 +138,7 @@ export const layer = Layer.effect(
           directory: ctx.directory,
           experimental_workspace: {
             register(type: string, adapter: PluginWorkspaceAdapter) {
-              registerAdapter(ctx.project.id, type, adapter as WorkspaceAdapter)
+              registerAdapter(ctx.project.id, type, adapter)
             },
           },
           get serverUrl(): URL {
