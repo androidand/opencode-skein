@@ -1,6 +1,6 @@
 import { Cause, Effect, Schema } from "effect"
 import type { Interface as WorktreeService } from "@/worktree"
-import { type WorkspaceAdapter, WorkspaceAdapterError, WorkspaceInfo } from "../types"
+import { type InternalWorkspaceAdapter, WorkspaceAdapterError, WorkspaceInfo } from "../types"
 
 const WorktreeConfig = Schema.Struct({
   name: WorkspaceInfo.fields.name,
@@ -29,7 +29,7 @@ const decodeConfig = (info: WorkspaceInfo) =>
     catch: (cause) => adapterError(cause instanceof Error ? cause.message : String(cause), cause),
   })
 
-export function worktreeAdapter(worktree: WorktreeService): WorkspaceAdapter {
+export function worktreeAdapter(worktree: WorktreeService): InternalWorkspaceAdapter {
   return {
     ...WorktreeAdapterEntry,
     configure(info) {

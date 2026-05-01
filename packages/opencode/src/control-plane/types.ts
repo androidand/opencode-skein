@@ -40,7 +40,7 @@ export class WorkspaceAdapterError extends Schema.TaggedErrorClass<WorkspaceAdap
   cause: Schema.optional(Schema.Defect),
 }) {}
 
-export type WorkspaceAdapter = {
+export type InternalWorkspaceAdapter = {
   name: string
   description: string
   configure(info: WorkspaceInfo): Effect.Effect<WorkspaceInfo, WorkspaceAdapterError>
