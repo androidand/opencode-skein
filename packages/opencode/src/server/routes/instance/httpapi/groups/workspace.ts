@@ -1,7 +1,7 @@
 import { Workspace } from "@/control-plane/workspace"
 import { WorkspaceAdaptorEntry } from "@/control-plane/types"
 import { Schema, Struct } from "effect"
-import { HttpApi, HttpApiEndpoint, HttpApiError, HttpApiGroup, OpenApi } from "effect/unstable/httpapi"
+import { HttpApi, HttpApiEndpoint, HttpApiError, HttpApiGroup, HttpApiSchema, OpenApi } from "effect/unstable/httpapi"
 import { Authorization } from "../middleware/authorization"
 import { InstanceContextMiddleware } from "../middleware/instance-context"
 import { WorkspaceRoutingMiddleware } from "../middleware/workspace-routing"
@@ -9,12 +9,14 @@ import { described } from "./metadata"
 
 const root = "/experimental/workspace"
 export const CreatePayload = Schema.Struct(Struct.omit(Workspace.CreateInput.fields, ["projectID"]))
+export const WarpPayload = Schema.Struct(Struct.omit(Workspace.SessionWarpInput.fields, ["workspaceID"]))
 
 export const WorkspacePaths = {
   adaptors: `${root}/adaptor`,
   list: root,
   status: `${root}/status`,
   remove: `${root}/:id`,
+  warp: `${root}/:id/warp`,
 } as const
 
 export const WorkspaceApi = HttpApi.make("workspace")
@@ -68,6 +70,18 @@ export const WorkspaceApi = HttpApi.make("workspace")
             identifier: "experimental.workspace.remove",
             summary: "Remove workspace",
             description: "Remove an existing workspace.",
+          }),
+        ),
+        HttpApiEndpoint.post("warp", WorkspacePaths.warp, {
+          params: { id: Workspace.Info.fields.id },
+          payload: WarpPayload,
+          success: described(HttpApiSchema.NoContent, "Session warped"),
+          error: HttpApiError.BadRequest,
+        }).annotateMerge(
+          OpenApi.annotations({
+            identifier: "experimental.workspace.warp",
+            summary: "Warp session into workspace",
+            description: "Move a session's sync history into the target workspace.",
           }),
         ),
       )

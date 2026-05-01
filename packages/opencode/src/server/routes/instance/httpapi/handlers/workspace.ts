@@ -3,9 +3,9 @@ import { Workspace } from "@/control-plane/workspace"
 import * as InstanceState from "@/effect/instance-state"
 import { Instance } from "@/project/instance"
 import { Effect } from "effect"
-import { HttpApiBuilder } from "effect/unstable/httpapi"
+import { HttpApiBuilder, HttpApiSchema } from "effect/unstable/httpapi"
 import { InstanceHttpApi } from "../api"
-import { CreatePayload } from "../groups/workspace"
+import { CreatePayload, WarpPayload } from "../groups/workspace"
 
 export const workspaceHandlers = HttpApiBuilder.group(InstanceHttpApi, "workspace", (handlers) =>
   Effect.gen(function* () {
@@ -40,11 +40,28 @@ export const workspaceHandlers = HttpApiBuilder.group(InstanceHttpApi, "workspac
       return yield* Effect.promise(() => Instance.restore(instance, () => Workspace.remove(ctx.params.id)))
     })
 
+    const warp = Effect.fn("WorkspaceHttpApi.warp")(function* (ctx: {
+      params: { id: Workspace.Info["id"] }
+      payload: typeof WarpPayload.Type
+    }) {
+      const instance = yield* InstanceState.context
+      yield* Effect.promise(() =>
+        Instance.restore(instance, () =>
+          Workspace.sessionWarp({
+            workspaceID: ctx.params.id,
+            ...ctx.payload,
+          }),
+        ),
+      )
+      return HttpApiSchema.NoContent.make()
+    })
+
     return handlers
       .handle("adaptors", adaptors)
       .handle("list", list)
       .handle("create", create)
       .handle("status", status)
       .handle("remove", remove)
+      .handle("warp", warp)
   }),
 )

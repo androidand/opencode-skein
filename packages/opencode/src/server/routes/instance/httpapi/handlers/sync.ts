@@ -1,5 +1,8 @@
 import { startWorkspaceSyncing } from "@/control-plane/workspace"
+import { WorkspaceContext } from "@/control-plane/workspace-context"
 import * as InstanceState from "@/effect/instance-state"
+import { Instance } from "@/project/instance"
+import { Session } from "@/session/session"
 import { Database } from "@/storage/db"
 import { SyncEvent } from "@/sync"
 import { EventTable } from "@/sync/event.sql"
@@ -12,7 +15,7 @@ import { or } from "drizzle-orm"
 import { Effect } from "effect"
 import { HttpApiBuilder } from "effect/unstable/httpapi"
 import { InstanceHttpApi } from "../api"
-import { HistoryPayload, ReplayPayload } from "../groups/sync"
+import { HistoryPayload, ReplayPayload, SessionPayload } from "../groups/sync"
 
 export const syncHandlers = HttpApiBuilder.group(InstanceHttpApi, "sync", (handlers) =>
   Effect.gen(function* () {
@@ -33,6 +36,34 @@ export const syncHandlers = HttpApiBuilder.group(InstanceHttpApi, "sync", (handl
       return { sessionID: events[0].aggregateID }
     })
 
+    const erase = Effect.fn("SyncHttpApi.erase")(function* (ctx: { payload: typeof SessionPayload.Type }) {
+      SyncEvent.remove(ctx.payload.sessionID)
+      return { sessionID: ctx.payload.sessionID }
+    })
+
+    const steal = Effect.fn("SyncHttpApi.steal")(function* (ctx: { payload: typeof SessionPayload.Type }) {
+      const instance = yield* InstanceState.context
+      const workspaceID = yield* InstanceState.workspaceID
+      if (!workspaceID) throw new Error("Cannot steal session without workspace context")
+
+      yield* Effect.sync(() =>
+        WorkspaceContext.provide({
+          workspaceID,
+          fn: () =>
+            Instance.restore(instance, () =>
+              SyncEvent.run(Session.Event.Updated, {
+                sessionID: ctx.payload.sessionID,
+                info: {
+                  workspaceID,
+                },
+              }),
+            ),
+        }),
+      )
+
+      return { sessionID: ctx.payload.sessionID }
+    })
+
     const history = Effect.fn("SyncHttpApi.history")(function* (ctx: { payload: typeof HistoryPayload.Type }) {
       const exclude = Object.entries(ctx.payload)
       return Database.use((db) =>
@@ -49,6 +80,11 @@ export const syncHandlers = HttpApiBuilder.group(InstanceHttpApi, "sync", (handl
       )
     })
 
-    return handlers.handle("start", start).handle("replay", replay).handle("history", history)
+    return handlers
+      .handle("start", start)
+      .handle("replay", replay)
+      .handle("erase", erase)
+      .handle("steal", steal)
+      .handle("history", history)
   }),
 )
