@@ -10,13 +10,13 @@ import { SessionStatus } from "@/session/status"
 import { TuiEvent } from "@/cli/cmd/tui/event"
 import { Cause, Effect, Option, Schema } from "effect"
 import { Config } from "@/config/config"
+import { BackgroundJob } from "@/background/job"
 
 export interface TaskPromptOps {
   cancel(sessionID: SessionID): void
   resolvePromptParts(template: string): Effect.Effect<SessionPrompt.PromptInput["parts"]>
   prompt(input: SessionPrompt.PromptInput): Effect.Effect<MessageV2.WithParts>
   loop(input: SessionPrompt.LoopInput): Effect.Effect<MessageV2.WithParts>
-  fork(effect: Effect.Effect<void, never, never>): void
 }
 
 const id = "task"
@@ -80,6 +80,7 @@ export const TaskTool = Tool.define(
     const config = yield* Config.Service
     const sessions = yield* Session.Service
     const status = yield* SessionStatus.Service
+    const jobs = yield* BackgroundJob.Service
 
     const run = Effect.fn(
       "TaskTool.execute",
@@ -236,17 +237,28 @@ export const TaskTool = Tool.define(
           yield* continueIfIdle({ userID: message.info.id, state })
         })
 
-        ops.fork(
-          runTask().pipe(
+        yield* jobs.start({
+          id: nextSession.id,
+          type: id,
+          title: params.description,
+          metadata: {
+            parentSessionID: ctx.sessionID,
+            sessionID: nextSession.id,
+            subagent: next.name,
+          },
+          run: runTask().pipe(
             Effect.matchCauseEffect({
-              onSuccess: (text) => inject("completed", text),
-              onFailure: (cause) =>
-                inject("error", errorText(Cause.squash(cause))).pipe(Effect.catchCause(() => Effect.void)),
+              onSuccess: (text) => inject("completed", text).pipe(Effect.as(text)),
+              onFailure: (cause) => {
+                const text = errorText(Cause.squash(cause))
+                return inject("error", text).pipe(
+                  Effect.catchCause(() => Effect.void),
+                  Effect.andThen(Effect.failCause(cause)),
+                )
+              },
             }),
-            Effect.catchCause(() => Effect.void),
-            Effect.asVoid,
           ),
-        )
+        })
 
         return {
           title: params.description,

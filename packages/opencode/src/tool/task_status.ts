@@ -6,6 +6,7 @@ import { MessageV2 } from "@/session/message-v2"
 import { SessionStatus } from "@/session/status"
 import { PositiveInt } from "@/util/schema"
 import { Effect, Option, Schema } from "effect"
+import { BackgroundJob } from "@/background/job"
 
 const DEFAULT_TIMEOUT = 60_000
 const POLL_MS = 300
@@ -34,11 +35,31 @@ function errorText(error: NonNullable<MessageV2.Assistant["error"]>) {
   return error.name
 }
 
+function jobResult(job: BackgroundJob.Info): InspectResult {
+  if (job.status === "running") {
+    return {
+      state: "running",
+      text: "Task is still running.",
+    }
+  }
+  if (job.status === "completed") {
+    return {
+      state: "completed",
+      text: job.output ?? "",
+    }
+  }
+  return {
+    state: "error",
+    text: job.error ?? `Task ${job.status}.`,
+  }
+}
+
 export const TaskStatusTool = Tool.define(
   "task_status",
   Effect.gen(function* () {
     const sessions = yield* Session.Service
     const status = yield* SessionStatus.Service
+    const jobs = yield* BackgroundJob.Service
 
     const inspect: (taskID: SessionID) => Effect.Effect<InspectResult> = Effect.fn("TaskStatusTool.inspect")(function* (
       taskID: SessionID,
@@ -118,6 +139,30 @@ export const TaskStatusTool = Tool.define(
       "TaskStatusTool.execute",
     )(function* (params: Schema.Schema.Type<typeof Parameters>, _ctx: Tool.Context) {
       yield* sessions.get(params.task_id)
+
+      const job = yield* jobs.get(params.task_id)
+      const waitedJob =
+        job && params.wait === true
+          ? yield* jobs.wait({ id: params.task_id, timeout: params.timeout_ms ?? DEFAULT_TIMEOUT })
+          : { info: job, timedOut: false }
+      if (waitedJob.info) {
+        const result = jobResult(waitedJob.info)
+        return {
+          title: "Task status",
+          metadata: {
+            task_id: params.task_id,
+            state: result.state,
+            timed_out: waitedJob.timedOut,
+          },
+          output: format({
+            taskID: params.task_id,
+            state: result.state,
+            text: waitedJob.timedOut
+              ? `Timed out after ${params.timeout_ms ?? DEFAULT_TIMEOUT}ms while waiting for task completion.`
+              : result.text,
+          }),
+        }
+      }
 
       const waited =
         params.wait === true

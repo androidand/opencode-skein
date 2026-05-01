@@ -1,5 +1,5 @@
 import { afterEach, describe, expect } from "bun:test"
-import { Effect, Layer } from "effect"
+import { Deferred, Effect, Layer } from "effect"
 import { Agent } from "../../src/agent/agent"
 import { Bus } from "../../src/bus"
 import { Config } from "@/config/config"
@@ -14,6 +14,7 @@ import { ModelID, ProviderID } from "../../src/provider/schema"
 import { TaskTool, type TaskPromptOps } from "../../src/tool/task"
 import { Truncate } from "@/tool/truncate"
 import { ToolRegistry } from "@/tool/registry"
+import { BackgroundJob } from "@/background/job"
 import { provideTmpdirInstance } from "../fixture/fixture"
 import { testEffect } from "../lib/effect"
 
@@ -34,6 +35,7 @@ const it = testEffect(
     CrossSpawnSpawner.defaultLayer,
     Session.defaultLayer,
     SessionStatus.defaultLayer,
+    BackgroundJob.defaultLayer,
     Truncate.defaultLayer,
     ToolRegistry.defaultLayer,
   ),
@@ -68,13 +70,17 @@ const seed = Effect.fn("TaskToolTest.seed")(function* (title = "Pinned") {
   return { chat, assistant }
 })
 
-function stubOps(session: Session.Interface, opts?: { onPrompt?: (input: SessionPrompt.PromptInput) => void; text?: string }): TaskPromptOps {
+function stubOps(
+  session: Session.Interface,
+  opts?: { onPrompt?: (input: SessionPrompt.PromptInput) => void; text?: string; wait?: Effect.Effect<void> },
+): TaskPromptOps {
   return {
     cancel() {},
     resolvePromptParts: (template) => Effect.succeed([{ type: "text" as const, text: template }]),
     prompt: (input) =>
       Effect.gen(function* () {
         opts?.onPrompt?.(input)
+        if (opts?.wait) yield* opts.wait
         const userID = input.messageID ?? MessageID.ascending()
         const user: MessageV2.User = {
           id: userID,
@@ -120,7 +126,6 @@ function stubOps(session: Session.Interface, opts?: { onPrompt?: (input: Session
           opts?.text ?? "done",
         ),
       ),
-    fork() {},
   }
 }
 
@@ -438,10 +443,11 @@ describe("tool.task", () => {
     provideTmpdirInstance(() =>
       Effect.gen(function* () {
         const sessions = yield* Session.Service
+        const jobs = yield* BackgroundJob.Service
         const { chat, assistant } = yield* seed()
         const tool = yield* TaskTool
         const def = yield* tool.init()
-        const forks: Effect.Effect<void, never, never>[] = []
+        const latch = yield* Deferred.make<void>()
 
         const result = yield* def.execute(
           {
@@ -456,12 +462,7 @@ describe("tool.task", () => {
             agent: "build",
             abort: new AbortController().signal,
             extra: {
-              promptOps: {
-                ...stubOps(sessions),
-                fork(effect) {
-                  forks.push(effect)
-                },
-              } satisfies TaskPromptOps,
+              promptOps: stubOps(sessions, { wait: Deferred.await(latch) }),
             },
             messages: [],
             metadata: () => Effect.void,
@@ -473,7 +474,10 @@ describe("tool.task", () => {
         expect(result.metadata.background).toBe(true)
         expect(result.output).toContain(`task_id: ${result.metadata.sessionId}`)
         expect(result.output).toContain("state: running")
-        expect(forks).toHaveLength(1)
+        expect((yield* jobs.get(result.metadata.sessionId))?.status).toBe("running")
+
+        yield* Deferred.succeed(latch, undefined)
+        expect((yield* jobs.wait({ id: result.metadata.sessionId })).info?.status).toBe("completed")
       }),
     ),
   )
@@ -482,10 +486,10 @@ describe("tool.task", () => {
     provideTmpdirInstance(() =>
       Effect.gen(function* () {
         const sessions = yield* Session.Service
+        const jobs = yield* BackgroundJob.Service
         const { chat, assistant } = yield* seed()
         const tool = yield* TaskTool
         const def = yield* tool.init()
-        const forks: Effect.Effect<void, never, never>[] = []
         const loops: string[] = []
 
         const result = yield* def.execute(
@@ -518,9 +522,6 @@ describe("tool.task", () => {
                     ),
                   )
                 },
-                fork(effect) {
-                  forks.push(effect)
-                },
               } satisfies TaskPromptOps,
             },
             messages: [],
@@ -529,7 +530,7 @@ describe("tool.task", () => {
           },
         )
 
-        yield* forks[0]!
+        expect((yield* jobs.wait({ id: result.metadata.sessionId })).info?.status).toBe("completed")
 
         const parent = yield* sessions.findMessage(chat.id, (msg) => msg.info.role === "user")
         expect(parent._tag).toBe("Some")

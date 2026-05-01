@@ -10,6 +10,7 @@ import { SessionStatus } from "../../src/session/status"
 import { TaskStatusTool } from "../../src/tool/task_status"
 import { Truncate } from "@/tool/truncate"
 import { ModelID, ProviderID } from "../../src/provider/schema"
+import { BackgroundJob } from "@/background/job"
 import { provideTmpdirInstance } from "../fixture/fixture"
 import { testEffect } from "../lib/effect"
 
@@ -28,6 +29,7 @@ const it = testEffect(
     CrossSpawnSpawner.defaultLayer,
     Session.defaultLayer,
     SessionStatus.defaultLayer,
+    BackgroundJob.defaultLayer,
     Truncate.defaultLayer,
   ),
 )

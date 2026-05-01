@@ -118,9 +118,6 @@ export const layer = Layer.effect(
         resolvePromptParts: (template: string) => resolvePromptParts(template),
         prompt: (input: PromptInput) => prompt(input),
         loop: (input: LoopInput) => loop(input),
-        fork: (effect: Effect.Effect<void, never, never>) => {
-          run.fork(effect)
-        },
       } satisfies TaskPromptOps
     })
 

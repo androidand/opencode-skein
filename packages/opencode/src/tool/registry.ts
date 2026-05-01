@@ -48,6 +48,7 @@ import { Agent } from "../agent/agent"
 import { Skill } from "../skill"
 import { Permission } from "@/permission"
 import { SessionStatus } from "@/session/status"
+import { BackgroundJob } from "@/background/job"
 
 const log = Log.create({ service: "tool.registry" })
 
@@ -86,6 +87,7 @@ export const layer: Layer.Layer<
   | Instruction.Service
   | AppFileSystem.Service
   | Bus.Service
+  | BackgroundJob.Service
   | HttpClient.HttpClient
   | ChildProcessSpawner
   | Ripgrep.Service
@@ -343,6 +345,7 @@ export const defaultLayer = Layer.suspend(() =>
     Layer.provide(Instruction.defaultLayer),
     Layer.provide(AppFileSystem.defaultLayer),
     Layer.provide(Bus.layer),
+    Layer.provide(BackgroundJob.defaultLayer),
     Layer.provide(FetchHttpClient.layer),
     Layer.provide(Format.defaultLayer),
     Layer.provide(CrossSpawnSpawner.defaultLayer),
