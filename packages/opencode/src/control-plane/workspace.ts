@@ -529,6 +529,11 @@ export const layer = Layer.effect(
                   body: HttpBody.jsonUnsafe({ sessionID: input.sessionID }),
                 }),
               )
+
+              // TODO: if this fails, we need to mark this workspace
+              // as "orphaned" meaning we abandoned it and never want
+              // to talk to it again
+
               if (response.status < 200 || response.status >= 300) {
                 const body = yield* response.text
                 log.warn("session warp erase failed", {

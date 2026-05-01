@@ -134,10 +134,9 @@ export function DialogSessionList() {
                 type={workspace.type}
                 name={workspace.name}
                 status={project.workspace.status(x.workspaceID) ?? "error"}
-                icon
               />
             ) : (
-              <WorkspaceLabel type="unknown" name={x.workspaceID} status="error" icon />
+              <WorkspaceLabel type="unknown" name={x.workspaceID} status="error" />
             )
           }
         } else {
