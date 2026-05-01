@@ -176,10 +176,12 @@ export const layer = Layer.effect(
     const worktree = yield* Worktree.Service
     const connections = new Map<WorkspaceID, ConnectionStatus>()
     const syncFibers = yield* FiberMap.make<WorkspaceID, void, SyncLoopError>()
-    const adapters = makeBuiltinAdapters({ worktree })
+    const builtinAdapters = makeBuiltinAdapters(worktree)
+    const adapterFor = (space: { projectID: ProjectID; type: string }) =>
+      getAdapter(space.projectID, space.type, builtinAdapters)
 
     const target = Effect.fn("Workspace.target")(function* (space: Info) {
-      return yield* getAdapter(space.projectID, space.type, adapters).target(space)
+      return yield* adapterFor(space).target(space)
     })
 
     const setStatus = (id: WorkspaceID, status: ConnectionStatus["status"]) => {
@@ -465,7 +467,7 @@ export const layer = Layer.effect(
 
     const create = Effect.fn("Workspace.create")(function* (input: CreateInput) {
       const id = WorkspaceID.ascending(input.id)
-      const adapter = getAdapter(input.projectID, input.type, adapters)
+      const adapter = adapterFor(input)
       const config = yield* adapter.configure({ ...input, id, name: Slug.create(), directory: null })
 
       const info: Info = {
@@ -730,8 +732,7 @@ export const layer = Layer.effect(
       const info = fromRow(row)
       yield* Effect.catch(
         Effect.gen(function* () {
-          const adapter = getAdapter(info.projectID, row.type, adapters)
-          yield* adapter.remove(info)
+          yield* adapterFor(info).remove(info)
         }),
         () =>
           Effect.sync(() => {

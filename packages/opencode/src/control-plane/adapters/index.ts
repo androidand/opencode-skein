@@ -7,27 +7,12 @@ import { type WorkspaceAdapter, WorkspaceAdapterError, type WorkspaceAdapterEntr
 import type { Interface as WorktreeService } from "@/worktree"
 import { WorktreeAdapterEntry, worktreeAdapter } from "./worktree"
 
-export interface AdapterServices {
-  readonly worktree: WorktreeService
-}
+const BUILTIN: WorkspaceAdapterEntry[] = [{ type: "worktree", ...WorktreeAdapterEntry }]
 
-const BUILTIN: Record<string, WorkspaceAdapterEntry> = {
-  worktree: { type: "worktree", ...WorktreeAdapterEntry },
-}
+export const makeBuiltinAdapters = (worktree: WorktreeService) =>
+  new Map<string, WorkspaceAdapter>([["worktree", worktreeAdapter(worktree)]])
 
-const builtinAdapter = (type: string, services: AdapterServices): WorkspaceAdapter | undefined => {
-  if (type === "worktree") return worktreeAdapter(services.worktree)
-}
-
-export const makeBuiltinAdapters = (services: AdapterServices) =>
-  new Map(
-    Object.keys(BUILTIN).flatMap((type) => {
-      const adapter = builtinAdapter(type, services)
-      return adapter ? [[type, adapter] as const] : []
-    }),
-  )
-
-const state = new Map<ProjectID, Map<string, WorkspaceAdapter>>()
+const plugins = new Map<ProjectID, Map<string, WorkspaceAdapter>>()
 const emptyBuiltinAdapters = new Map<string, WorkspaceAdapter>()
 
 export function getAdapter(
@@ -35,7 +20,7 @@ export function getAdapter(
   type: string,
   builtin: ReadonlyMap<string, WorkspaceAdapter> = emptyBuiltinAdapters,
 ): WorkspaceAdapter {
-  const custom = state.get(projectID)?.get(type)
+  const custom = plugins.get(projectID)?.get(type)
   if (custom) return custom
 
   const adapter = builtin.get(type)
@@ -45,20 +30,12 @@ export function getAdapter(
 }
 
 export async function listAdapters(projectID: ProjectID): Promise<WorkspaceAdapterEntry[]> {
-  const custom = [...(state.get(projectID)?.entries() ?? [])].map(([type, adapter]) => ({
+  const custom = [...(plugins.get(projectID)?.entries() ?? [])].map(([type, adapter]) => ({
     type,
     name: adapter.name,
     description: adapter.description,
   }))
-  return [...Object.values(BUILTIN), ...custom]
-}
-
-// Plugins can be loaded per-project so we need to scope them. If you
-// want to install a global one pass `ProjectID.global`
-export function registerEffectAdapter(projectID: ProjectID, type: string, adapter: WorkspaceAdapter) {
-  const adapters = state.get(projectID) ?? new Map<string, WorkspaceAdapter>()
-  adapters.set(type, adapter)
-  state.set(projectID, adapters)
+  return [...BUILTIN, ...custom]
 }
 
 const adapterError = (cause: unknown) => new WorkspaceAdapterError({ message: errorMessage(cause), cause })
@@ -92,5 +69,9 @@ function fromPromiseAdapter(adapter: PluginWorkspaceAdapter): WorkspaceAdapter {
 }
 
 export function registerAdapter(projectID: ProjectID, type: string, adapter: PluginWorkspaceAdapter) {
-  registerEffectAdapter(projectID, type, fromPromiseAdapter(adapter))
+  // Plugins can be loaded per-project so we need to scope them. If you
+  // want to install a global one pass `ProjectID.global`.
+  const adapters = plugins.get(projectID) ?? new Map<string, WorkspaceAdapter>()
+  adapters.set(type, fromPromiseAdapter(adapter))
+  plugins.set(projectID, adapters)
 }
