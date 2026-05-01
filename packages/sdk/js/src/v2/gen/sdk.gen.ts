@@ -35,9 +35,9 @@ import type {
   ExperimentalWorkspaceListResponses,
   ExperimentalWorkspaceRemoveErrors,
   ExperimentalWorkspaceRemoveResponses,
-  ExperimentalWorkspaceSessionRestoreErrors,
-  ExperimentalWorkspaceSessionRestoreResponses,
   ExperimentalWorkspaceStatusResponses,
+  ExperimentalWorkspaceWarpErrors,
+  ExperimentalWorkspaceWarpResponses,
   FileListResponses,
   FilePartInput,
   FilePartSource,
@@ -160,11 +160,15 @@ import type {
   SessionUpdateErrors,
   SessionUpdateResponses,
   SubtaskPartInput,
+  SyncEraseErrors,
+  SyncEraseResponses,
   SyncHistoryListErrors,
   SyncHistoryListResponses,
   SyncReplayErrors,
   SyncReplayResponses,
   SyncStartResponses,
+  SyncStealErrors,
+  SyncStealResponses,
   TextPartInput,
   ToolIdsErrors,
   ToolIdsResponses,
@@ -689,11 +693,11 @@ export class Workspace extends HeyApiClient {
   }
 
   /**
-   * Restore session into workspace
+   * Warp session into workspace
    *
-   * Replay a session's sync events into the target workspace in batches.
+   * Move a session's sync history into the target workspace.
    */
-  public sessionRestore<ThrowOnError extends boolean = false>(
+  public warp<ThrowOnError extends boolean = false>(
     parameters: {
       id: string
       directory?: string
@@ -716,11 +720,11 @@ export class Workspace extends HeyApiClient {
       ],
     )
     return (options?.client ?? this.client).post<
-      ExperimentalWorkspaceSessionRestoreResponses,
-      ExperimentalWorkspaceSessionRestoreErrors,
+      ExperimentalWorkspaceWarpResponses,
+      ExperimentalWorkspaceWarpErrors,
       ThrowOnError
     >({
-      url: "/experimental/workspace/{id}/session-restore",
+      url: "/experimental/workspace/{id}/warp",
       ...options,
       ...params,
       headers: {
@@ -3163,6 +3167,80 @@ export class Sync extends HeyApiClient {
     )
     return (options?.client ?? this.client).post<SyncReplayResponses, SyncReplayErrors, ThrowOnError>({
       url: "/sync/replay",
+      ...options,
+      ...params,
+      headers: {
+        "Content-Type": "application/json",
+        ...options?.headers,
+        ...params.headers,
+      },
+    })
+  }
+
+  /**
+   * Erase session sync events
+   *
+   * Erase all locally stored sync events for a session aggregate.
+   */
+  public erase<ThrowOnError extends boolean = false>(
+    parameters?: {
+      directory?: string
+      workspace?: string
+      sessionID?: string
+    },
+    options?: Options<never, ThrowOnError>,
+  ) {
+    const params = buildClientParams(
+      [parameters],
+      [
+        {
+          args: [
+            { in: "query", key: "directory" },
+            { in: "query", key: "workspace" },
+            { in: "body", key: "sessionID" },
+          ],
+        },
+      ],
+    )
+    return (options?.client ?? this.client).post<SyncEraseResponses, SyncEraseErrors, ThrowOnError>({
+      url: "/sync/erase",
+      ...options,
+      ...params,
+      headers: {
+        "Content-Type": "application/json",
+        ...options?.headers,
+        ...params.headers,
+      },
+    })
+  }
+
+  /**
+   * Steal session into workspace
+   *
+   * Update a session to belong to the current workspace through the sync event system.
+   */
+  public steal<ThrowOnError extends boolean = false>(
+    parameters?: {
+      directory?: string
+      workspace?: string
+      sessionID?: string
+    },
+    options?: Options<never, ThrowOnError>,
+  ) {
+    const params = buildClientParams(
+      [parameters],
+      [
+        {
+          args: [
+            { in: "query", key: "directory" },
+            { in: "query", key: "workspace" },
+            { in: "body", key: "sessionID" },
+          ],
+        },
+      ],
+    )
+    return (options?.client ?? this.client).post<SyncStealResponses, SyncStealErrors, ThrowOnError>({
+      url: "/sync/steal",
       ...options,
       ...params,
       headers: {

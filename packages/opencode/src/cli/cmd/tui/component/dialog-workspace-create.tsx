@@ -7,7 +7,6 @@ import { createMemo, createSignal, onMount } from "solid-js"
 import { errorMessage } from "@/util/error"
 import { useSDK } from "../context/sdk"
 import { useToast } from "../ui/toast"
-import { WorkspaceLabel } from "./workspace-label"
 
 type Adaptor = {
   type: string
@@ -34,7 +33,7 @@ export type WorkspaceSelection =
 type WorkspaceSelectValue = WorkspaceSelection | { type: "existing-list" } | { type: "loading" }
 type ExistingWorkspaceSelectValue = { workspace: Workspace }
 
-export async function restoreWorkspaceSession(input: {
+export async function warpWorkspaceSession(input: {
   dialog: ReturnType<typeof useDialog>
   sdk: ReturnType<typeof useSDK>
   sync: ReturnType<typeof useSync>
@@ -43,91 +42,38 @@ export async function restoreWorkspaceSession(input: {
   workspaceID: string
   sessionID: string
   done?: () => void
-}) {
+  showSuccessToast?: boolean
+}): Promise<boolean> {
   const result = await input.sdk.client.experimental.workspace
-    .sessionRestore({ id: input.workspaceID, sessionID: input.sessionID })
+    .warp({
+      id: input.workspaceID,
+      sessionID: input.sessionID,
+    })
     .catch(() => undefined)
-  if (!result?.data) {
+  if (!result || result.error) {
     input.toast.show({
-      message: `Failed to restore session: ${errorMessage(result?.error ?? "no response")}`,
+      message: `Failed to warp session: ${errorMessage(result?.error ?? "no response")}`,
       variant: "error",
     })
-    return
+    return false
   }
 
   input.project.workspace.set(input.workspaceID)
 
   await input.sync.bootstrap({ fatal: false }).catch(() => undefined)
 
-  await Promise.all([input.project.workspace.sync(), input.sync.session.sync(input.sessionID)])
+  await Promise.all([input.project.workspace.sync(), input.sync.session.refresh()])
 
-  input.toast.show({
-    message: "Session restored into the new workspace",
-    variant: "success",
-  })
+  if (input.showSuccessToast !== false) {
+    input.toast.show({
+      message: "Session warped into the new workspace",
+      variant: "success",
+    })
+  }
   input.done?.()
-  if (input.done) return
+  if (input.done) return true
   input.dialog.clear()
-}
-
-function DialogWorkspaceTypeSelect(props: { onSelect: (adaptor: Adaptor) => Promise<void> | void }) {
-  const dialog = useDialog()
-  const sync = useSync()
-  const sdk = useSDK()
-  const toast = useToast()
-  const [adaptors, setAdaptors] = createSignal<Adaptor[]>()
-
-  onMount(() => {
-    dialog.setSize("medium")
-    void (async () => {
-      const dir = sync.path.directory || sdk.directory
-      const url = new URL("/experimental/workspace/adaptor", sdk.url)
-      if (dir) url.searchParams.set("directory", dir)
-      const res = await sdk
-        .fetch(url)
-        .then((x) => x.json() as Promise<Adaptor[]>)
-        .catch(() => undefined)
-      if (!res) {
-        toast.show({
-          message: "Failed to load workspace adaptors",
-          variant: "error",
-        })
-        return
-      }
-      setAdaptors(res)
-    })()
-  })
-
-  const options = createMemo(() => {
-    const list = adaptors()
-    if (!list) {
-      return [
-        {
-          title: "Loading workspaces...",
-          value: undefined,
-          description: "Fetching available workspace adaptors",
-        },
-      ]
-    }
-    return list.map((item) => ({
-      title: item.name,
-      value: item,
-      description: item.description,
-    }))
-  })
-
-  return (
-    <DialogSelect
-      title="New Workspace"
-      skipFilter={true}
-      renderFilter={false}
-      options={options()}
-      onSelect={async (option) => {
-        if (!option.value) return
-        void props.onSelect(option.value)
-      }}
-    />
-  )
+  return true
 }
 
 export function DialogWorkspaceSelect(props: {
@@ -174,7 +120,15 @@ export function DialogWorkspaceSelect(props: {
         },
       ]
     }
-    const workspaces = project.workspace.list()
+    const recent = sync.data.session
+      .toSorted((a, b) => b.time.updated - a.time.updated)
+      .flatMap((session) => (session.workspaceID ? [session.workspaceID] : []))
+      .filter((workspaceID, index, list) => list.indexOf(workspaceID) === index)
+      .slice(0, 3)
+      .flatMap((workspaceID) => {
+        const workspace = project.workspace.get(workspaceID)
+        return workspace ? [workspace] : []
+      })
     return [
       ...list.map((adaptor) => ({
         title: adaptor.name,
@@ -188,7 +142,7 @@ export function DialogWorkspaceSelect(props: {
         description: "Use the local project",
         category: "Choose workspace",
       },
-      ...workspaces.slice(0, 3).map((workspace: Workspace) => ({
+      ...recent.map((workspace: Workspace) => ({
         title: workspace.name,
         description: `(${workspace.type})`,
         value: {
@@ -261,69 +215,6 @@ function DialogExistingWorkspaceSelect(props: { onSelect: (selection: WorkspaceS
           workspaceType: option.value.workspace.type,
           workspaceName: option.value.workspace.name,
         })
-      }}
-    />
-  )
-}
-
-export function DialogWorkspaceCreate(props: { onSelect: (workspaceID: string) => Promise<void> | void }) {
-  const dialog = useDialog()
-  const project = useProject()
-  const sdk = useSDK()
-  const toast = useToast()
-  const [creating, setCreating] = createSignal<string>()
-
-  onMount(() => {
-    dialog.setSize("medium")
-  })
-
-  const options = createMemo(() => {
-    const type = creating()
-    if (type) {
-      return [
-        {
-          title: `Creating ${type} workspace...`,
-          value: "creating" as const,
-          description: "This can take a while for remote environments",
-        },
-      ]
-    }
-    return []
-  })
-
-  const create = async (type: string) => {
-    if (creating()) return
-    setCreating(type)
-
-    const result = await sdk.client.experimental.workspace.create({ type, branch: null }).catch(() => {
-      toast.show({
-        message: "Creating workspace failed",
-        variant: "error",
-      })
-      return undefined
-    })
-
-    const workspace = result?.data
-    if (!workspace) {
-      setCreating(undefined)
-      toast.show({
-        message: `Failed to create workspace: ${errorMessage(result?.error ?? "no response")}`,
-        variant: "error",
-      })
-      return
-    }
-
-    await project.workspace.sync()
-    await props.onSelect(workspace.id)
-    setCreating(undefined)
-  }
-
-  return creating() ? (
-    <DialogSelect title="Creating Workspace" skipFilter={true} renderFilter={false} options={options()} />
-  ) : (
-    <DialogWorkspaceTypeSelect
-      onSelect={(adaptor) => {
-        void create(adaptor.type)
       }}
     />
   )

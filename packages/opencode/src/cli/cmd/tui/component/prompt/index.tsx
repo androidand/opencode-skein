@@ -41,12 +41,7 @@ import { useKV } from "../../context/kv"
 import { createFadeIn } from "../../util/signal"
 import { useTextareaKeybindings } from "../textarea-keybindings"
 import { DialogSkill } from "../dialog-skill"
-import {
-  DialogWorkspaceCreate,
-  DialogWorkspaceSelect,
-  restoreWorkspaceSession,
-  type WorkspaceSelection,
-} from "../dialog-workspace-create"
+import { DialogWorkspaceSelect, warpWorkspaceSession, type WorkspaceSelection } from "../dialog-workspace-create"
 import { DialogWorkspaceUnavailable } from "../dialog-workspace-unavailable"
 import { useArgs } from "@tui/context/args"
 import { Flag } from "@opencode-ai/core/flag/flag"
@@ -163,6 +158,7 @@ export function Prompt(props: PromptProps) {
   const [workspaceSelection, setWorkspaceSelection] = createSignal<WorkspaceSelection>()
   const [workspaceCreating, setWorkspaceCreating] = createSignal(false)
   const [workspaceCreatingDots, setWorkspaceCreatingDots] = createSignal(3)
+  const [warpNotice, setWarpNotice] = createSignal<string>()
   const currentProviderLabel = createMemo(() => local.model.parsed().provider)
   const hasRightContent = createMemo(() => Boolean(props.right))
   const selectedWorkspace = () => props.workspaceSelection ?? workspaceSelection()
@@ -175,6 +171,72 @@ export function Prompt(props: PromptProps) {
   function setCreatingWorkspace(creating: boolean) {
     setWorkspaceCreating(creating)
     props.onWorkspaceCreatingChange?.(creating)
+  }
+
+  function showWarpNotice(name: string) {
+    setWarpNotice(`Warped to ${name}`)
+    setTimeout(() => setWarpNotice(undefined), 4000)
+  }
+
+  async function createWorkspace(selection: Extract<WorkspaceSelection, { type: "new" }>) {
+    setCreatingWorkspace(true)
+    const result = await sdk.client.experimental.workspace
+      .create({ type: selection.workspaceType, branch: null })
+      .catch(() => undefined)
+    if (result == undefined || result.error || !result.data) {
+      selectWorkspace(undefined)
+      setCreatingWorkspace(false)
+      toast.show({
+        message: "Creating workspace failed",
+        variant: "error",
+      })
+      return
+    }
+
+    await project.workspace.sync()
+    const workspace = result.data
+    selectWorkspace({
+      type: "existing",
+      workspaceID: workspace.id,
+      workspaceType: workspace.type,
+      workspaceName: workspace.name,
+    })
+    setCreatingWorkspace(false)
+    return workspace
+  }
+
+  async function warpSession(selection: WorkspaceSelection) {
+    if (!props.sessionID) {
+      selectWorkspace(selection)
+      dialog.clear()
+      if (selection.type === "new") void createWorkspace(selection)
+      return
+    }
+    if (selection.type === "none") {
+      dialog.clear()
+      return
+    }
+
+    selectWorkspace(selection)
+    dialog.clear()
+
+    const workspace =
+      selection.type === "existing"
+        ? { id: selection.workspaceID, name: selection.workspaceName }
+        : await createWorkspace(selection)
+    if (!workspace) return
+
+    const warped = await warpWorkspaceSession({
+      dialog,
+      sdk,
+      sync,
+      project,
+      toast,
+      workspaceID: workspace.id,
+      sessionID: props.sessionID,
+      showSuccessToast: false,
+    })
+    if (warped) showWarpNotice(workspace.name)
   }
 
   createEffect(() => {
@@ -219,8 +281,8 @@ export function Prompt(props: PromptProps) {
 
   createEffect(() => {
     if (!input || input.isDestroyed) return
-    if (props.disabled || workspaceCreating()) input.cursorColor = theme.backgroundElement
-    if (!props.disabled && !workspaceCreating()) input.cursorColor = theme.text
+    if (props.disabled) input.cursorColor = theme.backgroundElement
+    if (!props.disabled) input.cursorColor = theme.text
   })
 
   const lastUserMessage = createMemo(() => {
@@ -499,8 +561,7 @@ export function Prompt(props: PromptProps) {
             <DialogWorkspaceSelect
               current={selectedWorkspace()}
               onSelect={(selection) => {
-                selectWorkspace(selection)
-                dialog.clear()
+                void warpSession(selection)
               }}
             />
           ))
@@ -563,7 +624,7 @@ export function Prompt(props: PromptProps) {
 
   createEffect(() => {
     if (!input || input.isDestroyed) return
-    if (props.visible === false || dialog.stack.length > 0 || workspaceCreating()) {
+    if (props.visible === false || dialog.stack.length > 0) {
       if (input.focused) input.blur()
       return
     }
@@ -583,7 +644,7 @@ export function Prompt(props: PromptProps) {
         : undefined
     input.traits = {
       capture,
-      suspend: !!props.disabled || workspaceCreating() || store.mode === "shell",
+      suspend: !!props.disabled || store.mode === "shell",
       status: store.mode === "shell" ? "SHELL" : undefined,
     }
   })
@@ -722,6 +783,7 @@ export function Prompt(props: PromptProps) {
   ])
 
   async function submit() {
+    setWarpNotice(undefined)
     // IME: double-defer may fire before onContentChange flushes the last
     // composed character (e.g. Korean hangul) to the store, so read
     // plainText directly and sync before any downstream reads.
@@ -729,7 +791,8 @@ export function Prompt(props: PromptProps) {
       setStore("prompt", "input", input.plainText)
       syncExtmarksWithPromptParts()
     }
-    if (props.disabled || workspaceCreating()) return false
+    if (props.disabled) return false
+    if (workspaceCreating()) return false
     if (autocomplete?.visible) return false
     if (!store.prompt.input) return false
     const agent = local.agent.current()
@@ -753,20 +816,14 @@ export function Prompt(props: PromptProps) {
         <DialogWorkspaceUnavailable
           onRestore={() => {
             dialog.replace(() => (
-              <DialogWorkspaceCreate
-                onSelect={(nextWorkspaceID) =>
-                  restoreWorkspaceSession({
-                    dialog,
-                    sdk,
-                    sync,
-                    project,
-                    toast,
-                    workspaceID: nextWorkspaceID,
-                    sessionID: props.sessionID!,
-                  })
-                }
+              <DialogWorkspaceSelect
+                current={selectedWorkspace()}
+                onSelect={(selection) => {
+                  void warpSession(selection)
+                }}
               />
             ))
+            return false
           }}
         />
       ))
@@ -836,32 +893,12 @@ export function Prompt(props: PromptProps) {
     let sessionID = props.sessionID
     if (sessionID == null) {
       const workspace = selectedWorkspace()
-      if (workspace?.type === "new") {
-        setCreatingWorkspace(true)
-        await new Promise((resolve) => setTimeout(resolve, 10_000))
-      }
-      const workspaceID = await iife(async () => {
+      const workspaceID = iife(() => {
         if (!workspace) return undefined
         if (workspace.type === "none") return undefined
         if (workspace.type === "existing") return workspace.workspaceID
-
-        const result = await sdk.client.experimental.workspace
-          .create({ type: workspace.workspaceType, branch: null })
-          .catch(() => undefined)
-        if (result == undefined || result.error || !result.data) return undefined
-
-        await project.workspace.sync()
-        return result.data.id
+        return undefined
       })
-
-      if (workspace?.type === "new" && !workspaceID) {
-        setCreatingWorkspace(false)
-        toast.show({
-          message: "Creating workspace failed",
-          variant: "error",
-        })
-        return true
-      }
 
       const res = await sdk.client.session.create({ workspace: workspaceID })
 
@@ -1092,6 +1129,7 @@ export function Prompt(props: PromptProps) {
     const selected = selectedWorkspace()
     if (!selected) return
     if (selected.type === "none") return
+    if (props.sessionID && !workspaceCreating()) return
     if (selected.type === "new") {
       return {
         type: "new",
@@ -1184,7 +1222,7 @@ export function Prompt(props: PromptProps) {
               }}
               keyBindings={textareaKeybindings()}
               onKeyDown={async (e) => {
-                if (props.disabled || workspaceCreating()) {
+                if (props.disabled) {
                   e.preventDefault()
                   return
                 }
@@ -1267,7 +1305,7 @@ export function Prompt(props: PromptProps) {
                 setTimeout(() => setTimeout(() => submit(), 0), 0)
               }}
               onPaste={async (event: PasteEvent) => {
-                if (props.disabled || workspaceCreating()) {
+                if (props.disabled) {
                   event.preventDefault()
                   return
                 }
@@ -1362,7 +1400,7 @@ export function Prompt(props: PromptProps) {
               }}
               onMouseDown={(r: MouseEvent) => r.target?.focus()}
               focusedBackgroundColor={theme.backgroundElement}
-              cursorColor={workspaceCreating() ? theme.backgroundElement : theme.text}
+              cursorColor={props.disabled ? theme.backgroundElement : theme.text}
               syntaxStyle={syntax()}
             />
             <box flexDirection="row" flexShrink={0} paddingTop={1} gap={1} justifyContent="space-between">
@@ -1433,35 +1471,8 @@ export function Prompt(props: PromptProps) {
         </box>
         <box width="100%" flexDirection="row" justifyContent="space-between">
           <Switch>
-            <Match when={workspaceLabel()}>
-              {(workspace) => (
-                <box paddingLeft={3} flexDirection="row" gap={1}>
-                  <Show when={workspaceCreating()}>
-                    <Spinner color={theme.accent} />
-                  </Show>
-                  <text fg={workspaceCreating() ? theme.accent : theme.text}>
-                    {(() => {
-                      const item = workspace()
-                      if (item.type === "new") {
-                        if (workspaceCreating()) return `Creating ${item.workspaceType}${".".repeat(workspaceCreatingDots())}`
-                        return (
-                          <>
-                            Workspace <span style={{ fg: theme.textMuted }}>(new {item.workspaceType})</span>
-                          </>
-                        )
-                      }
-                      return (
-                        <>
-                          Workspace <span style={{ fg: theme.textMuted }}>{item.workspaceName}</span>
-                        </>
-                      )
-                    })()}
-                  </text>
-                </box>
-              )}
-            </Match>
-            <Match when={true}>
-              <Show when={status().type !== "idle"} fallback={props.hint ?? <text />}>
+            <Match when={status().type !== "idle"}>
+              <Show when={true}>
                 <box
                   flexDirection="row"
                   gap={1}
@@ -1542,6 +1553,42 @@ export function Prompt(props: PromptProps) {
                 </box>
               </Show>
             </Match>
+            <Match when={warpNotice()}>
+              {(notice) => (
+                <box paddingLeft={3}>
+                  <text fg={theme.accent}>{notice()}</text>
+                </box>
+              )}
+            </Match>
+            <Match when={workspaceLabel()}>
+              {(workspace) => (
+                <box paddingLeft={3} flexDirection="row" gap={1}>
+                  <Show when={workspaceCreating()}>
+                    <Spinner color={theme.accent} />
+                  </Show>
+                  <text fg={workspaceCreating() ? theme.accent : theme.text}>
+                    {(() => {
+                      const item = workspace()
+                      if (item.type === "new") {
+                        if (workspaceCreating())
+                          return `Creating ${item.workspaceType}${".".repeat(workspaceCreatingDots())}`
+                        return (
+                          <>
+                            Workspace <span style={{ fg: theme.textMuted }}>(new {item.workspaceType})</span>
+                          </>
+                        )
+                      }
+                      return (
+                        <>
+                          Workspace <span style={{ fg: theme.textMuted }}>{item.workspaceName}</span>
+                        </>
+                      )
+                    })()}
+                  </text>
+                </box>
+              )}
+            </Match>
+            <Match when={true}>{props.hint ?? <text />}</Match>
           </Switch>
           <Show when={status().type !== "retry"}>
             <box gap={2} flexDirection="row">

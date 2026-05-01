@@ -466,16 +466,6 @@ export type EventWorkspaceFailed = {
   }
 }
 
-export type EventWorkspaceRestore = {
-  type: "workspace.restore"
-  properties: {
-    workspaceID: string
-    sessionID: string
-    total: number
-    step: number
-  }
-}
-
 export type EventWorkspaceStatus = {
   type: "workspace.status"
   properties: {
@@ -1143,7 +1133,6 @@ export type GlobalEvent = {
     | EventVcsBranchUpdated
     | EventWorkspaceReady
     | EventWorkspaceFailed
-    | EventWorkspaceRestore
     | EventWorkspaceStatus
     | EventWorktreeReady
     | EventWorktreeFailed
@@ -2086,7 +2075,6 @@ export type Event =
   | EventVcsBranchUpdated
   | EventWorkspaceReady
   | EventWorkspaceFailed
-  | EventWorkspaceRestore
   | EventWorkspaceStatus
   | EventWorktreeReady
   | EventWorktreeFailed
@@ -2564,7 +2552,7 @@ export type ExperimentalWorkspaceRemoveResponses = {
 export type ExperimentalWorkspaceRemoveResponse =
   ExperimentalWorkspaceRemoveResponses[keyof ExperimentalWorkspaceRemoveResponses]
 
-export type ExperimentalWorkspaceSessionRestoreData = {
+export type ExperimentalWorkspaceWarpData = {
   body?: {
     sessionID: string
   }
@@ -2575,30 +2563,27 @@ export type ExperimentalWorkspaceSessionRestoreData = {
     directory?: string
     workspace?: string
   }
-  url: "/experimental/workspace/{id}/session-restore"
+  url: "/experimental/workspace/{id}/warp"
 }
 
-export type ExperimentalWorkspaceSessionRestoreErrors = {
+export type ExperimentalWorkspaceWarpErrors = {
   /**
    * Bad request
    */
   400: BadRequestError
 }
 
-export type ExperimentalWorkspaceSessionRestoreError =
-  ExperimentalWorkspaceSessionRestoreErrors[keyof ExperimentalWorkspaceSessionRestoreErrors]
+export type ExperimentalWorkspaceWarpError = ExperimentalWorkspaceWarpErrors[keyof ExperimentalWorkspaceWarpErrors]
 
-export type ExperimentalWorkspaceSessionRestoreResponses = {
+export type ExperimentalWorkspaceWarpResponses = {
   /**
-   * Session replay started
+   * Session warped
    */
-  200: {
-    total: number
-  }
+  204: void
 }
 
-export type ExperimentalWorkspaceSessionRestoreResponse =
-  ExperimentalWorkspaceSessionRestoreResponses[keyof ExperimentalWorkspaceSessionRestoreResponses]
+export type ExperimentalWorkspaceWarpResponse =
+  ExperimentalWorkspaceWarpResponses[keyof ExperimentalWorkspaceWarpResponses]
 
 export type ProjectListData = {
   body?: never
@@ -4625,6 +4610,70 @@ export type SyncReplayResponses = {
 }
 
 export type SyncReplayResponse = SyncReplayResponses[keyof SyncReplayResponses]
+
+export type SyncEraseData = {
+  body?: {
+    sessionID: string
+  }
+  path?: never
+  query?: {
+    directory?: string
+    workspace?: string
+  }
+  url: "/sync/erase"
+}
+
+export type SyncEraseErrors = {
+  /**
+   * Bad request
+   */
+  400: BadRequestError
+}
+
+export type SyncEraseError = SyncEraseErrors[keyof SyncEraseErrors]
+
+export type SyncEraseResponses = {
+  /**
+   * Erased session sync events
+   */
+  200: {
+    sessionID: string
+  }
+}
+
+export type SyncEraseResponse = SyncEraseResponses[keyof SyncEraseResponses]
+
+export type SyncStealData = {
+  body?: {
+    sessionID: string
+  }
+  path?: never
+  query?: {
+    directory?: string
+    workspace?: string
+  }
+  url: "/sync/steal"
+}
+
+export type SyncStealErrors = {
+  /**
+   * Bad request
+   */
+  400: BadRequestError
+}
+
+export type SyncStealError = SyncStealErrors[keyof SyncStealErrors]
+
+export type SyncStealResponses = {
+  /**
+   * Session stolen into workspace
+   */
+  200: {
+    sessionID: string
+  }
+}
+
+export type SyncStealResponse = SyncStealResponses[keyof SyncStealResponses]
 
 export type SyncHistoryListData = {
   body?: {

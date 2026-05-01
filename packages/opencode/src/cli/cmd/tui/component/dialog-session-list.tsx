@@ -12,7 +12,7 @@ import { Flag } from "@opencode-ai/core/flag/flag"
 import { DialogSessionRename } from "./dialog-session-rename"
 import { createDebouncedSignal } from "../util/signal"
 import { useToast } from "../ui/toast"
-import { DialogWorkspaceCreate, restoreWorkspaceSession } from "./dialog-workspace-create"
+import { DialogWorkspaceSelect, type WorkspaceSelection, warpWorkspaceSession } from "./dialog-workspace-create"
 import { Spinner } from "./spinner"
 import { errorMessage } from "@/util/error"
 import { DialogSessionDeleteFailed } from "./dialog-session-delete-failed"
@@ -45,6 +45,36 @@ export function DialogSessionList() {
   function recover(session: NonNullable<ReturnType<typeof sessions>[number]>) {
     const workspace = project.workspace.get(session.workspaceID!)
     const list = () => dialog.replace(() => <DialogSessionList />)
+    const warp = async (selection: WorkspaceSelection) => {
+      if (selection.type === "none") return
+      const workspaceID = await (async () => {
+        if (selection.type === "existing") return selection.workspaceID
+        const result = await sdk.client.experimental.workspace
+          .create({ type: selection.workspaceType, branch: null })
+          .catch(() => undefined)
+        const workspace = result?.data
+        if (!workspace) {
+          toast.show({
+            message: `Failed to create workspace: ${errorMessage(result?.error ?? "no response")}`,
+            variant: "error",
+          })
+          return
+        }
+        await project.workspace.sync()
+        return workspace.id
+      })()
+      if (!workspaceID) return
+      await warpWorkspaceSession({
+        dialog,
+        sdk,
+        sync,
+        project,
+        toast,
+        workspaceID,
+        sessionID: session.id,
+        done: list,
+      })
+    }
     dialog.replace(() => (
       <DialogSessionDeleteFailed
         session={session.title}
@@ -72,19 +102,10 @@ export function DialogSessionList() {
         }}
         onRestore={() => {
           dialog.replace(() => (
-            <DialogWorkspaceCreate
-              onSelect={(workspaceID) =>
-                restoreWorkspaceSession({
-                  dialog,
-                  sdk,
-                  sync,
-                  project,
-                  toast,
-                  workspaceID,
-                  sessionID: session.id,
-                  done: list,
-                })
-              }
+            <DialogWorkspaceSelect
+              onSelect={(selection) => {
+                void warp(selection)
+              }}
             />
           ))
           return false

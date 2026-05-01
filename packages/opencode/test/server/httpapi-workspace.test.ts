@@ -179,18 +179,6 @@ describe("workspace HttpApi", () => {
     const workspace = (await created.json()) as Workspace.Info
     expect(workspace).toMatchObject({ type: "local-test", name: "local-test" })
 
-    const session = await Instance.provide({
-      directory: tmp.path,
-      fn: async () => runSession(Session.Service.use((svc) => svc.create({}))),
-    })
-    const restored = await request(WorkspacePaths.sessionRestore.replace(":id", workspace.id), tmp.path, {
-      method: "POST",
-      headers: { "content-type": "application/json" },
-      body: JSON.stringify({ sessionID: session.id }),
-    })
-    expect(restored.status).toBe(200)
-    expect((await restored.json()) as { total: number }).toMatchObject({ total: expect.any(Number) })
-
     const removed = await request(WorkspacePaths.remove.replace(":id", workspace.id), tmp.path, { method: "DELETE" })
     expect(removed.status).toBe(200)
     expect(await removed.json()).toMatchObject({ id: workspace.id })
