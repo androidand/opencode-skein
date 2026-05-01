@@ -227,7 +227,7 @@ export const dict = {
   "common.default": "ค่าเริ่มต้น",
   "common.attachment": "ไฟล์แนบ",
 
-  "prompt.placeholder.shell": "ป้อนคำสั่งเชลล์...",
+  "prompt.placeholder.shell": "ป้อนคำสั่งเชลล์... {{example}}",
   "prompt.placeholder.normal": 'ถามอะไรก็ได้... "{{example}}"',
   "prompt.placeholder.simple": "ถามอะไรก็ได้...",
   "prompt.placeholder.summarizeComments": "สรุปความคิดเห็น…",
@@ -647,6 +647,9 @@ export const dict = {
   "settings.general.row.editToolPartsExpanded.title": "ขยายส่วนเครื่องมือ edit",
   "settings.general.row.editToolPartsExpanded.description":
     "แสดงส่วนเครื่องมือ edit, write และ patch แบบขยายตามค่าเริ่มต้นในไทม์ไลน์",
+  "settings.general.row.showSessionProgressBar.title": "แสดงแถบความคืบหน้าของเซสชัน",
+  "settings.general.row.showSessionProgressBar.description":
+    "แสดงแถบความคืบหน้าแบบเคลื่อนไหวที่ด้านบนของเซสชันเมื่อเอเจนต์กำลังทำงาน",
   "settings.general.row.wayland.title": "ใช้ Wayland แบบเนทีฟ",
   "settings.general.row.wayland.description": "ปิดใช้งาน X11 fallback บน Wayland ต้องรีสตาร์ท",
   "settings.general.row.wayland.tooltip": "บน Linux ที่มีจอภาพรีเฟรชเรตแบบผสม Wayland แบบเนทีฟอาจเสถียรกว่า",
@@ -793,8 +796,6 @@ export const dict = {
   "settings.permissions.tool.webfetch.description": "ดึงเนื้อหาจาก URL",
   "settings.permissions.tool.websearch.title": "ค้นหาเว็บ",
   "settings.permissions.tool.websearch.description": "ค้นหาบนเว็บ",
-  "settings.permissions.tool.codesearch.title": "ค้นหาโค้ด",
-  "settings.permissions.tool.codesearch.description": "ค้นหาโค้ดบนเว็บ",
   "settings.permissions.tool.external_directory.title": "ไดเรกทอรีภายนอก",
   "settings.permissions.tool.external_directory.description": "เข้าถึงไฟล์นอกไดเรกทอรีโปรเจกต์",
   "settings.permissions.tool.doom_loop.title": "Doom Loop",

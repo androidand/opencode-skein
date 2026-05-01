@@ -215,7 +215,7 @@ export const dict = {
   "common.saving": "Speichert...",
   "common.default": "Standard",
   "common.attachment": "Anhang",
-  "prompt.placeholder.shell": "Shell-Befehl eingeben...",
+  "prompt.placeholder.shell": "Shell-Befehl eingeben... {{example}}",
   "prompt.placeholder.normal": 'Fragen Sie alles... "{{example}}"',
   "prompt.placeholder.simple": "Fragen Sie alles...",
   "prompt.placeholder.summarizeComments": "Kommentare zusammenfassen…",
@@ -601,6 +601,9 @@ export const dict = {
   "settings.general.row.editToolPartsExpanded.title": "Edit-Tool-Abschnitte ausklappen",
   "settings.general.row.editToolPartsExpanded.description":
     "Edit-, Write- und Patch-Tool-Abschnitte standardmäßig in der Timeline ausgeklappt anzeigen",
+  "settings.general.row.showSessionProgressBar.title": "Sitzungsfortschrittsleiste anzeigen",
+  "settings.general.row.showSessionProgressBar.description":
+    "Die animierte Fortschrittsleiste oben in der Sitzung anzeigen, wenn der Agent arbeitet",
   "settings.general.row.wayland.title": "Natives Wayland verwenden",
   "settings.general.row.wayland.description": "X11-Fallback unter Wayland deaktivieren. Erfordert Neustart.",
   "settings.general.row.wayland.tooltip":
@@ -740,8 +743,6 @@ export const dict = {
   "settings.permissions.tool.webfetch.description": "Inhalt von einer URL abrufen",
   "settings.permissions.tool.websearch.title": "Web-Suche",
   "settings.permissions.tool.websearch.description": "Das Web durchsuchen",
-  "settings.permissions.tool.codesearch.title": "Code-Suche",
-  "settings.permissions.tool.codesearch.description": "Code im Web durchsuchen",
   "settings.permissions.tool.external_directory.title": "Externes Verzeichnis",
   "settings.permissions.tool.external_directory.description": "Zugriff auf Dateien außerhalb des Projektverzeichnisses",
   "settings.permissions.tool.doom_loop.title": "Doom Loop",

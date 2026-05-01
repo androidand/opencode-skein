@@ -230,7 +230,7 @@ export const dict = {
   "common.default": "Standard",
   "common.attachment": "vedlegg",
 
-  "prompt.placeholder.shell": "Skriv inn shell-kommando...",
+  "prompt.placeholder.shell": "Skriv inn shell-kommando... {{example}}",
   "prompt.placeholder.normal": 'Spør om hva som helst... "{{example}}"',
   "prompt.placeholder.simple": "Spør om hva som helst...",
   "prompt.placeholder.summarizeComments": "Oppsummer kommentarer…",
@@ -656,6 +656,9 @@ export const dict = {
   "settings.general.row.editToolPartsExpanded.title": "Utvid edit-verktøydeler",
   "settings.general.row.editToolPartsExpanded.description":
     "Vis edit-, write- og patch-verktøydeler utvidet som standard i tidslinjen",
+  "settings.general.row.showSessionProgressBar.title": "Vis fremdriftslinje for sesjonen",
+  "settings.general.row.showSessionProgressBar.description":
+    "Vis den animerte fremdriftslinjen øverst i sesjonen når agenten jobber",
   "settings.general.row.wayland.title": "Bruk innebygd Wayland",
   "settings.general.row.wayland.description": "Deaktiver X11-fallback på Wayland. Krever omstart.",
   "settings.general.row.wayland.tooltip":
@@ -804,8 +807,6 @@ export const dict = {
   "settings.permissions.tool.webfetch.description": "Hent innhold fra en URL",
   "settings.permissions.tool.websearch.title": "Websøk",
   "settings.permissions.tool.websearch.description": "Søk på nettet",
-  "settings.permissions.tool.codesearch.title": "Kodesøk",
-  "settings.permissions.tool.codesearch.description": "Søk etter kode på nettet",
   "settings.permissions.tool.external_directory.title": "Ekstern mappe",
   "settings.permissions.tool.external_directory.description": "Få tilgang til filer utenfor prosjektmappen",
   "settings.permissions.tool.doom_loop.title": "Doom Loop",

@@ -232,7 +232,7 @@ export const dict = {
   "common.default": "Varsayılan",
   "common.attachment": "ek",
 
-  "prompt.placeholder.shell": "Kabuk komutu girin...",
+  "prompt.placeholder.shell": "Kabuk komutu girin... {{example}}",
   "prompt.placeholder.normal": 'Bir şeyler sorun... "{{example}}"',
   "prompt.placeholder.simple": "Bir şeyler sorun...",
   "prompt.placeholder.summarizeComments": "Yorumları özetle…",
@@ -663,6 +663,10 @@ export const dict = {
   "settings.general.row.editToolPartsExpanded.description":
     "Zaman çizelgesinde düzenleme, yazma ve yama araç bileşenlerini varsayılan olarak genişletilmiş göster",
 
+  "settings.general.row.showSessionProgressBar.title": "Oturum ilerleme çubuğunu göster",
+  "settings.general.row.showSessionProgressBar.description":
+    "Ajan çalışırken oturumun üst kısmında animasyonlu ilerleme çubuğunu göster",
+
   "settings.general.row.wayland.title": "Yerel Wayland kullan",
   "settings.general.row.wayland.description":
     "Wayland'da X11 geri dönüşünü devre dışı bırak. Yeniden başlatma gerektirir.",
@@ -812,8 +816,6 @@ export const dict = {
   "settings.permissions.tool.webfetch.description": "Bir URL'den içerik getir",
   "settings.permissions.tool.websearch.title": "Web Ara",
   "settings.permissions.tool.websearch.description": "Web'de ara",
-  "settings.permissions.tool.codesearch.title": "Kod Ara",
-  "settings.permissions.tool.codesearch.description": "Web'de kod ara",
   "settings.permissions.tool.external_directory.title": "Harici Dizin",
   "settings.permissions.tool.external_directory.description": "Proje dizini dışındaki dosyalara eriş",
   "settings.permissions.tool.doom_loop.title": "Sonsuz Döngü",

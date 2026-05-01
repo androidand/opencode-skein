@@ -209,7 +209,7 @@ export const dict = {
   "common.saving": "保存中...",
   "common.default": "デフォルト",
   "common.attachment": "添付ファイル",
-  "prompt.placeholder.shell": "シェルコマンドを入力...",
+  "prompt.placeholder.shell": "シェルコマンドを入力... {{example}}",
   "prompt.placeholder.normal": '何でも聞いてください... "{{example}}"',
   "prompt.placeholder.simple": "何でも聞いてください...",
   "prompt.placeholder.summarizeComments": "コメントを要約…",
@@ -587,6 +587,9 @@ export const dict = {
   "settings.general.row.editToolPartsExpanded.title": "edit ツールパーツを展開",
   "settings.general.row.editToolPartsExpanded.description":
     "タイムラインで edit、write、patch ツールパーツをデフォルトで展開して表示します",
+  "settings.general.row.showSessionProgressBar.title": "セッション進行状況バーを表示",
+  "settings.general.row.showSessionProgressBar.description":
+    "エージェントの作業中に、セッション上部にアニメーション付きの進行状況バーを表示します",
   "settings.general.row.wayland.title": "ネイティブWaylandを使用",
   "settings.general.row.wayland.description": "WaylandでのX11フォールバックを無効にします。再起動が必要です。",
   "settings.general.row.wayland.tooltip":
@@ -724,8 +727,6 @@ export const dict = {
   "settings.permissions.tool.webfetch.description": "URLからコンテンツを取得",
   "settings.permissions.tool.websearch.title": "Web検索",
   "settings.permissions.tool.websearch.description": "ウェブを検索",
-  "settings.permissions.tool.codesearch.title": "コード検索",
-  "settings.permissions.tool.codesearch.description": "ウェブ上のコードを検索",
   "settings.permissions.tool.external_directory.title": "外部ディレクトリ",
   "settings.permissions.tool.external_directory.description": "プロジェクトディレクトリ外のファイルへのアクセス",
   "settings.permissions.tool.doom_loop.title": "無限ループ",
