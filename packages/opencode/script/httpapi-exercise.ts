@@ -60,6 +60,7 @@ type Method = (typeof Methods)[number]
 type OpenApiMethod = (typeof OpenApiMethods)[number]
 type Mode = "effect" | "parity" | "coverage"
 type Comparison = "none" | "status" | "json"
+type CaptureMode = "full" | "stream"
 type ProjectOptions = { git?: boolean; config?: Partial<Config.Info>; llm?: boolean }
 type OpenApiSpec = { paths?: Record<string, Partial<Record<OpenApiMethod, unknown>>> }
 type JsonObject = Record<string, unknown>
@@ -99,6 +100,7 @@ type ScenarioContext = {
   worktreeRemove: (directory: string) => Effect.Effect<void>
   llmText: (value: string) => Effect.Effect<void>
   llmWait: (count: number) => Effect.Effect<void>
+  tuiRequest: (request: { path: string; body: unknown }) => Effect.Effect<void>
 }
 
 /** Scenario context after `.seeded(...)`; `state` preserves the seed return type in the DSL. */
@@ -117,6 +119,7 @@ type ActiveScenario = {
   request: (ctx: ScenarioContext, state: unknown) => RequestSpec
   expect: (ctx: ScenarioContext, state: unknown, result: CallResult) => Effect.Effect<void>
   compare: Comparison
+  capture: CaptureMode
   mutates: boolean
   reset: boolean
 }
@@ -129,6 +132,7 @@ type BuilderState<S> = {
   project: ProjectOptions | undefined
   seed: (ctx: ScenarioContext) => Effect.Effect<S>
   request: (ctx: SeededContext<S>) => RequestSpec
+  capture: CaptureMode
   mutates: boolean
   reset: boolean
 }
@@ -166,6 +170,7 @@ type Runtime = {
   Todo: typeof import("../src/session/todo")["Todo"]
   Worktree: typeof import("../src/worktree")["Worktree"]
   Project: typeof import("../src/project/project")["Project"]
+  Tui: typeof import("../src/server/routes/instance/tui")
   disposeAllInstances: typeof import("../test/fixture/fixture")["disposeAllInstances"]
   tmpdir: typeof import("../test/fixture/fixture")["tmpdir"]
   resetDatabase: typeof import("../test/fixture/db")["resetDatabase"]
@@ -186,6 +191,7 @@ function runtime() {
     const todo = await import("../src/session/todo")
     const worktree = await import("../src/worktree")
     const project = await import("../src/project/project")
+    const tui = await import("../src/server/routes/instance/tui")
     const fixture = await import("../test/fixture/fixture")
     const db = await import("../test/fixture/db")
     return {
@@ -200,6 +206,7 @@ function runtime() {
       Todo: todo.Todo,
       Worktree: worktree.Worktree,
       Project: project.Project,
+      Tui: tui,
       disposeAllInstances: fixture.disposeAllInstances,
       tmpdir: fixture.tmpdir,
       resetDatabase: db.resetDatabase,
@@ -218,6 +225,7 @@ class ScenarioBuilder<S = undefined> {
       project: { git: true },
       seed: () => Effect.succeed(undefined as S),
       request: (ctx) => ({ path, headers: ctx.headers() }),
+      capture: "full",
       mutates: false,
       reset: true,
     }
@@ -245,6 +253,10 @@ class ScenarioBuilder<S = undefined> {
 
   preserveDatabase() {
     return this.clone({ reset: false })
+  }
+
+  stream() {
+    return this.clone({ capture: "stream" })
   }
 
   /** Assert a non-JSON or shape-only response. */
@@ -313,6 +325,7 @@ class ScenarioBuilder<S = undefined> {
       request: (ctx, seeded) => state.request({ ...ctx, state: seeded as S }),
       expect: (ctx, seeded, result) => expect({ ...ctx, state: seeded as S }, result),
       compare,
+      capture: state.capture,
       mutates: state.mutates,
       reset: state.reset,
     }
@@ -344,6 +357,16 @@ const scenarios: Scenario[] = [
     object(body)
     check(body.healthy === true, "server should report healthy")
   }),
+  http
+    .get("/global/event", "global.event")
+    .global()
+    .stream()
+    .status(200, (_ctx, result) =>
+      Effect.sync(() => {
+        check(result.contentType.includes("text/event-stream"), "global event should be an SSE stream")
+        check(result.text.includes("server.connected"), "global event should emit initial connection event")
+      }),
+    "status"),
   http.get("/global/config", "global.config.get").global().json(),
   http
     .patch("/global/config", "global.config.update")
@@ -362,6 +385,9 @@ const scenarios: Scenario[] = [
         check(text.includes('"username": "httpapi-global"'), "global config update should write isolated config file")
       }),
     "status"),
+  http.post("/global/dispose", "global.dispose").global().mutating().json(200, (body) => {
+    check(body === true, "global dispose should return true")
+  }, "status"),
   http.get("/path", "path.get").json(200, (body, ctx) => {
     object(body)
     check(body.directory === ctx.directory, "directory should resolve from x-opencode-directory")
@@ -463,6 +489,15 @@ const scenarios: Scenario[] = [
     .seeded((ctx) => ctx.file("hello.ts", "export const hello = 1\n"))
     .at((ctx) => ({ path: `/find/symbol?${new URLSearchParams({ query: "hello" })}`, headers: ctx.headers() }))
     .json(200, array),
+  http
+    .get("/event", "event.stream")
+    .stream()
+    .status(200, (_ctx, result) =>
+      Effect.sync(() => {
+        check(result.contentType.includes("text/event-stream"), "event should be an SSE stream")
+        check(result.text.includes("server.connected"), "event should emit initial connection event")
+      }),
+    "status"),
   http.get("/mcp", "mcp.status").json(),
   http.get("/pty/shells", "pty.shells").json(200, array),
   http.get("/pty", "pty.list").json(200, array),
@@ -1004,9 +1039,16 @@ const scenarios: Scenario[] = [
     .post("/tui/control/response", "tui.control.response")
     .at((ctx) => ({ path: "/tui/control/response", headers: ctx.headers(), body: { ok: true } }))
     .json(200, boolean, "status"),
-  pending("GET", "/event", "event.stream", "SSE probe should publish and read one Bus event"),
-  pending("GET", "/global/event", "global.event", "SSE probe should publish and read one global event"),
-  pending("GET", "/tui/control/next", "tui.control.next", "route blocks until a TUI request is queued"),
+  http
+    .get("/tui/control/next", "tui.control.next")
+    .mutating()
+    .seeded((ctx) => ctx.tuiRequest({ path: "/tui/exercise", body: { text: "queued" } }))
+    .json(200, (body) => {
+      object(body)
+      check(body.path === "/tui/exercise", "control next should return queued path")
+      object(body.body)
+      check(body.body.text === "queued", "control next should return queued body")
+    }, "status"),
   pending("POST", "/experimental/console/switch", "experimental.console.switchOrg", "requires seeded Console account/org state"),
   pending("POST", "/experimental/workspace", "experimental.workspace.create", "requires a safe fake workspace adapter or adapter fixture"),
   pending("DELETE", "/experimental/workspace/{id}", "experimental.workspace.remove", "requires a seeded workspace adapter entry"),
@@ -1029,7 +1071,6 @@ const scenarios: Scenario[] = [
   pending("DELETE", "/session/{sessionID}/share", "session.unshare", "hits sharing service; needs share fixture"),
   pending("POST", "/sync/start", "sync.start", "starts background workspace sync that must be joined before DB reset"),
   pending("POST", "/sync/replay", "sync.replay", "requires a valid serialized sync event fixture"),
-  pending("POST", "/global/dispose", "global.dispose", "assert all instances are disposed after response"),
   pending("POST", "/global/upgrade", "global.upgrade", "avoid shelling to real upgrade until faked"),
 ]
 
@@ -1193,6 +1234,7 @@ function withContext<A, E>(scenario: ActiveScenario, use: (ctx: SeededContext<un
           run(modules.Worktree.Service.use((svc) => svc.remove({ directory })).pipe(Effect.ignore)),
         llmText: (value) => Effect.suspend(() => llm().text(value)),
         llmWait: (count) => Effect.suspend(() => llm().wait(count)),
+        tuiRequest: (request) => Effect.sync(() => modules.Tui.submitTuiRequest(request)),
       }
       const state = yield* scenario.seed(base)
       return yield* use({ ...base, state })
@@ -1251,7 +1293,7 @@ function fakeLlmConfig(url: string): Partial<Config.Info> {
 }
 
 function call(backend: "effect" | "legacy", scenario: ActiveScenario, ctx: SeededContext<unknown>) {
-  return Effect.promise(async () => capture(await app(await runtime(), backend).request(toRequest(scenario, ctx))))
+  return Effect.promise(async () => capture(await app(await runtime(), backend).request(toRequest(scenario, ctx)), scenario.capture))
 }
 
 function app(modules: Runtime, backend: "effect" | "legacy") {
@@ -1283,14 +1325,28 @@ function toRequest(scenario: ActiveScenario, ctx: SeededContext<unknown>) {
   })
 }
 
-async function capture(response: Response): Promise<CallResult> {
-  const text = await response.text()
+async function capture(response: Response, mode: CaptureMode): Promise<CallResult> {
+  const text = mode === "stream" ? await captureStream(response) : await response.text()
   return {
     status: response.status,
     contentType: response.headers.get("content-type") ?? "",
     text,
     body: parse(text),
   }
+}
+
+async function captureStream(response: Response) {
+  if (!response.body) return ""
+  const reader = response.body.getReader()
+  const read = reader.read().then((result) => ({ result }))
+  const winner = await Promise.race([read, Bun.sleep(1_000).then(() => ({ timeout: true }))])
+  if ("timeout" in winner) {
+    await reader.cancel("timed out waiting for stream chunk").catch(() => undefined)
+    throw new Error("timed out waiting for stream chunk")
+  }
+  await reader.cancel().catch(() => undefined)
+  if (winner.result.done) return ""
+  return new TextDecoder().decode(winner.result.value)
 }
 
 function compare(scenario: ActiveScenario, effect: CallResult, legacy: CallResult) {
