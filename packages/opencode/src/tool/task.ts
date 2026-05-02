@@ -11,6 +11,7 @@ import { TuiEvent } from "@/cli/cmd/tui/event"
 import { Cause, Effect, Option, Schema } from "effect"
 import { Config } from "@/config/config"
 import { BackgroundJob } from "@/background/job"
+import { Flag } from "@opencode-ai/core/flag/flag"
 
 export interface TaskPromptOps {
   cancel(sessionID: SessionID): void
@@ -159,6 +160,9 @@ export const TaskTool = Tool.define(
         providerID: msg.info.providerID,
       }
       const background = params.background === true
+      if (background && !Flag.OPENCODE_EXPERIMENTAL) {
+        return yield* Effect.fail(new Error("Background tasks require OPENCODE_EXPERIMENTAL=true"))
+      }
 
       const metadata = {
         sessionId: nextSession.id,

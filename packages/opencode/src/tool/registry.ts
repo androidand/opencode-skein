@@ -222,7 +222,7 @@ export const layer: Layer.Layer<
             tool.edit,
             tool.write,
             tool.task,
-            tool.taskstatus,
+            ...(Flag.OPENCODE_EXPERIMENTAL ? [tool.taskstatus] : []),
             tool.fetch,
             tool.todo,
             tool.search,

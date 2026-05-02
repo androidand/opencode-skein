@@ -15,10 +15,14 @@ import { TaskTool, type TaskPromptOps } from "../../src/tool/task"
 import { Truncate } from "@/tool/truncate"
 import { ToolRegistry } from "@/tool/registry"
 import { BackgroundJob } from "@/background/job"
+import { Flag } from "@opencode-ai/core/flag/flag"
 import { provideTmpdirInstance } from "../fixture/fixture"
 import { testEffect } from "../lib/effect"
 
+const originalExperimental = Flag.OPENCODE_EXPERIMENTAL
+
 afterEach(async () => {
+  Flag.OPENCODE_EXPERIMENTAL = originalExperimental
   await Instance.disposeAll()
 })
 
@@ -442,6 +446,7 @@ describe("tool.task", () => {
   it.live("execute launches background tasks without waiting for completion", () =>
     provideTmpdirInstance(() =>
       Effect.gen(function* () {
+        Flag.OPENCODE_EXPERIMENTAL = true
         const sessions = yield* Session.Service
         const jobs = yield* BackgroundJob.Service
         const { chat, assistant } = yield* seed()
@@ -485,6 +490,7 @@ describe("tool.task", () => {
   it.live("background tasks inject completion into the parent session and resume when idle", () =>
     provideTmpdirInstance(() =>
       Effect.gen(function* () {
+        Flag.OPENCODE_EXPERIMENTAL = true
         const sessions = yield* Session.Service
         const jobs = yield* BackgroundJob.Service
         const { chat, assistant } = yield* seed()
