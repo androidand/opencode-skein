@@ -499,6 +499,55 @@ const scenarios: Scenario[] = [
       }),
     "status"),
   http.get("/mcp", "mcp.status").json(),
+  http
+    .post("/mcp", "mcp.add")
+    .mutating()
+    .at((ctx) => ({
+      path: "/mcp",
+      headers: ctx.headers(),
+      body: { name: "httpapi-disabled", config: { type: "local", command: ["bun", "--version"], enabled: false } },
+    }))
+    .json(200, (body) => {
+      object(body)
+      object(body["httpapi-disabled"])
+      check(body["httpapi-disabled"].status === "disabled", "disabled MCP server should be added without spawning")
+    }, "status"),
+  http
+    .post("/mcp/{name}/auth", "mcp.auth.start")
+    .at((ctx) => ({ path: route("/mcp/{name}/auth", { name: "httpapi-missing" }), headers: ctx.headers() }))
+    .json(400, (body) => {
+      object(body)
+      check(typeof body.error === "string", "unsupported MCP OAuth response should include error")
+    }, "status"),
+  http
+    .delete("/mcp/{name}/auth", "mcp.auth.remove")
+    .mutating()
+    .at((ctx) => ({ path: route("/mcp/{name}/auth", { name: "httpapi-missing" }), headers: ctx.headers() }))
+    .json(200, (body) => {
+      object(body)
+      check(body.success === true, "MCP auth removal should return success")
+    }, "status"),
+  http
+    .post("/mcp/{name}/auth/authenticate", "mcp.auth.authenticate")
+    .at((ctx) => ({ path: route("/mcp/{name}/auth/authenticate", { name: "httpapi-missing" }), headers: ctx.headers() }))
+    .json(400, (body) => {
+      object(body)
+      check(typeof body.error === "string", "unsupported MCP OAuth authenticate response should include error")
+    }, "status"),
+  http
+    .post("/mcp/{name}/connect", "mcp.connect")
+    .mutating()
+    .at((ctx) => ({ path: route("/mcp/{name}/connect", { name: "httpapi-missing" }), headers: ctx.headers() }))
+    .json(200, (body) => {
+      check(body === true, "missing MCP connect should remain a no-op success")
+    }, "status"),
+  http
+    .post("/mcp/{name}/disconnect", "mcp.disconnect")
+    .mutating()
+    .at((ctx) => ({ path: route("/mcp/{name}/disconnect", { name: "httpapi-missing" }), headers: ctx.headers() }))
+    .json(200, (body) => {
+      check(body === true, "missing MCP disconnect should remain a no-op success")
+    }, "status"),
   http.get("/pty/shells", "pty.shells").json(200, array),
   http.get("/pty", "pty.list").json(200, array),
   http.get("/experimental/console", "experimental.console.get").json(),
@@ -1053,13 +1102,7 @@ const scenarios: Scenario[] = [
   pending("POST", "/experimental/workspace", "experimental.workspace.create", "requires a safe fake workspace adapter or adapter fixture"),
   pending("DELETE", "/experimental/workspace/{id}", "experimental.workspace.remove", "requires a seeded workspace adapter entry"),
   pending("POST", "/experimental/workspace/{id}/session-restore", "experimental.workspace.sessionRestore", "requires seeded workspace sync history"),
-  pending("POST", "/mcp", "mcp.add", "mutates project MCP config; needs a harmless MCP fixture"),
-  pending("POST", "/mcp/{name}/auth", "mcp.auth.start", "requires MCP auth-capable fixture"),
-  pending("DELETE", "/mcp/{name}/auth", "mcp.auth.remove", "requires MCP auth-capable fixture"),
-  pending("POST", "/mcp/{name}/auth/authenticate", "mcp.auth.authenticate", "requires MCP auth-capable fixture"),
   pending("POST", "/mcp/{name}/auth/callback", "mcp.auth.callback", "requires MCP auth callback fixture"),
-  pending("POST", "/mcp/{name}/connect", "mcp.connect", "requires MCP server fixture"),
-  pending("POST", "/mcp/{name}/disconnect", "mcp.disconnect", "requires MCP server fixture"),
   pending("POST", "/provider/{providerID}/oauth/authorize", "provider.oauth.authorize", "requires provider OAuth fixture"),
   pending("POST", "/provider/{providerID}/oauth/callback", "provider.oauth.callback", "requires provider OAuth fixture"),
   pending("POST", "/pty", "pty.create", "spawns a real PTY; needs controlled process fixture"),
