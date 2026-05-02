@@ -234,10 +234,19 @@ class ScenarioBuilder<S = undefined> {
   }
 
   /** Assert a non-JSON or shape-only response. */
-  ok(compare: Comparison = "status") {
+  ok(status = 200, compare: Comparison = "status") {
     return this.done(compare, (_ctx, result) =>
       Effect.sync(() => {
-        if (result.status !== 200) throw new Error(`expected 200, got ${result.status}: ${result.text}`)
+        if (result.status !== status) throw new Error(`expected ${status}, got ${result.status}: ${result.text}`)
+      }),
+    )
+  }
+
+  status(status = 200, inspect?: (ctx: SeededContext<S>, result: CallResult) => Effect.Effect<void>, compare: Comparison = "status") {
+    return this.done(compare, (ctx, result) =>
+      Effect.gen(function* () {
+        if (result.status !== status) throw new Error(`expected ${status}, got ${result.status}: ${result.text}`)
+        if (inspect) yield* inspect(ctx, result)
       }),
     )
   }
@@ -680,6 +689,29 @@ const scenarios: Scenario[] = [
       check(body === true, "abort should return true")
     }, "status"),
   http
+    .post("/session/{sessionID}/init", "session.init")
+    .withLlm()
+    .seeded((ctx) =>
+      Effect.gen(function* () {
+        const session = yield* ctx.session({ title: "Init session" })
+        const message = yield* ctx.message(session.id, { text: "initialize" })
+        yield* ctx.llmText("initialized")
+        yield* ctx.llmText("initialized")
+        return { session, message }
+      }),
+    )
+    .at((ctx) => ({
+      path: route("/session/{sessionID}/init", { sessionID: ctx.state.session.id }),
+      headers: ctx.headers(),
+      body: { providerID: "test", modelID: "test-model", messageID: ctx.state.message.info.id },
+    }))
+    .jsonEffect(200, (body, ctx) =>
+      Effect.gen(function* () {
+        check(body === true, "init should return true")
+        yield* ctx.llmWait(1)
+      }),
+    "status"),
+  http
     .post("/session/{sessionID}/message", "session.prompt")
     .withLlm()
     .seeded((ctx) =>
@@ -707,6 +739,68 @@ const scenarios: Scenario[] = [
         yield* ctx.llmWait(1)
       }),
     "status"),
+  http
+    .post("/session/{sessionID}/prompt_async", "session.prompt_async")
+    .withLlm()
+    .seeded((ctx) =>
+      Effect.gen(function* () {
+        const session = yield* ctx.session({ title: "Async prompt session" })
+        yield* ctx.llmText("fake async assistant")
+        yield* ctx.llmText("fake async assistant")
+        return session
+      }),
+    )
+    .at((ctx) => ({
+      path: route("/session/{sessionID}/prompt_async", { sessionID: ctx.state.id }),
+      headers: ctx.headers(),
+      body: {
+        agent: "build",
+        model: { providerID: "test", modelID: "test-model" },
+        parts: [{ type: "text", text: "hello async" }],
+      },
+    }))
+    .status(204, (ctx) =>
+      Effect.gen(function* () {
+        yield* ctx.llmWait(1)
+      }),
+    ),
+  http
+    .post("/session/{sessionID}/command", "session.command")
+    .withLlm()
+    .seeded((ctx) =>
+      Effect.gen(function* () {
+        const session = yield* ctx.session({ title: "Command session" })
+        yield* ctx.llmText("command done")
+        yield* ctx.llmText("command done")
+        return session
+      }),
+    )
+    .at((ctx) => ({
+      path: route("/session/{sessionID}/command", { sessionID: ctx.state.id }),
+      headers: ctx.headers(),
+      body: { command: "init", arguments: "", model: "test/test-model" },
+    }))
+    .jsonEffect(200, (body, ctx) =>
+      Effect.gen(function* () {
+        object(body)
+        check(isRecord(body.info) && body.info.role === "assistant", "command should return assistant message")
+        yield* ctx.llmWait(1)
+      }),
+    "status"),
+  http
+    .post("/session/{sessionID}/shell", "session.shell")
+    .mutating()
+    .seeded((ctx) => ctx.session({ title: "Shell session" }))
+    .at((ctx) => ({
+      path: route("/session/{sessionID}/shell", { sessionID: ctx.state.id }),
+      headers: ctx.headers(),
+      body: { agent: "build", model: { providerID: "test", modelID: "test-model" }, command: "printf shell-ok" },
+    }))
+    .json(200, (body) => {
+      object(body)
+      check(isRecord(body.info) && body.info.role === "assistant", "shell should return assistant message")
+      check(Array.isArray(body.parts) && body.parts.some((part) => isRecord(part) && part.type === "tool"), "shell should return a tool part")
+    }, "status"),
   http
     .post("/session/{sessionID}/revert", "session.revert")
     .mutating()
@@ -810,13 +904,9 @@ const scenarios: Scenario[] = [
   pending("PUT", "/pty/{ptyID}", "pty.update", "needs controlled PTY fixture"),
   pending("DELETE", "/pty/{ptyID}", "pty.remove", "needs controlled PTY fixture"),
   pending("GET", "/pty/{ptyID}/connect", "pty.connect", "websocket route needs upgrade-capable probe"),
-  pending("POST", "/session/{sessionID}/init", "session.init", "invokes LLM command flow; needs test LLM wiring"),
   pending("POST", "/session/{sessionID}/share", "session.share", "hits sharing service; needs share fixture"),
   pending("DELETE", "/session/{sessionID}/share", "session.unshare", "hits sharing service; needs share fixture"),
   pending("POST", "/session/{sessionID}/summarize", "session.summarize", "invokes compaction/LLM flow; needs test LLM wiring"),
-  pending("POST", "/session/{sessionID}/prompt_async", "session.prompt_async", "starts async LLM prompt; needs test LLM wiring"),
-  pending("POST", "/session/{sessionID}/command", "session.command", "invokes LLM command flow; needs test LLM wiring"),
-  pending("POST", "/session/{sessionID}/shell", "session.shell", "invokes session shell/LLM flow; needs test LLM wiring"),
   pending("POST", "/sync/start", "sync.start", "starts background workspace sync that must be joined before DB reset"),
   pending("POST", "/sync/replay", "sync.replay", "requires a valid serialized sync event fixture"),
   pending("POST", "/global/dispose", "global.dispose", "assert all instances are disposed after response"),
