@@ -215,6 +215,27 @@ describe("InstanceStore", () => {
     }),
   )
 
+  it.live("re-arms disposeAll after completion", () =>
+    Effect.gen(function* () {
+      const dir1 = yield* tmpdirScoped({ git: true })
+      const dir2 = yield* tmpdirScoped({ git: true })
+      const store = yield* InstanceStore.Service
+      const disposed: Array<string> = []
+      const off = registerDisposer(async (directory) => {
+        disposed.push(directory)
+      })
+      yield* Effect.addFinalizer(() => Effect.sync(off))
+
+      yield* store.load({ directory: dir1 })
+      yield* store.disposeAll()
+      expect(disposed).toEqual([dir1])
+
+      yield* store.load({ directory: dir2 })
+      yield* store.disposeAll()
+      expect(disposed).toEqual([dir1, dir2])
+    }),
+  )
+
   it.live("keeps Instance.provide as the legacy ALS wrapper", () =>
     Effect.gen(function* () {
       const dir = yield* tmpdirScoped({ git: true })

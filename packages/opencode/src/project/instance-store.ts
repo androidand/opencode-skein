@@ -3,7 +3,7 @@ import { WorkspaceContext } from "@/control-plane/workspace-context"
 import { disposeInstance } from "@/effect/instance-registry"
 import { makeRuntime } from "@/effect/run-service"
 import { AppFileSystem } from "@opencode-ai/core/filesystem"
-import { Context, Deferred, Effect, Exit, Layer, Scope } from "effect"
+import { Context, Deferred, Duration, Effect, Exit, Layer, Scope } from "effect"
 import { context, type InstanceContext } from "./instance-context"
 import * as Project from "./project"
 
@@ -33,9 +33,6 @@ export const layer: Layer.Layer<Service, never, Project.Service> = Layer.effect(
     const project = yield* Project.Service
     const scope = yield* Scope.Scope
     const cache = new Map<string, Entry>()
-    const disposal = {
-      all: undefined as Deferred.Deferred<void> | undefined,
-    }
 
     const boot = Effect.fn("InstanceStore.boot")(function* (input: LoadInput & { directory: string }) {
       const ctx =
@@ -146,39 +143,27 @@ export const layer: Layer.Layer<Service, never, Project.Service> = Layer.effect(
       yield* disposeEntry(ctx.directory, entry, ctx).pipe(Effect.asVoid)
     })
 
-    const disposeAll = Effect.fn("InstanceStore.disposeAll")(function* () {
-      return yield* Effect.uninterruptibleMask((restore) =>
-        Effect.gen(function* () {
-          const existing = disposal.all
-          if (existing) return yield* restore(Deferred.await(existing))
-
-          const done = Deferred.makeUnsafe<void>()
-          const entries = [...cache.entries()]
-          disposal.all = done
-          const exit = yield* Effect.gen(function* () {
-            yield* Effect.logInfo("disposing all instances")
-            yield* Effect.forEach(
-              entries,
-              (item) =>
-                Effect.gen(function* () {
-                  const exit = yield* Deferred.await(item[1].deferred).pipe(Effect.exit)
-                  if (Exit.isFailure(exit)) {
-                    yield* Effect.logWarning("instance dispose failed", { key: item[0], cause: exit.cause })
-                    yield* removeEntry(item[0], item[1])
-                    return
-                  }
-                  yield* disposeEntry(item[0], item[1], exit.value)
-                }),
-              { discard: true },
-            )
-          }).pipe(Effect.exit)
-          yield* Deferred.done(done, exit).pipe(Effect.asVoid)
-          if (disposal.all === done) {
-            disposal.all = undefined
-          }
-          return yield* restore(Deferred.await(done))
-        }),
+    const disposeAllOnce = Effect.fnUntraced(function* () {
+      yield* Effect.logInfo("disposing all instances")
+      yield* Effect.forEach(
+        [...cache.entries()],
+        (item) =>
+          Effect.gen(function* () {
+            const exit = yield* Deferred.await(item[1].deferred).pipe(Effect.exit)
+            if (Exit.isFailure(exit)) {
+              yield* Effect.logWarning("instance dispose failed", { key: item[0], cause: exit.cause })
+              yield* removeEntry(item[0], item[1])
+              return
+            }
+            yield* disposeEntry(item[0], item[1], exit.value)
+          }),
+        { discard: true },
       )
+    })
+
+    const cachedDisposeAll = yield* Effect.cachedWithTTL(disposeAllOnce(), Duration.zero)
+    const disposeAll = Effect.fn("InstanceStore.disposeAll")(function* () {
+      return yield* cachedDisposeAll
     })
 
     yield* Effect.addFinalizer(() => disposeAll().pipe(Effect.ignore))
