@@ -550,6 +550,36 @@ const scenarios: Scenario[] = [
     }, "status"),
   http.get("/pty/shells", "pty.shells").json(200, array),
   http.get("/pty", "pty.list").json(200, array),
+  http
+    .post("/pty", "pty.create")
+    .mutating()
+    .at((ctx) => ({ path: "/pty", headers: ctx.headers(), body: controlledPtyInput("HTTP API PTY") }))
+    .json(200, (body, ctx) => {
+      object(body)
+      check(body.title === "HTTP API PTY", "PTY create should return requested title")
+      check(body.command === "/bin/sh", "PTY create should use controlled shell command")
+      check(body.cwd === ctx.directory, "PTY create should default cwd to scenario directory")
+    }, "status"),
+  http
+    .get("/pty/{ptyID}", "pty.get")
+    .at((ctx) => ({ path: route("/pty/{ptyID}", { ptyID: "pty_httpapi_missing" }), headers: ctx.headers() }))
+    .status(404),
+  http
+    .put("/pty/{ptyID}", "pty.update")
+    .mutating()
+    .at((ctx) => ({
+      path: route("/pty/{ptyID}", { ptyID: "pty_httpapi_missing" }),
+      headers: ctx.headers(),
+      body: { size: { rows: 0, cols: 0 } },
+    }))
+    .status(400),
+  http
+    .delete("/pty/{ptyID}", "pty.remove")
+    .mutating()
+    .at((ctx) => ({ path: route("/pty/{ptyID}", { ptyID: "pty_httpapi_missing" }), headers: ctx.headers() }))
+    .json(200, (body) => {
+      check(body === true, "PTY remove should return true")
+    }, "status"),
   http.get("/experimental/console", "experimental.console.get").json(),
   http.get("/experimental/console/orgs", "experimental.console.listOrgs").json(),
   http.get("/experimental/workspace/adapter", "experimental.workspace.adapter.list").json(200, array),
@@ -1105,10 +1135,6 @@ const scenarios: Scenario[] = [
   pending("POST", "/mcp/{name}/auth/callback", "mcp.auth.callback", "requires MCP auth callback fixture"),
   pending("POST", "/provider/{providerID}/oauth/authorize", "provider.oauth.authorize", "requires provider OAuth fixture"),
   pending("POST", "/provider/{providerID}/oauth/callback", "provider.oauth.callback", "requires provider OAuth fixture"),
-  pending("POST", "/pty", "pty.create", "spawns a real PTY; needs controlled process fixture"),
-  pending("GET", "/pty/{ptyID}", "pty.get", "needs controlled PTY fixture"),
-  pending("PUT", "/pty/{ptyID}", "pty.update", "needs controlled PTY fixture"),
-  pending("DELETE", "/pty/{ptyID}", "pty.remove", "needs controlled PTY fixture"),
   pending("GET", "/pty/{ptyID}/connect", "pty.connect", "websocket route needs upgrade-capable probe"),
   pending("POST", "/session/{sessionID}/share", "session.share", "hits sharing service; needs share fixture"),
   pending("DELETE", "/session/{sessionID}/share", "session.unshare", "hits sharing service; needs share fixture"),
@@ -1332,6 +1358,14 @@ function fakeLlmConfig(url: string): Partial<Config.Info> {
         },
       },
     },
+  }
+}
+
+function controlledPtyInput(title: string | undefined) {
+  return {
+    command: "/bin/sh",
+    args: ["-c", "sleep 30"],
+    ...(title ? { title } : {}),
   }
 }
 
