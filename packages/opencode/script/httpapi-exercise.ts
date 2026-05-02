@@ -586,6 +586,11 @@ const scenarios: Scenario[] = [
   http.get("/experimental/workspace", "experimental.workspace.list").json(200, array),
   http.get("/experimental/workspace/status", "experimental.workspace.status").json(200, array),
   http
+    .delete("/experimental/workspace/{id}", "experimental.workspace.remove")
+    .mutating()
+    .at((ctx) => ({ path: route("/experimental/workspace/{id}", { id: "wrk_httpapi_missing" }), headers: ctx.headers() }))
+    .status(200),
+  http
     .get("/experimental/tool", "tool.list")
     .at((ctx) => ({ path: `/experimental/tool?${new URLSearchParams({ provider: "opencode", model: "test" })}`, headers: ctx.headers() }))
     .json(200, array, "status"),
@@ -624,6 +629,10 @@ const scenarios: Scenario[] = [
   http.get("/experimental/session", "experimental.session.list").json(200, array),
   http.get("/experimental/resource", "experimental.resource.list").json(),
   http.post("/sync/history", "sync.history.list").at((ctx) => ({ path: "/sync/history", headers: ctx.headers(), body: {} })).json(200, array),
+  http
+    .post("/sync/replay", "sync.replay")
+    .at((ctx) => ({ path: "/sync/replay", headers: ctx.headers(), body: { directory: ctx.directory, events: [] } }))
+    .status(400),
   http.post("/instance/dispose", "instance.dispose").mutating().json(200, (body) => {
     check(body === true, "instance dispose should return true")
   }, "status"),
@@ -1128,18 +1137,16 @@ const scenarios: Scenario[] = [
       object(body.body)
       check(body.body.text === "queued", "control next should return queued body")
     }, "status"),
-  pending("POST", "/experimental/console/switch", "experimental.console.switchOrg", "requires seeded Console account/org state"),
+  pending("POST", "/experimental/console/switch", "experimental.console.switchOrg", "requires seeded Console account/org state; invalid local state differs between Effect 400 and legacy 500"),
   pending("POST", "/experimental/workspace", "experimental.workspace.create", "requires a safe fake workspace adapter or adapter fixture"),
-  pending("DELETE", "/experimental/workspace/{id}", "experimental.workspace.remove", "requires a seeded workspace adapter entry"),
   pending("POST", "/experimental/workspace/{id}/session-restore", "experimental.workspace.sessionRestore", "requires seeded workspace sync history"),
   pending("POST", "/mcp/{name}/auth/callback", "mcp.auth.callback", "requires MCP auth callback fixture"),
   pending("POST", "/provider/{providerID}/oauth/authorize", "provider.oauth.authorize", "requires provider OAuth fixture"),
   pending("POST", "/provider/{providerID}/oauth/callback", "provider.oauth.callback", "requires provider OAuth fixture"),
-  pending("GET", "/pty/{ptyID}/connect", "pty.connect", "websocket route needs upgrade-capable probe"),
+  pending("GET", "/pty/{ptyID}/connect", "pty.connect", "websocket route needs upgrade-capable probe; plain missing-session HTTP differs between Effect 404 and legacy 500"),
   pending("POST", "/session/{sessionID}/share", "session.share", "hits sharing service; needs share fixture"),
   pending("DELETE", "/session/{sessionID}/share", "session.unshare", "hits sharing service; needs share fixture"),
   pending("POST", "/sync/start", "sync.start", "starts background workspace sync that must be joined before DB reset"),
-  pending("POST", "/sync/replay", "sync.replay", "requires a valid serialized sync event fixture"),
   pending("POST", "/global/upgrade", "global.upgrade", "avoid shelling to real upgrade until faked"),
 ]
 
