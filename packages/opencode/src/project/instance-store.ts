@@ -123,9 +123,11 @@ export const layer: Layer.Layer<Service, never, Project.Service> = Layer.effect(
           cache.set(directory, entry)
           yield* Effect.gen(function* () {
             yield* Effect.logInfo("reloading instance", { directory })
-            if (previous) yield* Deferred.await(previous.deferred).pipe(Effect.exit, Effect.asVoid)
-            yield* Effect.promise(() => disposeInstance(directory))
-            yield* emitDisposed({ directory, project: input.project?.id })
+            if (previous) {
+              yield* Deferred.await(previous.deferred).pipe(Effect.exit, Effect.asVoid)
+              yield* Effect.promise(() => disposeInstance(directory))
+              yield* emitDisposed({ directory, project: input.project?.id })
+            }
             yield* completeLoad(directory, input, entry)
           }).pipe(Effect.forkIn(scope, { startImmediately: true }))
           return yield* restore(Deferred.await(entry.deferred))
