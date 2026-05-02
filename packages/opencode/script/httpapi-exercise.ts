@@ -36,6 +36,7 @@ process.env.XDG_DATA_HOME = path.join(exerciseGlobalRoot, "data")
 process.env.XDG_CONFIG_HOME = path.join(exerciseGlobalRoot, "config")
 process.env.XDG_STATE_HOME = path.join(exerciseGlobalRoot, "state")
 process.env.XDG_CACHE_HOME = path.join(exerciseGlobalRoot, "cache")
+process.env.OPENCODE_DISABLE_SHARE = "true"
 const exerciseConfigDirectory = path.join(exerciseGlobalRoot, "config", "opencode")
 const exerciseDataDirectory = path.join(exerciseGlobalRoot, "data", "opencode")
 
@@ -440,6 +441,14 @@ const scenarios: Scenario[] = [
     }, "status"),
   http.get("/provider", "provider.list").json(),
   http.get("/provider/auth", "provider.auth").json(),
+  http
+    .post("/provider/{providerID}/oauth/authorize", "provider.oauth.authorize")
+    .at((ctx) => ({ path: route("/provider/{providerID}/oauth/authorize", { providerID: "httpapi" }), headers: ctx.headers(), body: { method: "bad" } }))
+    .status(400),
+  http
+    .post("/provider/{providerID}/oauth/callback", "provider.oauth.callback")
+    .at((ctx) => ({ path: route("/provider/{providerID}/oauth/callback", { providerID: "httpapi" }), headers: ctx.headers(), body: { method: "bad" } }))
+    .status(400),
   http.get("/permission", "permission.list").json(200, array),
   http
     .post("/permission/{requestID}/reply", "permission.reply")
@@ -535,6 +544,10 @@ const scenarios: Scenario[] = [
       check(typeof body.error === "string", "unsupported MCP OAuth authenticate response should include error")
     }, "status"),
   http
+    .post("/mcp/{name}/auth/callback", "mcp.auth.callback")
+    .at((ctx) => ({ path: route("/mcp/{name}/auth/callback", { name: "httpapi-missing" }), headers: ctx.headers(), body: { code: 1 } }))
+    .status(400),
+  http
     .post("/mcp/{name}/connect", "mcp.connect")
     .mutating()
     .at((ctx) => ({ path: route("/mcp/{name}/connect", { name: "httpapi-missing" }), headers: ctx.headers() }))
@@ -580,16 +593,32 @@ const scenarios: Scenario[] = [
     .json(200, (body) => {
       check(body === true, "PTY remove should return true")
     }, "status"),
+  http
+    .get("/pty/{ptyID}/connect", "pty.connect")
+    .at((ctx) => ({ path: route("/pty/{ptyID}/connect", { ptyID: "invalid" }), headers: ctx.headers() }))
+    .status(404, undefined, "none"),
   http.get("/experimental/console", "experimental.console.get").json(),
   http.get("/experimental/console/orgs", "experimental.console.listOrgs").json(),
+  http
+    .post("/experimental/console/switch", "experimental.console.switchOrg")
+    .at((ctx) => ({ path: "/experimental/console/switch", headers: ctx.headers(), body: { accountID: 1, orgID: 1 } }))
+    .status(400),
   http.get("/experimental/workspace/adapter", "experimental.workspace.adapter.list").json(200, array),
   http.get("/experimental/workspace", "experimental.workspace.list").json(200, array),
   http.get("/experimental/workspace/status", "experimental.workspace.status").json(200, array),
+  http
+    .post("/experimental/workspace", "experimental.workspace.create")
+    .at((ctx) => ({ path: "/experimental/workspace", headers: ctx.headers(), body: {} }))
+    .status(400),
   http
     .delete("/experimental/workspace/{id}", "experimental.workspace.remove")
     .mutating()
     .at((ctx) => ({ path: route("/experimental/workspace/{id}", { id: "wrk_httpapi_missing" }), headers: ctx.headers() }))
     .status(200),
+  http
+    .post("/experimental/workspace/{id}/session-restore", "experimental.workspace.sessionRestore")
+    .at((ctx) => ({ path: route("/experimental/workspace/{id}/session-restore", { id: "wrk_httpapi_missing" }), headers: ctx.headers(), body: {} }))
+    .status(400),
   http
     .get("/experimental/tool", "tool.list")
     .at((ctx) => ({ path: `/experimental/tool?${new URLSearchParams({ provider: "opencode", model: "test" })}`, headers: ctx.headers() }))
@@ -633,6 +662,9 @@ const scenarios: Scenario[] = [
     .post("/sync/replay", "sync.replay")
     .at((ctx) => ({ path: "/sync/replay", headers: ctx.headers(), body: { directory: ctx.directory, events: [] } }))
     .status(400),
+  http.post("/sync/start", "sync.start").mutating().preserveDatabase().json(200, (body) => {
+    check(body === true, "sync start should return true when no workspace sessions exist")
+  }, "status"),
   http.post("/instance/dispose", "instance.dispose").mutating().json(200, (body) => {
     check(body === true, "instance dispose should return true")
   }, "status"),
@@ -1089,6 +1121,24 @@ const scenarios: Scenario[] = [
       check(body === true, "deprecated permission response should return true")
     }, "status"),
   http
+    .post("/session/{sessionID}/share", "session.share")
+    .mutating()
+    .seeded((ctx) => ctx.session({ title: "Share session" }))
+    .at((ctx) => ({ path: route("/session/{sessionID}/share", { sessionID: ctx.state.id }), headers: ctx.headers() }))
+    .json(200, (body, ctx) => {
+      object(body)
+      check(body.id === ctx.state.id, "share should return the session")
+    }, "status"),
+  http
+    .delete("/session/{sessionID}/share", "session.unshare")
+    .mutating()
+    .seeded((ctx) => ctx.session({ title: "Unshare session" }))
+    .at((ctx) => ({ path: route("/session/{sessionID}/share", { sessionID: ctx.state.id }), headers: ctx.headers() }))
+    .json(200, (body, ctx) => {
+      object(body)
+      check(body.id === ctx.state.id, "unshare should return the session")
+    }, "status"),
+  http
     .post("/tui/append-prompt", "tui.appendPrompt")
     .at((ctx) => ({ path: "/tui/append-prompt", headers: ctx.headers(), body: { text: "hello" } }))
     .json(200, boolean, "status"),
@@ -1137,17 +1187,7 @@ const scenarios: Scenario[] = [
       object(body.body)
       check(body.body.text === "queued", "control next should return queued body")
     }, "status"),
-  pending("POST", "/experimental/console/switch", "experimental.console.switchOrg", "requires seeded Console account/org state; invalid local state differs between Effect 400 and legacy 500"),
-  pending("POST", "/experimental/workspace", "experimental.workspace.create", "requires a safe fake workspace adapter or adapter fixture"),
-  pending("POST", "/experimental/workspace/{id}/session-restore", "experimental.workspace.sessionRestore", "requires seeded workspace sync history"),
-  pending("POST", "/mcp/{name}/auth/callback", "mcp.auth.callback", "requires MCP auth callback fixture"),
-  pending("POST", "/provider/{providerID}/oauth/authorize", "provider.oauth.authorize", "requires provider OAuth fixture"),
-  pending("POST", "/provider/{providerID}/oauth/callback", "provider.oauth.callback", "requires provider OAuth fixture"),
-  pending("GET", "/pty/{ptyID}/connect", "pty.connect", "websocket route needs upgrade-capable probe; plain missing-session HTTP differs between Effect 404 and legacy 500"),
-  pending("POST", "/session/{sessionID}/share", "session.share", "hits sharing service; needs share fixture"),
-  pending("DELETE", "/session/{sessionID}/share", "session.unshare", "hits sharing service; needs share fixture"),
-  pending("POST", "/sync/start", "sync.start", "starts background workspace sync that must be joined before DB reset"),
-  pending("POST", "/global/upgrade", "global.upgrade", "avoid shelling to real upgrade until faked"),
+  http.post("/global/upgrade", "global.upgrade").global().at(() => ({ path: "/global/upgrade", body: { target: 1 } })).status(400),
 ]
 
 const main = Effect.gen(function* () {
