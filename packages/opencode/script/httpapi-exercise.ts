@@ -22,7 +22,6 @@ import { Cause, ConfigProvider, Effect, Layer } from "effect"
 import { HttpRouter } from "effect/unstable/http"
 import { OpenApi } from "effect/unstable/httpapi"
 import { Flag } from "@opencode-ai/core/flag/flag"
-import * as Log from "@opencode-ai/core/util/log"
 import { TestLLMServer } from "../test/lib/llm-server"
 import type { Config } from "../src/config/config"
 import { MessageID, PartID, type SessionID } from "../src/session/schema"
@@ -32,11 +31,19 @@ import type { Worktree } from "../src/worktree"
 import type { Project } from "../src/project/project"
 import path from "path"
 
-void Log.init({ print: false })
+const exerciseGlobalRoot = process.env.OPENCODE_HTTPAPI_EXERCISE_GLOBAL ?? path.join(process.env.TMPDIR ?? "/tmp", `opencode-httpapi-global-${process.pid}`)
+process.env.XDG_DATA_HOME = path.join(exerciseGlobalRoot, "data")
+process.env.XDG_CONFIG_HOME = path.join(exerciseGlobalRoot, "config")
+process.env.XDG_STATE_HOME = path.join(exerciseGlobalRoot, "state")
+process.env.XDG_CACHE_HOME = path.join(exerciseGlobalRoot, "cache")
+const exerciseConfigDirectory = path.join(exerciseGlobalRoot, "config", "opencode")
+const exerciseDataDirectory = path.join(exerciseGlobalRoot, "data", "opencode")
 
 const exerciseDatabasePath = process.env.OPENCODE_HTTPAPI_EXERCISE_DB ?? path.join(process.env.TMPDIR ?? "/tmp", `opencode-httpapi-exercise-${process.pid}.db`)
 process.env.OPENCODE_DB = exerciseDatabasePath
 Flag.OPENCODE_DB = exerciseDatabasePath
+
+void (await import("@opencode-ai/core/util/log")).init({ print: false })
 
 const OpenApiMethods = ["get", "post", "put", "delete", "patch"] as const
 const Methods = ["GET", "POST", "PUT", "DELETE", "PATCH"] as const
@@ -111,6 +118,7 @@ type ActiveScenario = {
   expect: (ctx: ScenarioContext, state: unknown, result: CallResult) => Effect.Effect<void>
   compare: Comparison
   mutates: boolean
+  reset: boolean
 }
 
 /** Internal builder state stays generic until `.json(...)` erases it into `ActiveScenario`. */
@@ -122,6 +130,7 @@ type BuilderState<S> = {
   seed: (ctx: ScenarioContext) => Effect.Effect<S>
   request: (ctx: SeededContext<S>) => RequestSpec
   mutates: boolean
+  reset: boolean
 }
 type TodoScenario = {
   kind: "todo"
@@ -210,6 +219,7 @@ class ScenarioBuilder<S = undefined> {
       seed: () => Effect.succeed(undefined as S),
       request: (ctx) => ({ path, headers: ctx.headers() }),
       mutates: false,
+      reset: true,
     }
   }
 
@@ -231,6 +241,10 @@ class ScenarioBuilder<S = undefined> {
 
   mutating() {
     return this.clone({ mutates: true })
+  }
+
+  preserveDatabase() {
+    return this.clone({ reset: false })
   }
 
   /** Assert a non-JSON or shape-only response. */
@@ -300,6 +314,7 @@ class ScenarioBuilder<S = undefined> {
       expect: (ctx, seeded, result) => expect({ ...ctx, state: seeded as S }, result),
       compare,
       mutates: state.mutates,
+      reset: state.reset,
     }
   }
 }
@@ -330,6 +345,23 @@ const scenarios: Scenario[] = [
     check(body.healthy === true, "server should report healthy")
   }),
   http.get("/global/config", "global.config.get").global().json(),
+  http
+    .patch("/global/config", "global.config.update")
+    .global()
+    .seeded(() =>
+      Effect.promise(() =>
+        Bun.write(path.join(exerciseConfigDirectory, "opencode.jsonc"), JSON.stringify({ username: "httpapi-global" }, null, 2)),
+      ),
+    )
+    .at(() => ({ path: "/global/config", body: { username: "httpapi-global" } }))
+    .jsonEffect(200, (body) =>
+      Effect.gen(function* () {
+        object(body)
+        check(body.username === "httpapi-global", "global config update should return patched config")
+        const text = yield* Effect.promise(() => Bun.file(path.join(exerciseConfigDirectory, "opencode.jsonc")).text())
+        check(text.includes('"username": "httpapi-global"'), "global config update should write isolated config file")
+      }),
+    "status"),
   http.get("/path", "path.get").json(200, (body, ctx) => {
     object(body)
     check(body.directory === ctx.directory, "directory should resolve from x-opencode-directory")
@@ -488,6 +520,35 @@ const scenarios: Scenario[] = [
     .json(200, (body) => {
       check(body === true, "log route should return true")
     }),
+  http
+    .put("/auth/{providerID}", "auth.set")
+    .global()
+    .at(() => ({ path: route("/auth/{providerID}", { providerID: "test" }), body: { type: "api", key: "test-key" } }))
+    .jsonEffect(200, (body) =>
+      Effect.gen(function* () {
+        check(body === true, "auth set should return true")
+        const auth = yield* Effect.promise(() => Bun.file(path.join(exerciseDataDirectory, "auth.json")).json())
+        object(auth)
+        check(isRecord(auth.test) && auth.test.key === "test-key", "auth set should write isolated auth file")
+      }),
+    "status"),
+  http
+    .delete("/auth/{providerID}", "auth.remove")
+    .global()
+    .seeded(() =>
+      Effect.promise(() =>
+        Bun.write(path.join(exerciseDataDirectory, "auth.json"), JSON.stringify({ test: { type: "api", key: "remove-me" } })),
+      ),
+    )
+    .at(() => ({ path: route("/auth/{providerID}", { providerID: "test" }) }))
+    .jsonEffect(200, (body) =>
+      Effect.gen(function* () {
+        check(body === true, "auth remove should return true")
+        const auth = yield* Effect.promise(() => Bun.file(path.join(exerciseDataDirectory, "auth.json")).json())
+        object(auth)
+        check(auth.test === undefined, "auth remove should delete provider from isolated auth file")
+      }),
+    "status"),
   http
     .get("/session", "session.list")
     .seeded((ctx) => ctx.session({ title: "List me" }))
@@ -690,6 +751,7 @@ const scenarios: Scenario[] = [
     }, "status"),
   http
     .post("/session/{sessionID}/init", "session.init")
+    .preserveDatabase()
     .withLlm()
     .seeded((ctx) =>
       Effect.gen(function* () {
@@ -713,6 +775,7 @@ const scenarios: Scenario[] = [
     "status"),
   http
     .post("/session/{sessionID}/message", "session.prompt")
+    .preserveDatabase()
     .withLlm()
     .seeded((ctx) =>
       Effect.gen(function* () {
@@ -741,6 +804,7 @@ const scenarios: Scenario[] = [
     "status"),
   http
     .post("/session/{sessionID}/prompt_async", "session.prompt_async")
+    .preserveDatabase()
     .withLlm()
     .seeded((ctx) =>
       Effect.gen(function* () {
@@ -766,6 +830,7 @@ const scenarios: Scenario[] = [
     ),
   http
     .post("/session/{sessionID}/command", "session.command")
+    .preserveDatabase()
     .withLlm()
     .seeded((ctx) =>
       Effect.gen(function* () {
@@ -789,6 +854,7 @@ const scenarios: Scenario[] = [
     "status"),
   http
     .post("/session/{sessionID}/shell", "session.shell")
+    .preserveDatabase()
     .mutating()
     .seeded((ctx) => ctx.session({ title: "Shell session" }))
     .at((ctx) => ({
@@ -801,6 +867,64 @@ const scenarios: Scenario[] = [
       check(isRecord(body.info) && body.info.role === "assistant", "shell should return assistant message")
       check(Array.isArray(body.parts) && body.parts.some((part) => isRecord(part) && part.type === "tool"), "shell should return a tool part")
     }, "status"),
+  http
+    .post("/session/{sessionID}/summarize", "session.summarize")
+    .preserveDatabase()
+    .withLlm()
+    .seeded((ctx) =>
+      Effect.gen(function* () {
+        const session = yield* ctx.session({ title: "Summarize session" })
+        yield* ctx.message(session.id, { text: "summarize this work" })
+        const summary = [
+          "## Goal",
+          "- Exercise session summarize.",
+          "",
+          "## Constraints & Preferences",
+          "- Use fake LLM.",
+          "",
+          "## Progress",
+          "### Done",
+          "- Summary generated.",
+          "",
+          "### In Progress",
+          "- (none)",
+          "",
+          "### Blocked",
+          "- (none)",
+          "",
+          "## Key Decisions",
+          "- Keep route local.",
+          "",
+          "## Next Steps",
+          "- (none)",
+          "",
+          "## Critical Context",
+          "- Test fixture.",
+          "",
+          "## Relevant Files",
+          "- script/httpapi-exercise.ts: scenario",
+        ].join("\n")
+        yield* ctx.llmText(summary)
+        yield* ctx.llmText(summary)
+        return session
+      }),
+    )
+    .at((ctx) => ({
+      path: route("/session/{sessionID}/summarize", { sessionID: ctx.state.id }),
+      headers: ctx.headers(),
+      body: { providerID: "test", modelID: "test-model", auto: false },
+    }))
+    .jsonEffect(200, (body, ctx) =>
+      Effect.gen(function* () {
+        check(body === true, "summarize should return true")
+        const messages = yield* ctx.messages(ctx.state.id)
+        check(
+          messages.some((message) => message.info.role === "assistant" && message.info.summary === true),
+          "summarize should create a summary assistant message",
+        )
+        yield* ctx.llmWait(1)
+      }),
+    "status"),
   http
     .post("/session/{sessionID}/revert", "session.revert")
     .mutating()
@@ -883,9 +1007,6 @@ const scenarios: Scenario[] = [
   pending("GET", "/event", "event.stream", "SSE probe should publish and read one Bus event"),
   pending("GET", "/global/event", "global.event", "SSE probe should publish and read one global event"),
   pending("GET", "/tui/control/next", "tui.control.next", "route blocks until a TUI request is queued"),
-  pending("PATCH", "/global/config", "global.config.update", "needs Global.Path.config isolation before exercising writes"),
-  pending("PUT", "/auth/{providerID}", "auth.set", "writes Global.Path.data auth storage; needs global path isolation"),
-  pending("DELETE", "/auth/{providerID}", "auth.remove", "writes Global.Path.data auth storage; needs global path isolation"),
   pending("POST", "/experimental/console/switch", "experimental.console.switchOrg", "requires seeded Console account/org state"),
   pending("POST", "/experimental/workspace", "experimental.workspace.create", "requires a safe fake workspace adapter or adapter fixture"),
   pending("DELETE", "/experimental/workspace/{id}", "experimental.workspace.remove", "requires a seeded workspace adapter entry"),
@@ -906,7 +1027,6 @@ const scenarios: Scenario[] = [
   pending("GET", "/pty/{ptyID}/connect", "pty.connect", "websocket route needs upgrade-capable probe"),
   pending("POST", "/session/{sessionID}/share", "session.share", "hits sharing service; needs share fixture"),
   pending("DELETE", "/session/{sessionID}/share", "session.unshare", "hits sharing service; needs share fixture"),
-  pending("POST", "/session/{sessionID}/summarize", "session.summarize", "invokes compaction/LLM flow; needs test LLM wiring"),
   pending("POST", "/sync/start", "sync.start", "starts background workspace sync that must be joined before DB reset"),
   pending("POST", "/sync/replay", "sync.replay", "requires a valid serialized sync event fixture"),
   pending("POST", "/global/dispose", "global.dispose", "assert all instances are disposed after response"),
@@ -993,6 +1113,16 @@ function withContext<A, E>(scenario: ActiveScenario, use: (ctx: SeededContext<un
       const instance = path
         ? yield* modules.InstanceStore.Service.use((store) => store.load({ directory: path })).pipe(
             Effect.provide(modules.AppLayer),
+            Effect.catchCause((cause) =>
+              Effect.sleep("100 millis").pipe(
+                Effect.andThen(
+                  modules.InstanceStore.Service.use((store) => store.load({ directory: path })).pipe(
+                    Effect.provide(modules.AppLayer),
+                  ),
+                ),
+                Effect.catchCause(() => Effect.failCause(cause)),
+              ),
+            ),
           )
         : undefined
       const run = <A, E, R>(effect: Effect.Effect<A, E, R>) =>
@@ -1067,7 +1197,7 @@ function withContext<A, E>(scenario: ActiveScenario, use: (ctx: SeededContext<un
       const state = yield* scenario.seed(base)
       return yield* use({ ...base, state })
     }).pipe(Effect.ensuring(context.llm ? context.llm.reset : Effect.void))),
-    Effect.ensuring(resetState),
+    Effect.ensuring(scenario.reset ? resetState : Effect.void),
   )
 }
 
@@ -1178,6 +1308,7 @@ const resetState = Effect.promise(async () => {
   Flag.OPENCODE_SERVER_USERNAME = original.OPENCODE_SERVER_USERNAME
   await modules.disposeAllInstances()
   await modules.resetDatabase()
+  await Bun.sleep(25)
 })
 
 function routeKeys(spec: OpenApiSpec) {
@@ -1220,6 +1351,7 @@ function matches(options: Options, scenario: Scenario) {
 function printHeader(options: Options, effectRoutes: string[], honoRoutes: string[], selected: Scenario[], missing: string[], extra: Scenario[]) {
   console.log(`${color.cyan}HttpApi exerciser${color.reset}`)
   console.log(`${color.dim}db=${exerciseDatabasePath}${color.reset}`)
+  console.log(`${color.dim}global=${exerciseGlobalRoot}${color.reset}`)
   console.log(
     `${color.dim}mode=${options.mode} selected=${selected.length} effectRoutes=${effectRoutes.length} missing=${missing.length} extra=${extra.length} onlyEffect=${effectRoutes.filter((route) => !honoRoutes.includes(route)).length} onlyHono=${honoRoutes.filter((route) => !effectRoutes.includes(route)).length}${color.reset}`,
   )
