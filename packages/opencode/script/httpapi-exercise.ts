@@ -1,0 +1,1133 @@
+/**
+ * End-to-end exerciser for the legacy Hono instance routes and the Effect HttpApi routes.
+ *
+ * The goal is not to be a normal unit test file. This is a route-coverage and parity
+ * harness we can run while deleting Hono: every public route should eventually have a
+ * small scenario that proves the Effect route decodes requests, uses the right instance
+ * context, mutates storage when expected, and returns a compatible response shape.
+ *
+ * The script intentionally isolates `OPENCODE_DB` before importing modules that touch
+ * storage. Scenarios may create/delete sessions and reset the database after each run,
+ * so this must never point at a developer's real session database.
+ *
+ * DSL shape:
+ * - `http.get/post/...` starts a scenario for one OpenAPI route key.
+ * - `.seeded(...)` creates typed per-scenario state using Effect helpers on `ctx`.
+ * - `.at(...)` builds the request from that typed state.
+ * - `.json(...)` / `.jsonEffect(...)` assert response shape and optional side effects.
+ * - `.mutating()` tells parity mode to run Effect and Hono in separate isolated contexts
+ *   so destructive routes compare equivalent fresh setups instead of sharing one DB.
+ */
+import { Cause, ConfigProvider, Effect, Layer } from "effect"
+import { HttpRouter } from "effect/unstable/http"
+import { OpenApi } from "effect/unstable/httpapi"
+import { Flag } from "@opencode-ai/core/flag/flag"
+import * as Log from "@opencode-ai/core/util/log"
+import type { Config } from "../src/config/config"
+import { MessageID, PartID, type SessionID } from "../src/session/schema"
+import { ModelID, ProviderID } from "../src/provider/schema"
+import type { MessageV2 } from "../src/session/message-v2"
+import type { Worktree } from "../src/worktree"
+import type { Project } from "../src/project/project"
+import path from "path"
+
+void Log.init({ print: false })
+
+const exerciseDatabasePath = process.env.OPENCODE_HTTPAPI_EXERCISE_DB ?? path.join(process.env.TMPDIR ?? "/tmp", `opencode-httpapi-exercise-${process.pid}.db`)
+process.env.OPENCODE_DB = exerciseDatabasePath
+Flag.OPENCODE_DB = exerciseDatabasePath
+
+const OpenApiMethods = ["get", "post", "put", "delete", "patch"] as const
+const Methods = ["GET", "POST", "PUT", "DELETE", "PATCH"] as const
+const color = {
+  dim: "\x1b[2m",
+  green: "\x1b[32m",
+  red: "\x1b[31m",
+  yellow: "\x1b[33m",
+  cyan: "\x1b[36m",
+  reset: "\x1b[0m",
+}
+
+type Method = (typeof Methods)[number]
+type OpenApiMethod = (typeof OpenApiMethods)[number]
+type Mode = "effect" | "parity" | "coverage"
+type Comparison = "none" | "status" | "json"
+type ProjectOptions = { git?: boolean; config?: Partial<Config.Info> }
+type OpenApiSpec = { paths?: Record<string, Partial<Record<OpenApiMethod, unknown>>> }
+type JsonObject = Record<string, unknown>
+
+type Options = {
+  mode: Mode
+  include: string | undefined
+  failOnMissing: boolean
+  failOnSkip: boolean
+}
+
+type RequestSpec = {
+  path: string
+  headers?: Record<string, string>
+  body?: unknown
+}
+
+type CallResult = {
+  status: number
+  contentType: string
+  body: unknown
+  text: string
+}
+
+/** Effect-native helpers available while setting up and asserting a scenario. */
+type ScenarioContext = {
+  directory: string | undefined
+  headers: (extra?: Record<string, string>) => Record<string, string>
+  file: (name: string, content: string) => Effect.Effect<void>
+  session: (input?: { title?: string; parentID?: SessionID }) => Effect.Effect<SessionInfo>
+  sessionGet: (sessionID: SessionID) => Effect.Effect<SessionInfo | undefined>
+  project: () => Effect.Effect<Project.Info>
+  message: (sessionID: SessionID, input?: { text?: string }) => Effect.Effect<MessageSeed>
+  messages: (sessionID: SessionID) => Effect.Effect<MessageV2.WithParts[]>
+  todos: (sessionID: SessionID, todos: TodoInfo[]) => Effect.Effect<void>
+  worktree: (input?: { name?: string }) => Effect.Effect<Worktree.Info>
+  worktreeRemove: (directory: string) => Effect.Effect<void>
+}
+
+/** Scenario context after `.seeded(...)`; `state` preserves the seed return type in the DSL. */
+type SeededContext<S> = ScenarioContext & {
+  state: S
+}
+
+type Scenario = ActiveScenario | TodoScenario
+type ActiveScenario = {
+  kind: "active"
+  method: Method
+  path: string
+  name: string
+  project: ProjectOptions | undefined
+  seed: (ctx: ScenarioContext) => Effect.Effect<unknown>
+  request: (ctx: ScenarioContext, state: unknown) => RequestSpec
+  expect: (ctx: ScenarioContext, state: unknown, result: CallResult) => Effect.Effect<void>
+  compare: Comparison
+  mutates: boolean
+}
+
+/** Internal builder state stays generic until `.json(...)` erases it into `ActiveScenario`. */
+type BuilderState<S> = {
+  method: Method
+  path: string
+  name: string
+  project: ProjectOptions | undefined
+  seed: (ctx: ScenarioContext) => Effect.Effect<S>
+  request: (ctx: SeededContext<S>) => RequestSpec
+  mutates: boolean
+}
+type TodoScenario = {
+  kind: "todo"
+  method: Method
+  path: string
+  name: string
+  reason: string
+}
+type Result =
+  | { status: "pass"; scenario: ActiveScenario }
+  | { status: "fail"; scenario: ActiveScenario; message: string }
+  | { status: "skip"; scenario: TodoScenario }
+
+type SessionInfo = { id: SessionID; title: string; parentID?: SessionID }
+type TodoInfo = { content: string; status: string; priority: string }
+type MessageSeed = { info: MessageV2.User; part: MessageV2.TextPart }
+
+const original = {
+  OPENCODE_EXPERIMENTAL_HTTPAPI: Flag.OPENCODE_EXPERIMENTAL_HTTPAPI,
+  OPENCODE_SERVER_PASSWORD: Flag.OPENCODE_SERVER_PASSWORD,
+  OPENCODE_SERVER_USERNAME: Flag.OPENCODE_SERVER_USERNAME,
+}
+
+type Runtime = {
+  PublicApi: typeof import("../src/server/routes/instance/httpapi/public")["PublicApi"]
+  ExperimentalHttpApiServer: typeof import("../src/server/routes/instance/httpapi/server")["ExperimentalHttpApiServer"]
+  Server: typeof import("../src/server/server")["Server"]
+  AppLayer: typeof import("../src/effect/app-runtime")["AppLayer"]
+  InstanceRef: typeof import("../src/effect/instance-ref")["InstanceRef"]
+  Instance: typeof import("../src/project/instance")["Instance"]
+  InstanceStore: typeof import("../src/project/instance-store")["InstanceStore"]
+  Session: typeof import("../src/session/session")["Session"]
+  Todo: typeof import("../src/session/todo")["Todo"]
+  Worktree: typeof import("../src/worktree")["Worktree"]
+  Project: typeof import("../src/project/project")["Project"]
+  disposeAllInstances: typeof import("../test/fixture/fixture")["disposeAllInstances"]
+  tmpdir: typeof import("../test/fixture/fixture")["tmpdir"]
+  resetDatabase: typeof import("../test/fixture/db")["resetDatabase"]
+}
+
+let runtimePromise: Promise<Runtime> | undefined
+
+function runtime() {
+  return (runtimePromise ??= (async () => {
+    const publicApi = await import("../src/server/routes/instance/httpapi/public")
+    const httpApiServer = await import("../src/server/routes/instance/httpapi/server")
+    const server = await import("../src/server/server")
+    const appRuntime = await import("../src/effect/app-runtime")
+    const instanceRef = await import("../src/effect/instance-ref")
+    const instance = await import("../src/project/instance")
+    const instanceStore = await import("../src/project/instance-store")
+    const session = await import("../src/session/session")
+    const todo = await import("../src/session/todo")
+    const worktree = await import("../src/worktree")
+    const project = await import("../src/project/project")
+    const fixture = await import("../test/fixture/fixture")
+    const db = await import("../test/fixture/db")
+    return {
+      PublicApi: publicApi.PublicApi,
+      ExperimentalHttpApiServer: httpApiServer.ExperimentalHttpApiServer,
+      Server: server.Server,
+      AppLayer: appRuntime.AppLayer,
+      InstanceRef: instanceRef.InstanceRef,
+      Instance: instance.Instance,
+      InstanceStore: instanceStore.InstanceStore,
+      Session: session.Session,
+      Todo: todo.Todo,
+      Worktree: worktree.Worktree,
+      Project: project.Project,
+      disposeAllInstances: fixture.disposeAllInstances,
+      tmpdir: fixture.tmpdir,
+      resetDatabase: db.resetDatabase,
+    }
+  })())
+}
+
+class ScenarioBuilder<S = undefined> {
+  private readonly state: BuilderState<S>
+
+  constructor(method: Method, path: string, name: string) {
+    this.state = {
+      method,
+      path,
+      name,
+      project: { git: true },
+      seed: () => Effect.succeed(undefined as S),
+      request: (ctx) => ({ path, headers: ctx.headers() }),
+      mutates: false,
+    }
+  }
+
+  global() {
+    return this.clone({ project: undefined, request: () => ({ path: this.state.path }) })
+  }
+
+  inProject(project: ProjectOptions = { git: true }) {
+    return this.clone({ project })
+  }
+
+  at(request: BuilderState<S>["request"]) {
+    return this.clone({ request })
+  }
+
+  mutating() {
+    return this.clone({ mutates: true })
+  }
+
+  /** Assert a non-JSON or shape-only response. */
+  ok(compare: Comparison = "status") {
+    return this.done(compare, (_ctx, result) =>
+      Effect.sync(() => {
+        if (result.status !== 200) throw new Error(`expected 200, got ${result.status}: ${result.text}`)
+      }),
+    )
+  }
+
+  /** Assert JSON status/content-type plus an optional synchronous body check. */
+  json(status = 200, inspect?: (body: unknown, ctx: SeededContext<S>) => void, compare: Comparison = "json") {
+    return this.jsonEffect(
+      status,
+      inspect ? (body, ctx) => Effect.sync(() => inspect(body, ctx)) : undefined,
+      compare,
+    )
+  }
+
+  /** Assert JSON status/content-type plus optional Effect assertions, e.g. DB side effects. */
+  jsonEffect(status = 200, inspect?: (body: unknown, ctx: SeededContext<S>) => Effect.Effect<void>, compare: Comparison = "json") {
+    return this.done(compare, (ctx, result) =>
+      Effect.gen(function* () {
+        if (result.status !== status) throw new Error(`expected ${status}, got ${result.status}: ${result.text}`)
+        if (!looksJson(result)) throw new Error(`expected JSON response, got ${result.contentType || "no content-type"}`)
+        if (inspect) yield* inspect(result.body, ctx)
+      }),
+    )
+  }
+
+  private clone(next: Partial<BuilderState<S>>) {
+    const builder = new ScenarioBuilder<S>(this.state.method, this.state.path, this.state.name)
+    Object.assign(builder.state, this.state, next)
+    return builder
+  }
+
+  /**
+   * Seed typed state before the HTTP request. The returned value becomes `ctx.state`
+   * for `.at(...)` and assertions, giving stateful route tests type-safe setup.
+   */
+  seeded<Next>(seed: (ctx: ScenarioContext) => Effect.Effect<Next>) {
+    const builder = new ScenarioBuilder<Next>(this.state.method, this.state.path, this.state.name)
+    Object.assign(builder.state, this.state, { seed })
+    return builder
+  }
+
+  private done(compare: Comparison, expect: (ctx: SeededContext<S>, result: CallResult) => Effect.Effect<void>): ActiveScenario {
+    const state = this.state
+    return {
+      kind: "active",
+      method: state.method,
+      path: state.path,
+      name: state.name,
+      project: state.project,
+      seed: state.seed,
+      request: (ctx, seeded) => state.request({ ...ctx, state: seeded as S }),
+      expect: (ctx, seeded, result) => expect({ ...ctx, state: seeded as S }, result),
+      compare,
+      mutates: state.mutates,
+    }
+  }
+}
+
+const http = {
+  get: (path: string, name: string) => new ScenarioBuilder("GET", path, name),
+  post: (path: string, name: string) => new ScenarioBuilder("POST", path, name),
+  put: (path: string, name: string) => new ScenarioBuilder("PUT", path, name),
+  patch: (path: string, name: string) => new ScenarioBuilder("PATCH", path, name),
+  delete: (path: string, name: string) => new ScenarioBuilder("DELETE", path, name),
+}
+
+const pending = (method: Method, path: string, name: string, reason: string): TodoScenario => ({
+  kind: "todo",
+  method,
+  path,
+  name,
+  reason,
+})
+
+function route(template: string, params: Record<string, string>) {
+  return Object.entries(params).reduce((next, [key, value]) => next.replaceAll(`{${key}}`, value).replaceAll(`:${key}`, value), template)
+}
+
+const scenarios: Scenario[] = [
+  http.get("/global/health", "global.health").global().json(200, (body) => {
+    object(body)
+    check(body.healthy === true, "server should report healthy")
+  }),
+  http.get("/global/config", "global.config.get").global().json(),
+  http.get("/path", "path.get").json(200, (body, ctx) => {
+    object(body)
+    check(body.directory === ctx.directory, "directory should resolve from x-opencode-directory")
+    check(body.worktree === ctx.directory, "worktree should resolve from x-opencode-directory")
+  }),
+  http.get("/vcs", "vcs.get").json(),
+  http.get("/vcs/diff", "vcs.diff").at((ctx) => ({ path: "/vcs/diff?mode=git", headers: ctx.headers() })).json(200, array),
+  http.get("/command", "command.list").json(200, array, "status"),
+  http.get("/agent", "app.agents").json(200, array, "status"),
+  http.get("/skill", "app.skills").json(200, array, "status"),
+  http.get("/lsp", "lsp.status").json(200, array),
+  http.get("/formatter", "formatter.status").json(200, array),
+  http.get("/config", "config.get").json(200, undefined, "status"),
+  http
+    .patch("/config", "config.update")
+    .mutating()
+    .at((ctx) => ({ path: "/config", headers: ctx.headers(), body: { username: "httpapi-local" } }))
+    .json(200, (body) => {
+      object(body)
+      check(body.username === "httpapi-local", "local config update should return patched config")
+    }, "status"),
+  http.get("/config/providers", "config.providers").json(),
+  http.get("/project", "project.list").json(200, array, "status"),
+  http.get("/project/current", "project.current").json(200, (body, ctx) => {
+    object(body)
+    check(body.worktree === ctx.directory, "current project should resolve from scenario directory")
+  }, "status"),
+  http
+    .patch("/project/{projectID}", "project.update")
+    .mutating()
+    .seeded((ctx) => ctx.project())
+    .at((ctx) => ({
+      path: route("/project/{projectID}", { projectID: ctx.state.id }),
+      headers: ctx.headers(),
+      body: { name: "HTTP API Project", commands: { start: "bun --version" } },
+    }))
+    .json(200, (body) => {
+      object(body)
+      check(body.name === "HTTP API Project", "project update should return patched name")
+      check(isRecord(body.commands) && body.commands.start === "bun --version", "project update should return patched command")
+    }, "status"),
+  http
+    .post("/project/git/init", "project.initGit")
+    .mutating()
+    .inProject({ git: false })
+    .json(200, (body, ctx) => {
+      object(body)
+      check(body.worktree === ctx.directory, "git init should return current project")
+      check(body.vcs === "git", "git init should mark the project as git-backed")
+    }, "status"),
+  http.get("/provider", "provider.list").json(),
+  http.get("/provider/auth", "provider.auth").json(),
+  http.get("/permission", "permission.list").json(200, array),
+  http
+    .post("/permission/{requestID}/reply", "permission.reply")
+    .at((ctx) => ({ path: route("/permission/{requestID}/reply", { requestID: "per_httpapi" }), headers: ctx.headers(), body: { reply: "once" } }))
+    .json(200, (body) => {
+      check(body === true, "permission reply should return true even when request is no longer pending")
+    }, "status"),
+  http.get("/question", "question.list").json(200, array),
+  http
+    .post("/question/{requestID}/reply", "question.reply")
+    .at((ctx) => ({ path: route("/question/{requestID}/reply", { requestID: "que_httpapi_reply" }), headers: ctx.headers(), body: { answers: [["Yes"]] } }))
+    .json(200, (body) => {
+      check(body === true, "question reply should return true even when request is no longer pending")
+    }, "status"),
+  http
+    .post("/question/{requestID}/reject", "question.reject")
+    .at((ctx) => ({ path: route("/question/{requestID}/reject", { requestID: "que_httpapi_reject" }), headers: ctx.headers() }))
+    .json(200, (body) => {
+      check(body === true, "question reject should return true even when request is no longer pending")
+    }, "status"),
+  http
+    .get("/file", "file.list")
+    .seeded((ctx) => ctx.file("hello.txt", "hello\n"))
+    .at((ctx) => ({ path: `/file?${new URLSearchParams({ path: "." })}`, headers: ctx.headers() }))
+    .json(200, array),
+  http
+    .get("/file/content", "file.read")
+    .seeded((ctx) => ctx.file("hello.txt", "hello\n"))
+    .at((ctx) => ({ path: `/file/content?${new URLSearchParams({ path: "hello.txt" })}`, headers: ctx.headers() }))
+    .json(200, (body) => {
+      object(body)
+      check(body.content === "hello", `content should match seeded file: ${JSON.stringify(body)}`)
+    }),
+  http.get("/file/status", "file.status").json(200, array),
+  http
+    .get("/find", "find.text")
+    .seeded((ctx) => ctx.file("hello.txt", "hello\n"))
+    .at((ctx) => ({ path: `/find?${new URLSearchParams({ pattern: "hello" })}`, headers: ctx.headers() }))
+    .json(200, array),
+  http
+    .get("/find/file", "find.files")
+    .seeded((ctx) => ctx.file("hello.txt", "hello\n"))
+    .at((ctx) => ({ path: `/find/file?${new URLSearchParams({ query: "hello", dirs: "false" })}`, headers: ctx.headers() }))
+    .json(200, array),
+  http
+    .get("/find/symbol", "find.symbols")
+    .seeded((ctx) => ctx.file("hello.ts", "export const hello = 1\n"))
+    .at((ctx) => ({ path: `/find/symbol?${new URLSearchParams({ query: "hello" })}`, headers: ctx.headers() }))
+    .json(200, array),
+  http.get("/mcp", "mcp.status").json(),
+  http.get("/pty/shells", "pty.shells").json(200, array),
+  http.get("/pty", "pty.list").json(200, array),
+  http.get("/experimental/console", "experimental.console.get").json(),
+  http.get("/experimental/console/orgs", "experimental.console.listOrgs").json(),
+  http.get("/experimental/workspace/adapter", "experimental.workspace.adapter.list").json(200, array),
+  http.get("/experimental/workspace", "experimental.workspace.list").json(200, array),
+  http.get("/experimental/workspace/status", "experimental.workspace.status").json(200, array),
+  http
+    .get("/experimental/tool", "tool.list")
+    .at((ctx) => ({ path: `/experimental/tool?${new URLSearchParams({ provider: "opencode", model: "test" })}`, headers: ctx.headers() }))
+    .json(200, array, "status"),
+  http.get("/experimental/tool/ids", "tool.ids").json(200, array),
+  http.get("/experimental/worktree", "worktree.list").json(200, array),
+  http
+    .post("/experimental/worktree", "worktree.create")
+    .mutating()
+    .at((ctx) => ({ path: "/experimental/worktree", headers: ctx.headers(), body: { name: "api-dsl" } }))
+    .jsonEffect(200, (body, ctx) =>
+      Effect.gen(function* () {
+        object(body)
+        check(typeof body.directory === "string", "created worktree should include directory")
+        yield* ctx.worktreeRemove(body.directory)
+      }),
+    "status"),
+  http
+    .delete("/experimental/worktree", "worktree.remove")
+    .mutating()
+    .seeded((ctx) => ctx.worktree({ name: "api-remove" }))
+    .at((ctx) => ({ path: "/experimental/worktree", headers: ctx.headers(), body: { directory: ctx.state.directory } }))
+    .json(200, (body) => {
+      check(body === true, "worktree remove should return true")
+    }, "status"),
+  http
+    .post("/experimental/worktree/reset", "worktree.reset")
+    .mutating()
+    .seeded((ctx) => ctx.worktree({ name: "api-reset" }))
+    .at((ctx) => ({ path: "/experimental/worktree/reset", headers: ctx.headers(), body: { directory: ctx.state.directory } }))
+    .jsonEffect(200, (body, ctx) =>
+      Effect.gen(function* () {
+        check(body === true, "worktree reset should return true")
+        yield* ctx.worktreeRemove(ctx.state.directory)
+      }),
+    "status"),
+  http.get("/experimental/session", "experimental.session.list").json(200, array),
+  http.get("/experimental/resource", "experimental.resource.list").json(),
+  http.post("/sync/history", "sync.history.list").at((ctx) => ({ path: "/sync/history", headers: ctx.headers(), body: {} })).json(200, array),
+  http.post("/instance/dispose", "instance.dispose").mutating().json(200, (body) => {
+    check(body === true, "instance dispose should return true")
+  }, "status"),
+  http
+    .post("/log", "app.log")
+    .global()
+    .at(() => ({ path: "/log", body: { service: "httpapi-exercise", level: "info", message: "route coverage" } }))
+    .json(200, (body) => {
+      check(body === true, "log route should return true")
+    }),
+  http
+    .get("/session", "session.list")
+    .seeded((ctx) => ctx.session({ title: "List me" }))
+    .at((ctx) => ({ path: "/session?roots=true", headers: ctx.headers() }))
+    .json(200, (body, ctx) => {
+      array(body)
+      check(body.some((item) => isRecord(item) && item.id === ctx.state.id && item.title === "List me"), "seeded session should be listed")
+    }),
+  http
+    .get("/session/status", "session.status")
+    .seeded((ctx) => ctx.session({ title: "Status session" }))
+    .json(200, object),
+  http
+    .post("/session", "session.create")
+    .mutating()
+    .at((ctx) => ({ path: "/session", headers: ctx.headers(), body: { title: "Created session" } }))
+    .json(200, (body, ctx) => {
+      object(body)
+      check(body.title === "Created session", "created session should use requested title")
+      check(body.directory === ctx.directory, "created session should use scenario directory")
+    }, "status"),
+  http
+    .get("/session/{sessionID}", "session.get")
+    .seeded((ctx) => ctx.session({ title: "Get me" }))
+    .at((ctx) => ({ path: route("/session/{sessionID}", { sessionID: ctx.state.id }), headers: ctx.headers() }))
+    .json(200, (body, ctx) => {
+      object(body)
+      check(body.id === ctx.state.id, "should return requested session")
+      check(body.title === "Get me", "should preserve seeded title")
+    }),
+  http
+    .patch("/session/{sessionID}", "session.update")
+    .mutating()
+    .seeded((ctx) => ctx.session({ title: "Before rename" }))
+    .at((ctx) => ({ path: route("/session/{sessionID}", { sessionID: ctx.state.id }), headers: ctx.headers(), body: { title: "After rename" } }))
+    .json(200, (body) => {
+      object(body)
+      check(body.title === "After rename", "updated session should use new title")
+    }, "status"),
+  http
+    .delete("/session/{sessionID}", "session.delete")
+    .mutating()
+    .seeded((ctx) => ctx.session({ title: "Delete me" }))
+    .at((ctx) => ({ path: route("/session/{sessionID}", { sessionID: ctx.state.id }), headers: ctx.headers() }))
+    .jsonEffect(200, (body, ctx) =>
+      Effect.gen(function* () {
+        check(body === true, "delete should return true")
+        check((yield* ctx.sessionGet(ctx.state.id)) === undefined, "deleted session should not remain in storage")
+      }),
+    "status"),
+  http
+    .get("/session/{sessionID}/children", "session.children")
+    .seeded((ctx) =>
+      Effect.gen(function* () {
+        const parent = yield* ctx.session({ title: "Parent" })
+        const child = yield* ctx.session({ title: "Child", parentID: parent.id })
+        return { parent, child }
+      }),
+    )
+    .at((ctx) => ({ path: route("/session/{sessionID}/children", { sessionID: ctx.state.parent.id }), headers: ctx.headers() }))
+    .json(200, (body, ctx) => {
+      array(body)
+      check(body.some((item) => isRecord(item) && item.id === ctx.state.child.id && item.parentID === ctx.state.parent.id), "children should include seeded child")
+    }),
+  http
+    .get("/session/{sessionID}/todo", "session.todo")
+    .seeded((ctx) =>
+      Effect.gen(function* () {
+        const session = yield* ctx.session({ title: "Todo session" })
+        const todos = [{ content: "cover session todo", status: "pending", priority: "high" }]
+        yield* ctx.todos(session.id, todos)
+        return { session, todos }
+      }),
+    )
+    .at((ctx) => ({ path: route("/session/{sessionID}/todo", { sessionID: ctx.state.session.id }), headers: ctx.headers() }))
+    .json(200, (body, ctx) => {
+      check(stable(body) === stable(ctx.state.todos), "todos should match seeded state")
+    }),
+  http
+    .get("/session/{sessionID}/diff", "session.diff")
+    .seeded((ctx) => ctx.session({ title: "Diff session" }))
+    .at((ctx) => ({ path: route("/session/{sessionID}/diff", { sessionID: ctx.state.id }), headers: ctx.headers() }))
+    .json(200, array),
+  http
+    .get("/session/{sessionID}/message", "session.messages")
+    .seeded((ctx) => ctx.session({ title: "Messages session" }))
+    .at((ctx) => ({ path: route("/session/{sessionID}/message", { sessionID: ctx.state.id }), headers: ctx.headers() }))
+    .json(200, (body) => {
+      array(body)
+      check(body.length === 0, "new session should have no messages")
+    }),
+  http
+    .get("/session/{sessionID}/message/{messageID}", "session.message")
+    .seeded((ctx) =>
+      Effect.gen(function* () {
+        const session = yield* ctx.session({ title: "Message get session" })
+        const message = yield* ctx.message(session.id, { text: "read me" })
+        return { session, message }
+      }),
+    )
+    .at((ctx) => ({
+      path: route("/session/{sessionID}/message/{messageID}", {
+        sessionID: ctx.state.session.id,
+        messageID: ctx.state.message.info.id,
+      }),
+      headers: ctx.headers(),
+    }))
+    .json(200, (body, ctx) => {
+      object(body)
+      check(isRecord(body.info) && body.info.id === ctx.state.message.info.id, "should return requested message")
+      check(Array.isArray(body.parts) && body.parts.some((part) => isRecord(part) && part.id === ctx.state.message.part.id), "message should include seeded part")
+    }),
+  http
+    .patch("/session/{sessionID}/message/{messageID}/part/{partID}", "part.update")
+    .mutating()
+    .seeded((ctx) =>
+      Effect.gen(function* () {
+        const session = yield* ctx.session({ title: "Part update session" })
+        const message = yield* ctx.message(session.id, { text: "before" })
+        return { session, message }
+      }),
+    )
+    .at((ctx) => ({
+      path: route("/session/{sessionID}/message/{messageID}/part/{partID}", {
+        sessionID: ctx.state.session.id,
+        messageID: ctx.state.message.info.id,
+        partID: ctx.state.message.part.id,
+      }),
+      headers: ctx.headers(),
+      body: { ...ctx.state.message.part, text: "after" },
+    }))
+    .json(200, (body) => {
+      object(body)
+      check(body.type === "text" && body.text === "after", "updated part should be returned")
+    }, "status"),
+  http
+    .delete("/session/{sessionID}/message/{messageID}/part/{partID}", "part.delete")
+    .mutating()
+    .seeded((ctx) =>
+      Effect.gen(function* () {
+        const session = yield* ctx.session({ title: "Part delete session" })
+        const message = yield* ctx.message(session.id, { text: "delete part" })
+        return { session, message }
+      }),
+    )
+    .at((ctx) => ({
+      path: route("/session/{sessionID}/message/{messageID}/part/{partID}", {
+        sessionID: ctx.state.session.id,
+        messageID: ctx.state.message.info.id,
+        partID: ctx.state.message.part.id,
+      }),
+      headers: ctx.headers(),
+    }))
+    .jsonEffect(200, (body, ctx) =>
+      Effect.gen(function* () {
+        check(body === true, "delete part should return true")
+        const messages = yield* ctx.messages(ctx.state.session.id)
+        check(messages[0]?.parts.length === 0, "deleted part should not remain on message")
+      }),
+    "status"),
+  http
+    .delete("/session/{sessionID}/message/{messageID}", "session.deleteMessage")
+    .mutating()
+    .seeded((ctx) =>
+      Effect.gen(function* () {
+        const session = yield* ctx.session({ title: "Message delete session" })
+        const message = yield* ctx.message(session.id, { text: "delete message" })
+        return { session, message }
+      }),
+    )
+    .at((ctx) => ({
+      path: route("/session/{sessionID}/message/{messageID}", {
+        sessionID: ctx.state.session.id,
+        messageID: ctx.state.message.info.id,
+      }),
+      headers: ctx.headers(),
+    }))
+    .jsonEffect(200, (body, ctx) =>
+      Effect.gen(function* () {
+        check(body === true, "delete message should return true")
+        check((yield* ctx.messages(ctx.state.session.id)).length === 0, "deleted message should not remain")
+      }),
+    "status"),
+  http
+    .post("/session/{sessionID}/fork", "session.fork")
+    .mutating()
+    .seeded((ctx) => ctx.session({ title: "Fork source" }))
+    .at((ctx) => ({ path: route("/session/{sessionID}/fork", { sessionID: ctx.state.id }), headers: ctx.headers(), body: {} }))
+    .json(200, (body) => {
+      object(body)
+      check(typeof body.id === "string", "fork should return a session")
+    }, "status"),
+  http
+    .post("/session/{sessionID}/abort", "session.abort")
+    .mutating()
+    .seeded((ctx) => ctx.session({ title: "Abort session" }))
+    .at((ctx) => ({ path: route("/session/{sessionID}/abort", { sessionID: ctx.state.id }), headers: ctx.headers() }))
+    .json(200, (body) => {
+      check(body === true, "abort should return true")
+    }, "status"),
+  http
+    .post("/session/{sessionID}/revert", "session.revert")
+    .mutating()
+    .seeded((ctx) =>
+      Effect.gen(function* () {
+        const session = yield* ctx.session({ title: "Revert session" })
+        const message = yield* ctx.message(session.id, { text: "revert me" })
+        return { session, message }
+      }),
+    )
+    .at((ctx) => ({
+      path: route("/session/{sessionID}/revert", { sessionID: ctx.state.session.id }),
+      headers: ctx.headers(),
+      body: { messageID: ctx.state.message.info.id },
+    }))
+    .json(200, (body, ctx) => {
+      object(body)
+      check(body.id === ctx.state.session.id, "revert should return the session")
+      check(isRecord(body.revert) && body.revert.messageID === ctx.state.message.info.id, "revert should record reverted message")
+    }, "status"),
+  http
+    .post("/session/{sessionID}/unrevert", "session.unrevert")
+    .mutating()
+    .seeded((ctx) => ctx.session({ title: "Unrevert session" }))
+    .at((ctx) => ({ path: route("/session/{sessionID}/unrevert", { sessionID: ctx.state.id }), headers: ctx.headers() }))
+    .json(200, (body, ctx) => {
+      object(body)
+      check(body.id === ctx.state.id, "unrevert should return the session")
+    }, "status"),
+  http
+    .post("/session/{sessionID}/permissions/{permissionID}", "permission.respond")
+    .seeded((ctx) => ctx.session({ title: "Deprecated permission session" }))
+    .at((ctx) => ({
+      path: route("/session/{sessionID}/permissions/{permissionID}", { sessionID: ctx.state.id, permissionID: "per_httpapi_deprecated" }),
+      headers: ctx.headers(),
+      body: { response: "once" },
+    }))
+    .json(200, (body) => {
+      check(body === true, "deprecated permission response should return true")
+    }, "status"),
+  http
+    .post("/tui/append-prompt", "tui.appendPrompt")
+    .at((ctx) => ({ path: "/tui/append-prompt", headers: ctx.headers(), body: { text: "hello" } }))
+    .json(200, boolean, "status"),
+  http.post("/tui/open-help", "tui.openHelp").json(200, boolean, "status"),
+  http.post("/tui/open-sessions", "tui.openSessions").json(200, boolean, "status"),
+  http.post("/tui/open-themes", "tui.openThemes").json(200, boolean, "status"),
+  http.post("/tui/open-models", "tui.openModels").json(200, boolean, "status"),
+  http.post("/tui/submit-prompt", "tui.submitPrompt").json(200, boolean, "status"),
+  http.post("/tui/clear-prompt", "tui.clearPrompt").json(200, boolean, "status"),
+  http
+    .post("/tui/execute-command", "tui.executeCommand")
+    .at((ctx) => ({ path: "/tui/execute-command", headers: ctx.headers(), body: { command: "agent_cycle" } }))
+    .json(200, boolean, "status"),
+  http
+    .post("/tui/show-toast", "tui.showToast")
+    .at((ctx) => ({
+      path: "/tui/show-toast",
+      headers: ctx.headers(),
+      body: { title: "Exercise", message: "covered", variant: "info", duration: 1000 },
+    }))
+    .json(200, boolean, "status"),
+  http
+    .post("/tui/publish", "tui.publish")
+    .at((ctx) => ({
+      path: "/tui/publish",
+      headers: ctx.headers(),
+      body: { type: "tui.prompt.append", properties: { text: "published" } },
+    }))
+    .json(200, boolean, "status"),
+  http
+    .post("/tui/select-session", "tui.selectSession")
+    .seeded((ctx) => ctx.session({ title: "TUI select" }))
+    .at((ctx) => ({ path: "/tui/select-session", headers: ctx.headers(), body: { sessionID: ctx.state.id } }))
+    .json(200, boolean, "status"),
+  http
+    .post("/tui/control/response", "tui.control.response")
+    .at((ctx) => ({ path: "/tui/control/response", headers: ctx.headers(), body: { ok: true } }))
+    .json(200, boolean, "status"),
+  pending("GET", "/event", "event.stream", "SSE probe should publish and read one Bus event"),
+  pending("GET", "/global/event", "global.event", "SSE probe should publish and read one global event"),
+  pending("GET", "/tui/control/next", "tui.control.next", "route blocks until a TUI request is queued"),
+  pending("PATCH", "/global/config", "global.config.update", "needs Global.Path.config isolation before exercising writes"),
+  pending("PUT", "/auth/{providerID}", "auth.set", "writes Global.Path.data auth storage; needs global path isolation"),
+  pending("DELETE", "/auth/{providerID}", "auth.remove", "writes Global.Path.data auth storage; needs global path isolation"),
+  pending("POST", "/experimental/console/switch", "experimental.console.switchOrg", "requires seeded Console account/org state"),
+  pending("POST", "/experimental/workspace", "experimental.workspace.create", "requires a safe fake workspace adapter or adapter fixture"),
+  pending("DELETE", "/experimental/workspace/{id}", "experimental.workspace.remove", "requires a seeded workspace adapter entry"),
+  pending("POST", "/experimental/workspace/{id}/session-restore", "experimental.workspace.sessionRestore", "requires seeded workspace sync history"),
+  pending("POST", "/mcp", "mcp.add", "mutates project MCP config; needs a harmless MCP fixture"),
+  pending("POST", "/mcp/{name}/auth", "mcp.auth.start", "requires MCP auth-capable fixture"),
+  pending("DELETE", "/mcp/{name}/auth", "mcp.auth.remove", "requires MCP auth-capable fixture"),
+  pending("POST", "/mcp/{name}/auth/authenticate", "mcp.auth.authenticate", "requires MCP auth-capable fixture"),
+  pending("POST", "/mcp/{name}/auth/callback", "mcp.auth.callback", "requires MCP auth callback fixture"),
+  pending("POST", "/mcp/{name}/connect", "mcp.connect", "requires MCP server fixture"),
+  pending("POST", "/mcp/{name}/disconnect", "mcp.disconnect", "requires MCP server fixture"),
+  pending("POST", "/provider/{providerID}/oauth/authorize", "provider.oauth.authorize", "requires provider OAuth fixture"),
+  pending("POST", "/provider/{providerID}/oauth/callback", "provider.oauth.callback", "requires provider OAuth fixture"),
+  pending("POST", "/pty", "pty.create", "spawns a real PTY; needs controlled process fixture"),
+  pending("GET", "/pty/{ptyID}", "pty.get", "needs controlled PTY fixture"),
+  pending("PUT", "/pty/{ptyID}", "pty.update", "needs controlled PTY fixture"),
+  pending("DELETE", "/pty/{ptyID}", "pty.remove", "needs controlled PTY fixture"),
+  pending("GET", "/pty/{ptyID}/connect", "pty.connect", "websocket route needs upgrade-capable probe"),
+  pending("POST", "/session/{sessionID}/init", "session.init", "invokes LLM command flow; needs test LLM wiring"),
+  pending("POST", "/session/{sessionID}/share", "session.share", "hits sharing service; needs share fixture"),
+  pending("DELETE", "/session/{sessionID}/share", "session.unshare", "hits sharing service; needs share fixture"),
+  pending("POST", "/session/{sessionID}/summarize", "session.summarize", "invokes compaction/LLM flow; needs test LLM wiring"),
+  pending("POST", "/session/{sessionID}/message", "session.prompt", "streams LLM prompt output; needs test LLM streaming probe"),
+  pending("POST", "/session/{sessionID}/prompt_async", "session.prompt_async", "starts async LLM prompt; needs test LLM wiring"),
+  pending("POST", "/session/{sessionID}/command", "session.command", "invokes LLM command flow; needs test LLM wiring"),
+  pending("POST", "/session/{sessionID}/shell", "session.shell", "invokes session shell/LLM flow; needs test LLM wiring"),
+  pending("POST", "/sync/start", "sync.start", "starts background workspace sync that must be joined before DB reset"),
+  pending("POST", "/sync/replay", "sync.replay", "requires a valid serialized sync event fixture"),
+  pending("POST", "/global/dispose", "global.dispose", "assert all instances are disposed after response"),
+  pending("POST", "/global/upgrade", "global.upgrade", "avoid shelling to real upgrade until faked"),
+]
+
+const main = Effect.gen(function* () {
+  const options = parseOptions(Bun.argv.slice(2))
+  const modules = yield* Effect.promise(() => runtime())
+  const effectRoutes = routeKeys(OpenApi.fromApi(modules.PublicApi))
+  const honoRoutes = routeKeys(yield* Effect.promise(() => modules.Server.openapi()))
+  const selected = scenarios.filter((scenario) => matches(options, scenario))
+  const missing = effectRoutes.filter((route) => !scenarios.some((scenario) => route === routeKey(scenario)))
+  const extra = scenarios.filter((scenario) => !effectRoutes.includes(routeKey(scenario)))
+
+  printHeader(options, effectRoutes, honoRoutes, selected, missing, extra)
+
+  const results = options.mode === "coverage" ? selected.map(coverageResult) : yield* Effect.forEach(selected, runScenario(options), { concurrency: 1 })
+  printResults(results, missing, extra)
+
+  if (results.some((result) => result.status === "fail")) return yield* Effect.fail(new Error("one or more scenarios failed"))
+  if (options.failOnSkip && results.some((result) => result.status === "skip")) return yield* Effect.fail(new Error("one or more scenarios are skipped"))
+  if (options.failOnMissing && missing.length > 0) return yield* Effect.fail(new Error("one or more routes have no scenario"))
+})
+
+function runScenario(options: Options) {
+  return (scenario: Scenario): Effect.Effect<Result> => {
+    if (scenario.kind === "todo") return Effect.succeed({ status: "skip", scenario })
+    return runActive(options, scenario).pipe(
+      Effect.as({ status: "pass", scenario } as Result),
+      Effect.catchCause((cause) => Effect.succeed({ status: "fail" as const, scenario, message: Cause.pretty(cause) })),
+      Effect.scoped,
+    )
+  }
+}
+
+function runActive(options: Options, scenario: ActiveScenario) {
+  if (options.mode === "parity" && scenario.mutates && scenario.compare !== "none") {
+    return Effect.gen(function* () {
+      const effect = yield* runBackend("effect", scenario)
+      const legacy = yield* runBackend("legacy", scenario)
+      yield* compare(scenario, effect, legacy)
+    })
+  }
+
+  return withContext(scenario, (ctx) =>
+    Effect.gen(function* () {
+      const effect = yield* call("effect", scenario, ctx)
+      yield* scenario.expect(ctx, ctx.state, effect)
+      if (options.mode === "parity" && scenario.compare !== "none") {
+        const legacy = yield* call("legacy", scenario, ctx)
+        yield* scenario.expect(ctx, ctx.state, legacy)
+        yield* compare(scenario, effect, legacy)
+      }
+    }),
+  )
+}
+
+function runBackend(backend: "effect" | "legacy", scenario: ActiveScenario) {
+  return withContext(scenario, (ctx) =>
+    Effect.gen(function* () {
+      const result = yield* call(backend, scenario, ctx)
+      yield* scenario.expect(ctx, ctx.state, result)
+      return result
+    }),
+  )
+}
+
+function withContext<A, E>(scenario: ActiveScenario, use: (ctx: SeededContext<unknown>) => Effect.Effect<A, E>) {
+  return Effect.acquireRelease(
+    Effect.promise(async () => (scenario.project ? (await runtime()).tmpdir(scenario.project) : undefined)),
+    (dir) => Effect.promise(async () => void (await dir?.[Symbol.asyncDispose]())).pipe(Effect.ignore),
+  ).pipe(
+    Effect.flatMap((dir) => Effect.gen(function* () {
+      const modules = yield* Effect.promise(() => runtime())
+      const instance = dir?.path
+        ? yield* modules.InstanceStore.Service.use((store) => store.load({ directory: dir.path })).pipe(
+            Effect.provide(modules.AppLayer),
+          )
+        : undefined
+      const run = <A, E, R>(effect: Effect.Effect<A, E, R>) =>
+        effect.pipe(Effect.provideService(modules.InstanceRef, instance), Effect.provide(modules.AppLayer))
+      const directory = () => {
+        if (!dir?.path) throw new Error("scenario needs a project directory")
+        return dir.path
+      }
+      const base: ScenarioContext = {
+        directory: dir?.path,
+        headers: (extra) => ({ ...(dir?.path ? { "x-opencode-directory": dir.path } : {}), ...extra }),
+        file: (name, content) =>
+          Effect.promise(() => {
+            return Bun.write(`${directory()}/${name}`, content)
+          }).pipe(Effect.asVoid),
+        session: (input) =>
+          run(modules.Session.Service.use((svc) => svc.create({ title: input?.title, parentID: input?.parentID }))),
+        sessionGet: (sessionID) =>
+          run(modules.Session.Service.use((svc) => svc.get(sessionID))).pipe(
+            Effect.catchCause(() => Effect.succeed(undefined)),
+          ),
+        project: () =>
+          Effect.sync(() => {
+            if (!instance) throw new Error("scenario needs a project directory")
+            return instance.project
+          }),
+        message: (sessionID, input) =>
+          Effect.gen(function* () {
+            const info: MessageV2.User = {
+              id: MessageID.ascending(),
+              sessionID,
+              role: "user",
+              time: { created: Date.now() },
+              agent: "build",
+              model: {
+                providerID: ProviderID.opencode,
+                modelID: ModelID.make("test"),
+              },
+            }
+            const part: MessageV2.TextPart = {
+              id: PartID.ascending(),
+              sessionID,
+              messageID: info.id,
+              type: "text",
+              text: input?.text ?? "hello",
+            }
+            yield* run(
+              modules.Session.Service.use((svc) =>
+                Effect.gen(function* () {
+                  yield* svc.updateMessage(info)
+                  yield* svc.updatePart(part)
+                }),
+              ),
+            )
+            return { info, part }
+          }),
+        messages: (sessionID) =>
+          run(modules.Session.Service.use((svc) => svc.messages({ sessionID }))),
+        todos: (sessionID, todos) =>
+          run(modules.Todo.Service.use((svc) => svc.update({ sessionID, todos }))),
+        worktree: (input) =>
+          run(modules.Worktree.Service.use((svc) => svc.create(input))),
+        worktreeRemove: (directory) =>
+          run(modules.Worktree.Service.use((svc) => svc.remove({ directory })).pipe(Effect.ignore)),
+      }
+      const state = yield* scenario.seed(base)
+      return yield* use({ ...base, state })
+    })),
+    Effect.ensuring(resetState),
+  )
+}
+
+function call(backend: "effect" | "legacy", scenario: ActiveScenario, ctx: SeededContext<unknown>) {
+  return Effect.promise(async () => capture(await app(await runtime(), backend).request(toRequest(scenario, ctx))))
+}
+
+function app(modules: Runtime, backend: "effect" | "legacy") {
+  Flag.OPENCODE_EXPERIMENTAL_HTTPAPI = backend === "effect"
+  Flag.OPENCODE_SERVER_PASSWORD = undefined
+  Flag.OPENCODE_SERVER_USERNAME = undefined
+  if (backend === "legacy") return modules.Server.Legacy().app
+
+  const handler = HttpRouter.toWebHandler(
+    modules.ExperimentalHttpApiServer.routes.pipe(
+      Layer.provide(ConfigProvider.layer(ConfigProvider.fromUnknown({ OPENCODE_SERVER_PASSWORD: undefined, OPENCODE_SERVER_USERNAME: undefined }))),
+    ),
+    { disableLogger: true },
+  ).handler
+  return {
+    fetch: (request: Request) => handler(request, modules.ExperimentalHttpApiServer.context),
+    request(input: string | URL | Request, init?: RequestInit) {
+      return this.fetch(input instanceof Request ? input : new Request(new URL(input, "http://localhost"), init))
+    },
+  }
+}
+
+function toRequest(scenario: ActiveScenario, ctx: SeededContext<unknown>) {
+  const spec = scenario.request(ctx, ctx.state)
+  return new Request(new URL(spec.path, "http://localhost"), {
+    method: scenario.method,
+    headers: spec.body === undefined ? spec.headers : { "content-type": "application/json", ...spec.headers },
+    body: spec.body === undefined ? undefined : JSON.stringify(spec.body),
+  })
+}
+
+async function capture(response: Response): Promise<CallResult> {
+  const text = await response.text()
+  return {
+    status: response.status,
+    contentType: response.headers.get("content-type") ?? "",
+    text,
+    body: parse(text),
+  }
+}
+
+function compare(scenario: ActiveScenario, effect: CallResult, legacy: CallResult) {
+  return Effect.sync(() => {
+    if (effect.status !== legacy.status) throw new Error(`legacy returned ${legacy.status}, effect returned ${effect.status}`)
+    if (scenario.compare === "status") return
+    if (stable(effect.body) !== stable(legacy.body)) throw new Error(`JSON parity mismatch\nlegacy: ${stable(legacy.body)}\neffect: ${stable(effect.body)}`)
+  })
+}
+
+const resetState = Effect.promise(async () => {
+  const modules = await runtime()
+  Flag.OPENCODE_EXPERIMENTAL_HTTPAPI = original.OPENCODE_EXPERIMENTAL_HTTPAPI
+  Flag.OPENCODE_SERVER_PASSWORD = original.OPENCODE_SERVER_PASSWORD
+  Flag.OPENCODE_SERVER_USERNAME = original.OPENCODE_SERVER_USERNAME
+  await modules.disposeAllInstances()
+  await modules.resetDatabase()
+})
+
+function routeKeys(spec: OpenApiSpec) {
+  return Object.entries(spec.paths ?? {})
+    .flatMap(([path, item]) => OpenApiMethods.filter((method) => item[method]).map((method) => `${method.toUpperCase()} ${path}`))
+    .sort()
+}
+
+function routeKey(scenario: Scenario) {
+  return `${scenario.method} ${scenario.path}`
+}
+
+function coverageResult(scenario: Scenario): Result {
+  if (scenario.kind === "todo") return { status: "skip", scenario }
+  return { status: "pass", scenario }
+}
+
+function parseOptions(args: string[]): Options {
+  const mode = option(args, "--mode") ?? "effect"
+  if (mode !== "effect" && mode !== "parity" && mode !== "coverage") throw new Error(`invalid --mode ${mode}`)
+  return {
+    mode,
+    include: option(args, "--include"),
+    failOnMissing: args.includes("--fail-on-missing"),
+    failOnSkip: args.includes("--fail-on-skip"),
+  }
+}
+
+function option(args: string[], name: string) {
+  const index = args.indexOf(name)
+  if (index === -1) return undefined
+  return args[index + 1]
+}
+
+function matches(options: Options, scenario: Scenario) {
+  if (!options.include) return true
+  return scenario.name.includes(options.include) || scenario.path.includes(options.include) || scenario.method.includes(options.include.toUpperCase())
+}
+
+function printHeader(options: Options, effectRoutes: string[], honoRoutes: string[], selected: Scenario[], missing: string[], extra: Scenario[]) {
+  console.log(`${color.cyan}HttpApi exerciser${color.reset}`)
+  console.log(`${color.dim}db=${exerciseDatabasePath}${color.reset}`)
+  console.log(
+    `${color.dim}mode=${options.mode} selected=${selected.length} effectRoutes=${effectRoutes.length} missing=${missing.length} extra=${extra.length} onlyEffect=${effectRoutes.filter((route) => !honoRoutes.includes(route)).length} onlyHono=${honoRoutes.filter((route) => !effectRoutes.includes(route)).length}${color.reset}`,
+  )
+  console.log("")
+}
+
+function printResults(results: Result[], missing: string[], extra: Scenario[]) {
+  for (const result of results) {
+    if (result.status === "pass") {
+      console.log(`${color.green}PASS${color.reset} ${pad(result.scenario.method, 6)} ${pad(result.scenario.path, 48)} ${result.scenario.name}`)
+      continue
+    }
+    if (result.status === "skip") {
+      console.log(`${color.yellow}SKIP${color.reset} ${pad(result.scenario.method, 6)} ${pad(result.scenario.path, 48)} ${result.scenario.name} ${color.dim}${result.scenario.reason}${color.reset}`)
+      continue
+    }
+    console.log(`${color.red}FAIL${color.reset} ${pad(result.scenario.method, 6)} ${pad(result.scenario.path, 48)} ${result.scenario.name}`)
+    console.log(`${color.red}${indent(result.message)}${color.reset}`)
+  }
+  if (missing.length > 0) {
+    console.log("\nMissing scenarios")
+    for (const route of missing) console.log(`${color.red}MISS${color.reset} ${route}`)
+  }
+  if (extra.length > 0) {
+    console.log("\nExtra scenarios")
+    for (const scenario of extra) console.log(`${color.yellow}EXTRA${color.reset} ${routeKey(scenario)} ${scenario.name}`)
+  }
+  console.log(
+    `\n${color.dim}summary pass=${results.filter((result) => result.status === "pass").length} fail=${results.filter((result) => result.status === "fail").length} skip=${results.filter((result) => result.status === "skip").length} missing=${missing.length} extra=${extra.length}${color.reset}`,
+  )
+}
+
+function parse(text: string): unknown {
+  if (!text) return undefined
+  try {
+    return JSON.parse(text) as unknown
+  } catch {
+    return text
+  }
+}
+
+function looksJson(result: CallResult) {
+  return result.contentType.includes("application/json") || result.text.startsWith("{") || result.text.startsWith("[")
+}
+
+function stable(value: unknown): string {
+  return JSON.stringify(sort(value))
+}
+
+function sort(value: unknown): unknown {
+  if (Array.isArray(value)) return value.map(sort)
+  if (!value || typeof value !== "object") return value
+  return Object.fromEntries(Object.entries(value).sort(([left], [right]) => left.localeCompare(right)).map(([key, item]) => [key, sort(item)]))
+}
+
+function array(value: unknown): asserts value is unknown[] {
+  if (!Array.isArray(value)) throw new Error("expected array")
+}
+
+function object(value: unknown): asserts value is JsonObject {
+  if (!value || typeof value !== "object" || Array.isArray(value)) throw new Error("expected object")
+}
+
+function boolean(value: unknown): asserts value is boolean {
+  if (typeof value !== "boolean") throw new Error("expected boolean")
+}
+
+function isRecord(value: unknown): value is JsonObject {
+  return !!value && typeof value === "object" && !Array.isArray(value)
+}
+
+function check(value: boolean, message: string): asserts value {
+  if (!value) throw new Error(message)
+}
+
+function message(error: unknown) {
+  if (error instanceof Error) return error.message
+  return String(error)
+}
+
+function pad(value: string, size: number) {
+  return value.length >= size ? value : value + " ".repeat(size - value.length)
+}
+
+function indent(value: string) {
+  return value
+    .split("\n")
+    .map((line) => `  ${line}`)
+    .join("\n")
+}
+
+Effect.runPromise(main).then(
+  () => process.exit(0),
+  (error: unknown) => {
+    console.error(`${color.red}${message(error)}${color.reset}`)
+    process.exit(1)
+  },
+)
