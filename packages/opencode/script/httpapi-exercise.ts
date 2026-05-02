@@ -23,6 +23,7 @@ import { HttpRouter } from "effect/unstable/http"
 import { OpenApi } from "effect/unstable/httpapi"
 import { Flag } from "@opencode-ai/core/flag/flag"
 import * as Log from "@opencode-ai/core/util/log"
+import { TestLLMServer } from "../test/lib/llm-server"
 import type { Config } from "../src/config/config"
 import { MessageID, PartID, type SessionID } from "../src/session/schema"
 import { ModelID, ProviderID } from "../src/provider/schema"
@@ -52,7 +53,7 @@ type Method = (typeof Methods)[number]
 type OpenApiMethod = (typeof OpenApiMethods)[number]
 type Mode = "effect" | "parity" | "coverage"
 type Comparison = "none" | "status" | "json"
-type ProjectOptions = { git?: boolean; config?: Partial<Config.Info> }
+type ProjectOptions = { git?: boolean; config?: Partial<Config.Info>; llm?: boolean }
 type OpenApiSpec = { paths?: Record<string, Partial<Record<OpenApiMethod, unknown>>> }
 type JsonObject = Record<string, unknown>
 
@@ -89,6 +90,8 @@ type ScenarioContext = {
   todos: (sessionID: SessionID, todos: TodoInfo[]) => Effect.Effect<void>
   worktree: (input?: { name?: string }) => Effect.Effect<Worktree.Info>
   worktreeRemove: (directory: string) => Effect.Effect<void>
+  llmText: (value: string) => Effect.Effect<void>
+  llmWait: (count: number) => Effect.Effect<void>
 }
 
 /** Scenario context after `.seeded(...)`; `state` preserves the seed return type in the DSL. */
@@ -216,6 +219,10 @@ class ScenarioBuilder<S = undefined> {
 
   inProject(project: ProjectOptions = { git: true }) {
     return this.clone({ project })
+  }
+
+  withLlm() {
+    return this.clone({ project: { ...(this.state.project ?? { git: true }), llm: true } })
   }
 
   at(request: BuilderState<S>["request"]) {
@@ -673,6 +680,34 @@ const scenarios: Scenario[] = [
       check(body === true, "abort should return true")
     }, "status"),
   http
+    .post("/session/{sessionID}/message", "session.prompt")
+    .withLlm()
+    .seeded((ctx) =>
+      Effect.gen(function* () {
+        const session = yield* ctx.session({ title: "LLM prompt session" })
+        yield* ctx.llmText("fake assistant")
+        yield* ctx.llmText("fake assistant")
+        return session
+      }),
+    )
+    .at((ctx) => ({
+      path: route("/session/{sessionID}/message", { sessionID: ctx.state.id }),
+      headers: ctx.headers(),
+      body: {
+        agent: "build",
+        model: { providerID: "test", modelID: "test-model" },
+        parts: [{ type: "text", text: "hello llm" }],
+      },
+    }))
+    .jsonEffect(200, (body, ctx) =>
+      Effect.gen(function* () {
+        object(body)
+        check(isRecord(body.info) && body.info.role === "assistant", "prompt should return assistant message")
+        check(Array.isArray(body.parts) && body.parts.some((part) => isRecord(part) && part.text === "fake assistant"), "assistant message should use fake LLM text")
+        yield* ctx.llmWait(1)
+      }),
+    "status"),
+  http
     .post("/session/{sessionID}/revert", "session.revert")
     .mutating()
     .seeded((ctx) =>
@@ -779,7 +814,6 @@ const scenarios: Scenario[] = [
   pending("POST", "/session/{sessionID}/share", "session.share", "hits sharing service; needs share fixture"),
   pending("DELETE", "/session/{sessionID}/share", "session.unshare", "hits sharing service; needs share fixture"),
   pending("POST", "/session/{sessionID}/summarize", "session.summarize", "invokes compaction/LLM flow; needs test LLM wiring"),
-  pending("POST", "/session/{sessionID}/message", "session.prompt", "streams LLM prompt output; needs test LLM streaming probe"),
   pending("POST", "/session/{sessionID}/prompt_async", "session.prompt_async", "starts async LLM prompt; needs test LLM wiring"),
   pending("POST", "/session/{sessionID}/command", "session.command", "invokes LLM command flow; needs test LLM wiring"),
   pending("POST", "/session/{sessionID}/shell", "session.shell", "invokes session shell/LLM flow; needs test LLM wiring"),
@@ -809,8 +843,8 @@ const main = Effect.gen(function* () {
 })
 
 function runScenario(options: Options) {
-  return (scenario: Scenario): Effect.Effect<Result> => {
-    if (scenario.kind === "todo") return Effect.succeed({ status: "skip", scenario })
+  return (scenario: Scenario) => {
+    if (scenario.kind === "todo") return Effect.succeed({ status: "skip", scenario } as Result)
     return runActive(options, scenario).pipe(
       Effect.as({ status: "pass", scenario } as Result),
       Effect.catchCause((cause) => Effect.succeed({ status: "fail" as const, scenario, message: Cause.pretty(cause) })),
@@ -853,25 +887,37 @@ function runBackend(backend: "effect" | "legacy", scenario: ActiveScenario) {
 
 function withContext<A, E>(scenario: ActiveScenario, use: (ctx: SeededContext<unknown>) => Effect.Effect<A, E>) {
   return Effect.acquireRelease(
-    Effect.promise(async () => (scenario.project ? (await runtime()).tmpdir(scenario.project) : undefined)),
-    (dir) => Effect.promise(async () => void (await dir?.[Symbol.asyncDispose]())).pipe(Effect.ignore),
+    Effect.gen(function* () {
+      const llm = scenario.project?.llm ? yield* TestLLMServer : undefined
+      const project = scenario.project
+      const dir = project
+        ? yield* Effect.promise(async () => (await runtime()).tmpdir(projectOptions(project, llm?.url)))
+        : undefined
+      return { dir, llm }
+    }),
+    (ctx) => Effect.promise(async () => void (await ctx.dir?.[Symbol.asyncDispose]())).pipe(Effect.ignore),
   ).pipe(
-    Effect.flatMap((dir) => Effect.gen(function* () {
+    Effect.flatMap((context) => Effect.gen(function* () {
       const modules = yield* Effect.promise(() => runtime())
-      const instance = dir?.path
-        ? yield* modules.InstanceStore.Service.use((store) => store.load({ directory: dir.path })).pipe(
+      const path = context.dir?.path
+      const instance = path
+        ? yield* modules.InstanceStore.Service.use((store) => store.load({ directory: path })).pipe(
             Effect.provide(modules.AppLayer),
           )
         : undefined
       const run = <A, E, R>(effect: Effect.Effect<A, E, R>) =>
         effect.pipe(Effect.provideService(modules.InstanceRef, instance), Effect.provide(modules.AppLayer))
       const directory = () => {
-        if (!dir?.path) throw new Error("scenario needs a project directory")
-        return dir.path
+        if (!context.dir?.path) throw new Error("scenario needs a project directory")
+        return context.dir.path
+      }
+      const llm = () => {
+        if (!context.llm) throw new Error("scenario needs fake LLM")
+        return context.llm
       }
       const base: ScenarioContext = {
-        directory: dir?.path,
-        headers: (extra) => ({ ...(dir?.path ? { "x-opencode-directory": dir.path } : {}), ...extra }),
+        directory: context.dir?.path,
+        headers: (extra) => ({ ...(context.dir?.path ? { "x-opencode-directory": context.dir.path } : {}), ...extra }),
         file: (name, content) =>
           Effect.promise(() => {
             return Bun.write(`${directory()}/${name}`, content)
@@ -925,12 +971,63 @@ function withContext<A, E>(scenario: ActiveScenario, use: (ctx: SeededContext<un
           run(modules.Worktree.Service.use((svc) => svc.create(input))),
         worktreeRemove: (directory) =>
           run(modules.Worktree.Service.use((svc) => svc.remove({ directory })).pipe(Effect.ignore)),
+        llmText: (value) => Effect.suspend(() => llm().text(value)),
+        llmWait: (count) => Effect.suspend(() => llm().wait(count)),
       }
       const state = yield* scenario.seed(base)
       return yield* use({ ...base, state })
-    })),
+    }).pipe(Effect.ensuring(context.llm ? context.llm.reset : Effect.void))),
     Effect.ensuring(resetState),
   )
+}
+
+function projectOptions(project: ProjectOptions, llmUrl: string | undefined): { git?: boolean; config?: Partial<Config.Info> } {
+  if (!project.llm || !llmUrl) return { git: project.git, config: project.config }
+  const fake = fakeLlmConfig(llmUrl)
+  return {
+    git: project.git,
+    config: {
+      ...fake,
+      ...project.config,
+      provider: {
+        ...fake.provider,
+        ...project.config?.provider,
+      },
+    },
+  }
+}
+
+function fakeLlmConfig(url: string): Partial<Config.Info> {
+  return {
+    model: "test/test-model",
+    small_model: "test/test-model",
+    provider: {
+      test: {
+        name: "Test",
+        id: "test",
+        env: [],
+        npm: "@ai-sdk/openai-compatible",
+        models: {
+          "test-model": {
+            id: "test-model",
+            name: "Test Model",
+            attachment: false,
+            reasoning: false,
+            temperature: false,
+            tool_call: true,
+            release_date: "2025-01-01",
+            limit: { context: 100000, output: 10000 },
+            cost: { input: 0, output: 0 },
+            options: {},
+          },
+        },
+        options: {
+          apiKey: "test-key",
+          baseURL: url,
+        },
+      },
+    },
+  }
 }
 
 function call(backend: "effect" | "legacy", scenario: ActiveScenario, ctx: SeededContext<unknown>) {
@@ -1124,7 +1221,7 @@ function indent(value: string) {
     .join("\n")
 }
 
-Effect.runPromise(main).then(
+Effect.runPromise(main.pipe(Effect.provide(TestLLMServer.layer), Effect.scoped)).then(
   () => process.exit(0),
   (error: unknown) => {
     console.error(`${color.red}${message(error)}${color.reset}`)
