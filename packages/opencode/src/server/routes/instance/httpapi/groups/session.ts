@@ -12,6 +12,7 @@ import { MessageID, PartID, SessionID } from "@/session/schema"
 import { Snapshot } from "@/snapshot"
 import { Schema, SchemaGetter, Struct } from "effect"
 import { HttpApi, HttpApiEndpoint, HttpApiError, HttpApiGroup, HttpApiSchema, OpenApi } from "effect/unstable/httpapi"
+import { OpencodeNotFound } from "../errors"
 import { Authorization } from "../middleware/authorization"
 import { InstanceContextMiddleware } from "../middleware/instance-context"
 import { WorkspaceRoutingMiddleware } from "../middleware/workspace-routing"
@@ -123,7 +124,7 @@ export const SessionApi = HttpApi.make("session")
         HttpApiEndpoint.get("get", SessionPaths.get, {
           params: { sessionID: SessionID },
           success: described(Session.Info, "Get session"),
-          error: [HttpApiError.BadRequest, HttpApiError.NotFound],
+          error: [HttpApiError.BadRequest, OpencodeNotFound],
         }).annotateMerge(
           OpenApi.annotations({
             identifier: "session.get",
@@ -134,7 +135,7 @@ export const SessionApi = HttpApi.make("session")
         HttpApiEndpoint.get("children", SessionPaths.children, {
           params: { sessionID: SessionID },
           success: described(Schema.Array(Session.Info), "List of children"),
-          error: [HttpApiError.BadRequest, HttpApiError.NotFound],
+          error: [HttpApiError.BadRequest, OpencodeNotFound],
         }).annotateMerge(
           OpenApi.annotations({
             identifier: "session.children",
@@ -145,7 +146,7 @@ export const SessionApi = HttpApi.make("session")
         HttpApiEndpoint.get("todo", SessionPaths.todo, {
           params: { sessionID: SessionID },
           success: described(Schema.Array(Todo.Info), "Todo list"),
-          error: [HttpApiError.BadRequest, HttpApiError.NotFound],
+          error: [HttpApiError.BadRequest, OpencodeNotFound],
         }).annotateMerge(
           OpenApi.annotations({
             identifier: "session.todo",
@@ -157,6 +158,7 @@ export const SessionApi = HttpApi.make("session")
           params: { sessionID: SessionID },
           query: DiffQuery,
           success: described(Schema.Array(Snapshot.FileDiff), "Successfully retrieved diff"),
+          error: [HttpApiError.BadRequest, OpencodeNotFound],
         }).annotateMerge(
           OpenApi.annotations({
             identifier: "session.diff",
@@ -168,7 +170,7 @@ export const SessionApi = HttpApi.make("session")
           params: { sessionID: SessionID },
           query: MessagesQuery,
           success: described(Schema.Array(MessageV2.WithParts), "List of messages"),
-          error: [HttpApiError.BadRequest, HttpApiError.NotFound],
+          error: [HttpApiError.BadRequest, OpencodeNotFound],
         }).annotateMerge(
           OpenApi.annotations({
             identifier: "session.messages",
@@ -179,7 +181,7 @@ export const SessionApi = HttpApi.make("session")
         HttpApiEndpoint.get("message", SessionPaths.message, {
           params: { sessionID: SessionID, messageID: MessageID },
           success: described(MessageV2.WithParts, "Message"),
-          error: [HttpApiError.BadRequest, HttpApiError.NotFound],
+          error: [HttpApiError.BadRequest, OpencodeNotFound],
         }).annotateMerge(
           OpenApi.annotations({
             identifier: "session.message",
@@ -201,7 +203,7 @@ export const SessionApi = HttpApi.make("session")
         HttpApiEndpoint.delete("remove", SessionPaths.remove, {
           params: { sessionID: SessionID },
           success: described(Schema.Boolean, "Successfully deleted session"),
-          error: [HttpApiError.BadRequest, HttpApiError.NotFound],
+          error: [HttpApiError.BadRequest, OpencodeNotFound],
         }).annotateMerge(
           OpenApi.annotations({
             identifier: "session.delete",
@@ -213,7 +215,7 @@ export const SessionApi = HttpApi.make("session")
           params: { sessionID: SessionID },
           payload: UpdatePayload,
           success: described(Session.Info, "Successfully updated session"),
-          error: [HttpApiError.BadRequest, HttpApiError.NotFound],
+          error: [HttpApiError.BadRequest, OpencodeNotFound],
         }).annotateMerge(
           OpenApi.annotations({
             identifier: "session.update",
@@ -225,6 +227,7 @@ export const SessionApi = HttpApi.make("session")
           params: { sessionID: SessionID },
           payload: ForkPayload,
           success: described(Session.Info, "200"),
+          error: [HttpApiError.BadRequest, OpencodeNotFound],
         }).annotateMerge(
           OpenApi.annotations({
             identifier: "session.fork",
@@ -235,7 +238,7 @@ export const SessionApi = HttpApi.make("session")
         HttpApiEndpoint.post("abort", SessionPaths.abort, {
           params: { sessionID: SessionID },
           success: described(Schema.Boolean, "Aborted session"),
-          error: [HttpApiError.BadRequest, HttpApiError.NotFound],
+          error: [HttpApiError.BadRequest, OpencodeNotFound],
         }).annotateMerge(
           OpenApi.annotations({
             identifier: "session.abort",
@@ -247,7 +250,7 @@ export const SessionApi = HttpApi.make("session")
           params: { sessionID: SessionID },
           payload: InitPayload,
           success: described(Schema.Boolean, "200"),
-          error: [HttpApiError.BadRequest, HttpApiError.NotFound],
+          error: [HttpApiError.BadRequest, OpencodeNotFound],
         }).annotateMerge(
           OpenApi.annotations({
             identifier: "session.init",
@@ -259,7 +262,7 @@ export const SessionApi = HttpApi.make("session")
         HttpApiEndpoint.post("share", SessionPaths.share, {
           params: { sessionID: SessionID },
           success: described(Session.Info, "Successfully shared session"),
-          error: [HttpApiError.BadRequest, HttpApiError.NotFound],
+          error: [HttpApiError.BadRequest, OpencodeNotFound],
         }).annotateMerge(
           OpenApi.annotations({
             identifier: "session.share",
@@ -270,7 +273,7 @@ export const SessionApi = HttpApi.make("session")
         HttpApiEndpoint.delete("unshare", SessionPaths.share, {
           params: { sessionID: SessionID },
           success: described(Session.Info, "Successfully unshared session"),
-          error: [HttpApiError.BadRequest, HttpApiError.NotFound],
+          error: [HttpApiError.BadRequest, OpencodeNotFound],
         }).annotateMerge(
           OpenApi.annotations({
             identifier: "session.unshare",
@@ -282,7 +285,7 @@ export const SessionApi = HttpApi.make("session")
           params: { sessionID: SessionID },
           payload: SummarizePayload,
           success: described(Schema.Boolean, "Summarized session"),
-          error: [HttpApiError.BadRequest, HttpApiError.NotFound],
+          error: [HttpApiError.BadRequest, OpencodeNotFound],
         }).annotateMerge(
           OpenApi.annotations({
             identifier: "session.summarize",
@@ -294,7 +297,7 @@ export const SessionApi = HttpApi.make("session")
           params: { sessionID: SessionID },
           payload: PromptPayload,
           success: described(MessageV2.WithParts, "Created message"),
-          error: [HttpApiError.BadRequest, HttpApiError.NotFound],
+          error: [HttpApiError.BadRequest, OpencodeNotFound],
         }).annotateMerge(
           OpenApi.annotations({
             identifier: "session.prompt",
@@ -306,7 +309,7 @@ export const SessionApi = HttpApi.make("session")
           params: { sessionID: SessionID },
           payload: PromptPayload,
           success: described(HttpApiSchema.NoContent, "Prompt accepted"),
-          error: [HttpApiError.BadRequest, HttpApiError.NotFound],
+          error: [HttpApiError.BadRequest, OpencodeNotFound],
         }).annotateMerge(
           OpenApi.annotations({
             identifier: "session.prompt_async",
@@ -319,7 +322,7 @@ export const SessionApi = HttpApi.make("session")
           params: { sessionID: SessionID },
           payload: CommandPayload,
           success: described(MessageV2.WithParts, "Created message"),
-          error: [HttpApiError.BadRequest, HttpApiError.NotFound],
+          error: [HttpApiError.BadRequest, OpencodeNotFound],
         }).annotateMerge(
           OpenApi.annotations({
             identifier: "session.command",
@@ -331,7 +334,7 @@ export const SessionApi = HttpApi.make("session")
           params: { sessionID: SessionID },
           payload: ShellPayload,
           success: described(MessageV2.WithParts, "Created message"),
-          error: [HttpApiError.BadRequest, HttpApiError.NotFound],
+          error: [HttpApiError.BadRequest, OpencodeNotFound],
         }).annotateMerge(
           OpenApi.annotations({
             identifier: "session.shell",
@@ -343,7 +346,7 @@ export const SessionApi = HttpApi.make("session")
           params: { sessionID: SessionID },
           payload: RevertPayload,
           success: described(Session.Info, "Updated session"),
-          error: [HttpApiError.BadRequest, HttpApiError.NotFound],
+          error: [HttpApiError.BadRequest, OpencodeNotFound],
         }).annotateMerge(
           OpenApi.annotations({
             identifier: "session.revert",
@@ -355,7 +358,7 @@ export const SessionApi = HttpApi.make("session")
         HttpApiEndpoint.post("unrevert", SessionPaths.unrevert, {
           params: { sessionID: SessionID },
           success: described(Session.Info, "Updated session"),
-          error: [HttpApiError.BadRequest, HttpApiError.NotFound],
+          error: [HttpApiError.BadRequest, OpencodeNotFound],
         }).annotateMerge(
           OpenApi.annotations({
             identifier: "session.unrevert",
@@ -367,7 +370,7 @@ export const SessionApi = HttpApi.make("session")
           params: { sessionID: SessionID, permissionID: PermissionID },
           payload: PermissionResponsePayload,
           success: described(Schema.Boolean, "Permission processed successfully"),
-          error: [HttpApiError.BadRequest, HttpApiError.NotFound],
+          error: [HttpApiError.BadRequest, OpencodeNotFound],
         }).annotateMerge(
           OpenApi.annotations({
             identifier: "permission.respond",
@@ -379,7 +382,7 @@ export const SessionApi = HttpApi.make("session")
         HttpApiEndpoint.delete("deleteMessage", SessionPaths.deleteMessage, {
           params: { sessionID: SessionID, messageID: MessageID },
           success: described(Schema.Boolean, "Successfully deleted message"),
-          error: [HttpApiError.BadRequest, HttpApiError.NotFound],
+          error: [HttpApiError.BadRequest, OpencodeNotFound],
         }).annotateMerge(
           OpenApi.annotations({
             identifier: "session.deleteMessage",
@@ -391,7 +394,7 @@ export const SessionApi = HttpApi.make("session")
         HttpApiEndpoint.delete("deletePart", SessionPaths.deletePart, {
           params: { sessionID: SessionID, messageID: MessageID, partID: PartID },
           success: described(Schema.Boolean, "Successfully deleted part"),
-          error: [HttpApiError.BadRequest, HttpApiError.NotFound],
+          error: [HttpApiError.BadRequest, OpencodeNotFound],
         }).annotateMerge(
           OpenApi.annotations({
             identifier: "part.delete",
@@ -402,7 +405,7 @@ export const SessionApi = HttpApi.make("session")
           params: { sessionID: SessionID, messageID: MessageID, partID: PartID },
           payload: MessageV2.Part,
           success: described(MessageV2.Part, "Successfully updated part"),
-          error: [HttpApiError.BadRequest, HttpApiError.NotFound],
+          error: [HttpApiError.BadRequest, OpencodeNotFound],
         }).annotateMerge(
           OpenApi.annotations({
             identifier: "part.update",

@@ -32,12 +32,12 @@ function runSession<A, E>(fx: Effect.Effect<A, E, Session.Service>) {
 function createSessionWithMessages(directory: string, count: number) {
   return WithInstance.provide({
     directory,
-    fn: async () => {
-      const session = await runSession(Session.Service.use((svc) => svc.create({})))
-      for (let i = 0; i < count; i++) {
-        await runSession(
-          Effect.gen(function* () {
-            const svc = yield* Session.Service
+    fn: () =>
+      runSession(
+        Effect.gen(function* () {
+          const svc = yield* Session.Service
+          const session = yield* svc.create({})
+          for (let i = 0; i < count; i++) {
             yield* svc.updateMessage({
               id: MessageID.ascending(),
               role: "user",
@@ -46,11 +46,10 @@ function createSessionWithMessages(directory: string, count: number) {
               model: { providerID: ProviderID.make("test"), modelID: ModelID.make("test") },
               time: { created: Date.now() },
             })
-          }),
-        )
-      }
-      return session.id
-    },
+          }
+          return session.id
+        }),
+      ),
   })
 }
 
@@ -82,22 +81,23 @@ describe("Link header host", () => {
 })
 
 // ──────────────────────────────────────────────────────────────────────────────
-// Reproducer 2: GET /session/{missing-id}/todo should return 404, not 500.
-// The session.todo handler in HttpApi doesn't wrap with `mapNotFound`, so a
-// `NotFoundError` from the service surfaces as a defect → 500. Hono's
-// equivalent maps to 404 via `errors.notFound`.
-//
-// Affected endpoints (handlers without mapNotFound): todo, diff, summarize,
-// fork, abort, init, deleteMessage, command, shell, revert, unrevert.
-//
-// FIXME: unskip when mapNotFound coverage is added (next PR).
+// Reproducer 2: GET /session/{missing-id}/todo returns 404, not 500.
+// Previously the session.todo handler didn't wrap with `mapNotFound`, so a
+// thrown `NotFoundError` surfaced as a defect → 500. Hono's equivalent maps
+// to 404 via `errors.notFound`. mapNotFound is now applied to all session
+// endpoints that take a sessionID.
 // ──────────────────────────────────────────────────────────────────────────────
 describe("404 mapping for missing session", () => {
-  test.todo("HttpApi /session/{missing}/todo returns 404 not 500", async () => {
+  test("HttpApi /session/{missing}/fork returns 404 not 500", async () => {
     await using tmp = await tmpdir({ config: { formatter: false, lsp: false } })
 
-    const response = await app(true).request("/session/ses_does_not_exist/todo", {
-      headers: { "x-opencode-directory": tmp.path },
+    const response = await app(true).request("/session/ses_does_not_exist/fork", {
+      method: "POST",
+      headers: {
+        "x-opencode-directory": tmp.path,
+        "content-type": "application/json",
+      },
+      body: JSON.stringify({}),
     })
 
     expect(response.status).toBe(404)
@@ -105,15 +105,14 @@ describe("404 mapping for missing session", () => {
 })
 
 // ──────────────────────────────────────────────────────────────────────────────
-// Reproducer 3: 404 response body shape should match Hono's NamedError
-// envelope `{ name, data: { message } }`. HttpApi returns the typed-error
-// shape `{ _tag }` instead. SDK consumers reading `error.data.message`
-// see undefined.
-//
-// FIXME: unskip when error JSON shape policy is decided + applied (separate PR).
+// Reproducer 3: 404 body matches Hono's NamedError envelope
+// `{ name: "NotFoundError", data: { message } }`. HttpApi previously returned
+// `{ _tag: "NotFound" }` (empty body via HttpApiError.NotFound). The new
+// OpencodeNotFound class encodes the legacy shape via its schema fields and
+// `httpApiStatus: 404` annotation.
 // ──────────────────────────────────────────────────────────────────────────────
 describe("Error JSON shape parity", () => {
-  test.todo("HttpApi 404 body matches NamedError shape", async () => {
+  test("HttpApi 404 body matches NamedError shape", async () => {
     await using tmp = await tmpdir({ config: { formatter: false, lsp: false } })
 
     const response = await app(true).request("/session/ses_does_not_exist", {

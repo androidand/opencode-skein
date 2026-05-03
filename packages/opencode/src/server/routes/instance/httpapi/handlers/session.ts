@@ -17,6 +17,7 @@ import { SessionSummary } from "@/session/summary"
 import { Todo } from "@/session/todo"
 import { MessageID, PartID, SessionID } from "@/session/schema"
 import { NotFoundError } from "@/storage/storage"
+import { OpencodeNotFound } from "../errors"
 import { NamedError } from "@opencode-ai/core/util/error"
 import { Cause, Effect, Option, Schema, Scope } from "effect"
 import * as Stream from "effect/Stream"
@@ -38,11 +39,17 @@ import {
   UpdatePayload,
 } from "../groups/session"
 
+// TODO: long-term, services like Session.Service should fail with typed errors
+// directly (e.g. Effect<SessionInfo, SessionNotFound>) and let HttpApi auto-route
+// status + body via the schema annotations. Until then, we catch the legacy
+// thrown NotFoundError at the boundary and rebrand to OpencodeNotFound — which
+// matches the Hono NamedError JSON shape SDK consumers already expect.
 const mapNotFound = <A, E, R>(self: Effect.Effect<A, E, R>) =>
   self.pipe(
-    Effect.catchIf(NotFoundError.isInstance, () => Effect.fail(new HttpApiError.NotFound({}))),
     Effect.catchDefect((error) =>
-      NotFoundError.isInstance(error) ? Effect.fail(new HttpApiError.NotFound({})) : Effect.die(error),
+      NotFoundError.isInstance(error)
+        ? Effect.fail(new OpencodeNotFound({ data: { message: error.message } }))
+        : Effect.die(error),
     ),
   )
 
@@ -87,14 +94,14 @@ export const sessionHandlers = HttpApiBuilder.group(InstanceHttpApi, "session", 
     })
 
     const todo = Effect.fn("SessionHttpApi.todo")(function* (ctx: { params: { sessionID: SessionID } }) {
-      return yield* todoSvc.get(ctx.params.sessionID)
+      return yield* mapNotFound(todoSvc.get(ctx.params.sessionID))
     })
 
     const diff = Effect.fn("SessionHttpApi.diff")(function* (ctx: {
       params: { sessionID: SessionID }
       query: typeof DiffQuery.Type
     }) {
-      return yield* summary.diff({ sessionID: ctx.params.sessionID, messageID: ctx.query.messageID })
+      return yield* mapNotFound(summary.diff({ sessionID: ctx.params.sessionID, messageID: ctx.query.messageID }))
     })
 
     const messages = Effect.fn("SessionHttpApi.messages")(function* (ctx: {
@@ -198,11 +205,11 @@ export const sessionHandlers = HttpApiBuilder.group(InstanceHttpApi, "session", 
       params: { sessionID: SessionID }
       payload: typeof ForkPayload.Type
     }) {
-      return yield* session.fork({ sessionID: ctx.params.sessionID, messageID: ctx.payload.messageID })
+      return yield* mapNotFound(session.fork({ sessionID: ctx.params.sessionID, messageID: ctx.payload.messageID }))
     })
 
     const abort = Effect.fn("SessionHttpApi.abort")(function* (ctx: { params: { sessionID: SessionID } }) {
-      yield* promptSvc.cancel(ctx.params.sessionID)
+      yield* mapNotFound(promptSvc.cancel(ctx.params.sessionID))
       return true
     })
 
@@ -210,13 +217,15 @@ export const sessionHandlers = HttpApiBuilder.group(InstanceHttpApi, "session", 
       params: { sessionID: SessionID }
       payload: typeof InitPayload.Type
     }) {
-      yield* promptSvc.command({
-        sessionID: ctx.params.sessionID,
-        messageID: ctx.payload.messageID,
-        model: `${ctx.payload.providerID}/${ctx.payload.modelID}`,
-        command: Command.Default.INIT,
-        arguments: "",
-      })
+      yield* mapNotFound(
+        promptSvc.command({
+          sessionID: ctx.params.sessionID,
+          messageID: ctx.payload.messageID,
+          model: `${ctx.payload.providerID}/${ctx.payload.modelID}`,
+          command: Command.Default.INIT,
+          arguments: "",
+        }),
+      )
       return true
     })
 
@@ -234,22 +243,26 @@ export const sessionHandlers = HttpApiBuilder.group(InstanceHttpApi, "session", 
       params: { sessionID: SessionID }
       payload: typeof SummarizePayload.Type
     }) {
-      yield* revertSvc.cleanup(yield* session.get(ctx.params.sessionID))
-      const messages = yield* session.messages({ sessionID: ctx.params.sessionID })
-      const defaultAgent = yield* agentSvc.defaultAgent()
-      const currentAgent = messages.findLast((message) => message.info.role === "user")?.info.agent ?? defaultAgent
+      return yield* mapNotFound(
+        Effect.gen(function* () {
+          yield* revertSvc.cleanup(yield* session.get(ctx.params.sessionID))
+          const messages = yield* session.messages({ sessionID: ctx.params.sessionID })
+          const defaultAgent = yield* agentSvc.defaultAgent()
+          const currentAgent = messages.findLast((m) => m.info.role === "user")?.info.agent ?? defaultAgent
 
-      yield* compactSvc.create({
-        sessionID: ctx.params.sessionID,
-        agent: currentAgent,
-        model: {
-          providerID: ctx.payload.providerID,
-          modelID: ctx.payload.modelID,
-        },
-        auto: ctx.payload.auto ?? false,
-      })
-      yield* promptSvc.loop({ sessionID: ctx.params.sessionID })
-      return true
+          yield* compactSvc.create({
+            sessionID: ctx.params.sessionID,
+            agent: currentAgent,
+            model: {
+              providerID: ctx.payload.providerID,
+              modelID: ctx.payload.modelID,
+            },
+            auto: ctx.payload.auto ?? false,
+          })
+          yield* promptSvc.loop({ sessionID: ctx.params.sessionID })
+          return true
+        }),
+      )
     })
 
     const prompt = Effect.fn("SessionHttpApi.prompt")(function* (ctx: {
@@ -297,25 +310,25 @@ export const sessionHandlers = HttpApiBuilder.group(InstanceHttpApi, "session", 
       params: { sessionID: SessionID }
       payload: typeof CommandPayload.Type
     }) {
-      return yield* promptSvc.command({ ...ctx.payload, sessionID: ctx.params.sessionID })
+      return yield* mapNotFound(promptSvc.command({ ...ctx.payload, sessionID: ctx.params.sessionID }))
     })
 
     const shell = Effect.fn("SessionHttpApi.shell")(function* (ctx: {
       params: { sessionID: SessionID }
       payload: typeof ShellPayload.Type
     }) {
-      return yield* promptSvc.shell({ ...ctx.payload, sessionID: ctx.params.sessionID })
+      return yield* mapNotFound(promptSvc.shell({ ...ctx.payload, sessionID: ctx.params.sessionID }))
     })
 
     const revert = Effect.fn("SessionHttpApi.revert")(function* (ctx: {
       params: { sessionID: SessionID }
       payload: typeof RevertPayload.Type
     }) {
-      return yield* revertSvc.revert({ sessionID: ctx.params.sessionID, ...ctx.payload })
+      return yield* mapNotFound(revertSvc.revert({ sessionID: ctx.params.sessionID, ...ctx.payload }))
     })
 
     const unrevert = Effect.fn("SessionHttpApi.unrevert")(function* (ctx: { params: { sessionID: SessionID } }) {
-      return yield* revertSvc.unrevert({ sessionID: ctx.params.sessionID })
+      return yield* mapNotFound(revertSvc.unrevert({ sessionID: ctx.params.sessionID }))
     })
 
     const permissionRespond = Effect.fn("SessionHttpApi.permissionRespond")(function* (ctx: {
@@ -329,8 +342,12 @@ export const sessionHandlers = HttpApiBuilder.group(InstanceHttpApi, "session", 
     const deleteMessage = Effect.fn("SessionHttpApi.deleteMessage")(function* (ctx: {
       params: { sessionID: SessionID; messageID: MessageID }
     }) {
-      yield* runState.assertNotBusy(ctx.params.sessionID)
-      yield* session.removeMessage(ctx.params)
+      yield* mapNotFound(
+        Effect.gen(function* () {
+          yield* runState.assertNotBusy(ctx.params.sessionID)
+          yield* session.removeMessage(ctx.params)
+        }),
+      )
       return true
     })
 
