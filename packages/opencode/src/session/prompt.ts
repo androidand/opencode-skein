@@ -745,7 +745,7 @@ NOTE: At any point in time through this workflow you should feel free to ask the
           const markReady = ready ? ready.open.pipe(Effect.asVoid) : Effect.void
           const { msg, part, cwd } = yield* Effect.gen(function* () {
             const ctx = yield* InstanceState.context
-            const session = yield* sessions.get(input.sessionID)
+            const session = yield* Effect.orDie(sessions.get(input.sessionID))
             if (session.revert) {
               yield* revert.cleanup(session)
             }
@@ -1369,7 +1369,7 @@ NOTE: At any point in time through this workflow you should feel free to ask the
 
     const prompt: (input: PromptInput) => Effect.Effect<MessageV2.WithParts> = Effect.fn("SessionPrompt.prompt")(
       function* (input: PromptInput) {
-        const session = yield* sessions.get(input.sessionID)
+        const session = yield* Effect.orDie(sessions.get(input.sessionID))
         yield* revert.cleanup(session)
         const message = yield* createUserMessage(input)
         yield* sessions.touch(input.sessionID)
@@ -1402,7 +1402,8 @@ NOTE: At any point in time through this workflow you should feel free to ask the
         const slog = elog.with({ sessionID })
         let structured: unknown | undefined
         let step = 0
-        const session = yield* sessions.get(sessionID)
+        // Sketch: keep public never-E surface; defect on missing session.
+        const session = yield* Effect.orDie(sessions.get(sessionID))
 
         while (true) {
           yield* status.set(sessionID, { type: "busy" })

@@ -123,7 +123,10 @@ export const SessionApi = HttpApi.make("session")
         HttpApiEndpoint.get("get", SessionPaths.get, {
           params: { sessionID: SessionID },
           success: described(Session.Info, "Get session"),
-          error: [HttpApiError.BadRequest, HttpApiError.NotFound],
+          // Sketch: typed `Session.SessionNotFound` declared directly. Effect
+          // HttpApi auto-routes the 404 status (`httpApiStatus` annotation)
+          // and serializes the schema fields (`name`, `data.message`).
+          error: [HttpApiError.BadRequest, Session.SessionNotFound],
         }).annotateMerge(
           OpenApi.annotations({
             identifier: "session.get",

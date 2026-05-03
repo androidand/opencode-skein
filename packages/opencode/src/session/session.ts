@@ -434,7 +434,7 @@ export interface Interface {
   }) => Effect.Effect<Info>
   readonly fork: (input: { sessionID: SessionID; messageID?: MessageID }) => Effect.Effect<Info>
   readonly touch: (sessionID: SessionID) => Effect.Effect<void>
-  readonly get: (id: SessionID) => Effect.Effect<Info>
+  readonly get: (id: SessionID) => Effect.Effect<Info, SessionNotFound>
   readonly setTitle: (input: { sessionID: SessionID; title: string }) => Effect.Effect<void>
   readonly setArchived: (input: { sessionID: SessionID; time?: number }) => Effect.Effect<void>
   readonly setPermission: (input: { sessionID: SessionID; permission: Permission.Ruleset }) => Effect.Effect<void>
@@ -471,6 +471,22 @@ export interface Interface {
     predicate: (msg: MessageV2.WithParts) => boolean,
   ) => Effect.Effect<Option.Option<MessageV2.WithParts>>
 }
+
+/**
+ * Typed not-found error for `Session.Service.get`.
+ *
+ * The `httpApiStatus: 404` annotation lets the Effect HttpApi auto-route the
+ * status. The schema fields (`name` literal, `data.message`) match Hono's
+ * `NamedError` JSON envelope so SDK consumers see the same body shape on both
+ * adapters.
+ */
+export class SessionNotFound extends Schema.ErrorClass<SessionNotFound>("opencode/Session/NotFound")(
+  {
+    name: Schema.tag("NotFoundError"),
+    data: Schema.Struct({ message: Schema.String }),
+  },
+  { httpApiStatus: 404 },
+) {}
 
 export class Service extends Context.Service<Service, Interface>()("@opencode/Session") {}
 
@@ -534,7 +550,7 @@ export const layer: Layer.Layer<Service, never, Bus.Service | Storage.Service | 
 
     const get = Effect.fn("Session.get")(function* (id: SessionID) {
       const row = yield* db((d) => d.select().from(SessionTable).where(eq(SessionTable.id, id)).get())
-      if (!row) throw new NotFoundError({ message: `Session not found: ${id}` })
+      if (!row) return yield* new SessionNotFound({ data: { message: `Session not found: ${id}` } })
       return fromRow(row)
     })
 
@@ -556,7 +572,9 @@ export const layer: Layer.Layer<Service, never, Bus.Service | Storage.Service | 
 
     const remove: Interface["remove"] = Effect.fnUntraced(function* (sessionID: SessionID) {
       try {
-        const session = yield* get(sessionID)
+        // Sketch: keep `remove`'s legacy never-E surface; convert
+        // `SessionNotFound` to a defect (caught below by the try/catch).
+        const session = yield* Effect.orDie(get(sessionID))
         const kids = yield* children(sessionID)
         for (const child of kids) {
           yield* remove(child.id)
@@ -641,7 +659,9 @@ export const layer: Layer.Layer<Service, never, Bus.Service | Storage.Service | 
 
     const fork = Effect.fn("Session.fork")(function* (input: { sessionID: SessionID; messageID?: MessageID }) {
       const ctx = yield* InstanceState.context
-      const original = yield* get(input.sessionID)
+      // Sketch: keep `fork`'s legacy never-E surface; convert SessionNotFound
+      // to a defect. When `fork` itself is migrated, propagate it.
+      const original = yield* Effect.orDie(get(input.sessionID))
       const title = getForkedTitle(original.title)
       const session = yield* createNext({
         directory: ctx.directory,

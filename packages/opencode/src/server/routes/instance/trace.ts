@@ -1,6 +1,8 @@
 import type { Context } from "hono"
 import { Effect } from "effect"
 import { AppRuntime } from "@/effect/app-runtime"
+import { NotFoundError } from "@/storage/storage"
+import { Session } from "@/session/session"
 
 type AppEnv = Parameters<typeof AppRuntime.runPromise>[0] extends Effect.Effect<any, any, infer R> ? R : never
 
@@ -40,8 +42,25 @@ export function requestAttributes(c: RequestLike): Record<string, string> {
   return attributes
 }
 
+// Bridge typed service errors to the legacy Hono `NamedError` ErrorMiddleware.
+// The HttpApi adapter consumes typed errors directly via schema annotations,
+// but Hono's ErrorMiddleware switches on `instanceof NamedError`. Until the
+// legacy adapter is retired, catch the new typed errors here and rethrow the
+// equivalent NamedError so the existing 404 wiring keeps working.
+const adaptTypedErrors = <A, E, R>(
+  self: Effect.Effect<A, E, R>,
+): Effect.Effect<A, Exclude<E, Session.SessionNotFound>, R> =>
+  self.pipe(
+    Effect.catchIf(
+      (e: unknown) => e instanceof Session.SessionNotFound,
+      (e) => Effect.die(new NotFoundError({ message: (e as Session.SessionNotFound).data.message })),
+    ),
+  ) as unknown as Effect.Effect<A, Exclude<E, Session.SessionNotFound>, R>
+
 export function runRequest<A, E>(name: string, c: Context, effect: Effect.Effect<A, E, AppEnv>) {
-  return AppRuntime.runPromise(effect.pipe(Effect.withSpan(name, { attributes: requestAttributes(c) })))
+  return AppRuntime.runPromise(
+    adaptTypedErrors(effect).pipe(Effect.withSpan(name, { attributes: requestAttributes(c) })),
+  )
 }
 
 export async function jsonRequest<C extends Context, A, E>(

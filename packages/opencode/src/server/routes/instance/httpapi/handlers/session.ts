@@ -38,13 +38,22 @@ import {
   UpdatePayload,
 } from "../groups/session"
 
-const mapNotFound = <A, E, R>(self: Effect.Effect<A, E, R>) =>
+const mapNotFound = <A, E, R>(
+  self: Effect.Effect<A, E, R>,
+): Effect.Effect<A, Exclude<E, Session.SessionNotFound> | HttpApiError.NotFound, R> =>
   self.pipe(
     Effect.catchIf(NotFoundError.isInstance, () => Effect.fail(new HttpApiError.NotFound({}))),
+    // Sketch: bridge typed `SessionNotFound` into the legacy wrapper so
+    // handlers that internally call `session.get` (whose endpoint
+    // declarations have not been migrated yet) keep returning 404.
+    Effect.catchIf(
+      (e: unknown) => e instanceof Session.SessionNotFound,
+      () => Effect.fail(new HttpApiError.NotFound({})),
+    ),
     Effect.catchDefect((error) =>
       NotFoundError.isInstance(error) ? Effect.fail(new HttpApiError.NotFound({})) : Effect.die(error),
     ),
-  )
+  ) as Effect.Effect<A, Exclude<E, Session.SessionNotFound> | HttpApiError.NotFound, R>
 
 export const sessionHandlers = HttpApiBuilder.group(InstanceHttpApi, "session", (handlers) =>
   Effect.gen(function* () {
@@ -78,8 +87,11 @@ export const sessionHandlers = HttpApiBuilder.group(InstanceHttpApi, "session", 
       return Object.fromEntries(yield* statusSvc.list())
     })
 
+    // Sketch: typed `SessionNotFound` flows through the E channel — HttpApi
+    // maps the status (404 via `httpApiStatus`) and renders the body via the
+    // schema annotations. No `mapNotFound` wrapper required.
     const get = Effect.fn("SessionHttpApi.get")(function* (ctx: { params: { sessionID: SessionID } }) {
-      return yield* mapNotFound(session.get(ctx.params.sessionID))
+      return yield* session.get(ctx.params.sessionID)
     })
 
     const children = Effect.fn("SessionHttpApi.children")(function* (ctx: { params: { sessionID: SessionID } }) {
@@ -178,20 +190,24 @@ export const sessionHandlers = HttpApiBuilder.group(InstanceHttpApi, "session", 
       params: { sessionID: SessionID }
       payload: typeof UpdatePayload.Type
     }) {
-      const current = yield* session.get(ctx.params.sessionID)
-      if (ctx.payload.title !== undefined) {
-        yield* session.setTitle({ sessionID: ctx.params.sessionID, title: ctx.payload.title })
-      }
-      if (ctx.payload.permission !== undefined) {
-        yield* session.setPermission({
-          sessionID: ctx.params.sessionID,
-          permission: Permission.merge(current.permission ?? [], ctx.payload.permission),
-        })
-      }
-      if (ctx.payload.time?.archived !== undefined) {
-        yield* session.setArchived({ sessionID: ctx.params.sessionID, time: ctx.payload.time.archived })
-      }
-      return yield* session.get(ctx.params.sessionID)
+      return yield* mapNotFound(
+        Effect.gen(function* () {
+          const current = yield* session.get(ctx.params.sessionID)
+          if (ctx.payload.title !== undefined) {
+            yield* session.setTitle({ sessionID: ctx.params.sessionID, title: ctx.payload.title })
+          }
+          if (ctx.payload.permission !== undefined) {
+            yield* session.setPermission({
+              sessionID: ctx.params.sessionID,
+              permission: Permission.merge(current.permission ?? [], ctx.payload.permission),
+            })
+          }
+          if (ctx.payload.time?.archived !== undefined) {
+            yield* session.setArchived({ sessionID: ctx.params.sessionID, time: ctx.payload.time.archived })
+          }
+          return yield* session.get(ctx.params.sessionID)
+        }),
+      )
     })
 
     const fork = Effect.fn("SessionHttpApi.fork")(function* (ctx: {
@@ -221,35 +237,48 @@ export const sessionHandlers = HttpApiBuilder.group(InstanceHttpApi, "session", 
     })
 
     const share = Effect.fn("SessionHttpApi.share")(function* (ctx: { params: { sessionID: SessionID } }) {
-      yield* shareSvc.share(ctx.params.sessionID).pipe(Effect.mapError(() => new HttpApiError.BadRequest({})))
-      return yield* session.get(ctx.params.sessionID)
+      return yield* mapNotFound(
+        Effect.gen(function* () {
+          yield* shareSvc.share(ctx.params.sessionID).pipe(Effect.mapError(() => new HttpApiError.BadRequest({})))
+          return yield* session.get(ctx.params.sessionID)
+        }),
+      )
     })
 
     const unshare = Effect.fn("SessionHttpApi.unshare")(function* (ctx: { params: { sessionID: SessionID } }) {
-      yield* shareSvc.unshare(ctx.params.sessionID).pipe(Effect.mapError(() => new HttpApiError.BadRequest({})))
-      return yield* session.get(ctx.params.sessionID)
+      return yield* mapNotFound(
+        Effect.gen(function* () {
+          yield* shareSvc.unshare(ctx.params.sessionID).pipe(Effect.mapError(() => new HttpApiError.BadRequest({})))
+          return yield* session.get(ctx.params.sessionID)
+        }),
+      )
     })
 
     const summarize = Effect.fn("SessionHttpApi.summarize")(function* (ctx: {
       params: { sessionID: SessionID }
       payload: typeof SummarizePayload.Type
     }) {
-      yield* revertSvc.cleanup(yield* session.get(ctx.params.sessionID))
-      const messages = yield* session.messages({ sessionID: ctx.params.sessionID })
-      const defaultAgent = yield* agentSvc.defaultAgent()
-      const currentAgent = messages.findLast((message) => message.info.role === "user")?.info.agent ?? defaultAgent
+      return yield* mapNotFound(
+        Effect.gen(function* () {
+          yield* revertSvc.cleanup(yield* session.get(ctx.params.sessionID))
+          const messages = yield* session.messages({ sessionID: ctx.params.sessionID })
+          const defaultAgent = yield* agentSvc.defaultAgent()
+          const currentAgent =
+            messages.findLast((message) => message.info.role === "user")?.info.agent ?? defaultAgent
 
-      yield* compactSvc.create({
-        sessionID: ctx.params.sessionID,
-        agent: currentAgent,
-        model: {
-          providerID: ctx.payload.providerID,
-          modelID: ctx.payload.modelID,
-        },
-        auto: ctx.payload.auto ?? false,
-      })
-      yield* promptSvc.loop({ sessionID: ctx.params.sessionID })
-      return true
+          yield* compactSvc.create({
+            sessionID: ctx.params.sessionID,
+            agent: currentAgent,
+            model: {
+              providerID: ctx.payload.providerID,
+              modelID: ctx.payload.modelID,
+            },
+            auto: ctx.payload.auto ?? false,
+          })
+          yield* promptSvc.loop({ sessionID: ctx.params.sessionID })
+          return true
+        }),
+      )
     })
 
     const prompt = Effect.fn("SessionHttpApi.prompt")(function* (ctx: {

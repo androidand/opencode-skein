@@ -44,7 +44,7 @@ export const layer = Layer.effect(
       yield* state.assertNotBusy(input.sessionID)
       const all = yield* sessions.messages({ sessionID: input.sessionID })
       let lastUser: MessageV2.User | undefined
-      const session = yield* sessions.get(input.sessionID)
+      const session = yield* Effect.orDie(sessions.get(input.sessionID))
 
       let rev: Session.Info["revert"]
       const patches: Snapshot.Patch[] = []
@@ -89,17 +89,17 @@ export const layer = Layer.effect(
           files: diffs.length,
         },
       })
-      return yield* sessions.get(input.sessionID)
+      return yield* Effect.orDie(sessions.get(input.sessionID))
     })
 
     const unrevert = Effect.fn("SessionRevert.unrevert")(function* (input: { sessionID: SessionID }) {
       log.info("unreverting", input)
       yield* state.assertNotBusy(input.sessionID)
-      const session = yield* sessions.get(input.sessionID)
+      const session = yield* Effect.orDie(sessions.get(input.sessionID))
       if (!session.revert) return session
       if (session.revert.snapshot) yield* snap.restore(session.revert!.snapshot!)
       yield* sessions.clearRevert(input.sessionID)
-      return yield* sessions.get(input.sessionID)
+      return yield* Effect.orDie(sessions.get(input.sessionID))
     })
 
     const cleanup = Effect.fn("SessionRevert.cleanup")(function* (session: Session.Info) {

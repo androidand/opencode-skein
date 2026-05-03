@@ -958,7 +958,7 @@ describe("workspace-old sync state", () => {
 
               yield* eventuallyEffect(
                 Effect.gen(function* () {
-                  expect((yield* sessionSvc.get(session.id)).title).toBe("from history")
+                  expect((yield* Effect.orDie(sessionSvc.get(session.id))).title).toBe("from history")
                 }),
               )
               expect(historyBodies).toEqual([{ [session.id]: historyNextSeq - 1 }])
@@ -1106,7 +1106,7 @@ describe("workspace-old sync state", () => {
 
               yield* eventuallyEffect(
                 Effect.gen(function* () {
-                  expect((yield* sessionSvc.get(session.id)).title).toBe("from sse")
+                  expect((yield* Effect.orDie(sessionSvc.get(session.id))).title).toBe("from sse")
                 }),
               )
               expect(

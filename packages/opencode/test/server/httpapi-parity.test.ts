@@ -113,7 +113,11 @@ describe("404 mapping for missing session", () => {
 // FIXME: unskip when error JSON shape policy is decided + applied (separate PR).
 // ──────────────────────────────────────────────────────────────────────────────
 describe("Error JSON shape parity", () => {
-  test.todo("HttpApi 404 body matches NamedError shape", async () => {
+  // Sketch: validates the typed-error pattern end-to-end on `session.get`. The
+  // service now fails with a typed `SessionNotFound` error annotated
+  // `httpApiStatus: 404`. The endpoint declares the schema, and HttpApi auto-
+  // routes the status + body — no `mapNotFound` wrapper required.
+  test("HttpApi 404 body matches NamedError shape (sketch: session.get)", async () => {
     await using tmp = await tmpdir({ config: { formatter: false, lsp: false } })
 
     const response = await app(true).request("/session/ses_does_not_exist", {

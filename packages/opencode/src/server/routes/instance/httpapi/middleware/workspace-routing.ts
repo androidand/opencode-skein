@@ -178,7 +178,12 @@ function routeHttpApiWorkspace<E>(
     const request = yield* HttpServerRequest.HttpServerRequest
     const sessionID = getWorkspaceRouteSessionID(requestURL(request))
     const session = sessionID
-      ? yield* Session.Service.use((svc) => svc.get(sessionID)).pipe(Effect.catchDefect(() => Effect.void))
+      ? yield* Session.Service.use((svc) => svc.get(sessionID)).pipe(
+          // Sketch: also swallow the typed `SessionNotFound` so this routing
+          // probe stays best-effort (matches the previous defect-only catch).
+          Effect.catch(() => Effect.succeed(undefined)),
+          Effect.catchDefect(() => Effect.succeed(undefined)),
+        )
       : undefined
     const plan = yield* planRequest(request, session?.workspaceID)
     return yield* routeWorkspace(client, effect, plan)
