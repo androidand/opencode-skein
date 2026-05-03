@@ -48,9 +48,9 @@ export type Transaction = Parameters<Parameters<Client["transaction"]>[0]>[0]
 type Journal = { sql: string; timestamp: number; name: string }[]
 
 // Drizzle's migrate overloads trigger expensive variance checks here; narrow to the journal overload we actually use.
-const migrateFromJournal = migrate as unknown as (db: SQLiteBunDatabase, entries: Journal) => void
+const migrateFromJournal = migrate as unknown as (db: Client, entries: Journal) => void
 
-function applyMigrations(db: SQLiteBunDatabase, entries: Journal) {
+function applyMigrations(db: Client, entries: Journal) {
   migrateFromJournal(db, entries)
 }
 
@@ -122,10 +122,10 @@ export function open() {
 
 export const Client = lazy(open)
 
-export function close(client = Client.peek()) {
-  if (!client) return
-  client.$client.close()
-  Client.resetIf(client)
+export function close() {
+  if (!Client.loaded()) return
+  Client().$client.close()
+  Client.reset()
 }
 
 export type TxOrDb = Transaction | Client
