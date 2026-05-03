@@ -42,11 +42,10 @@ export function requestAttributes(c: RequestLike): Record<string, string> {
   return attributes
 }
 
-// Bridge typed service errors to the legacy Hono `NamedError` ErrorMiddleware.
-// The HttpApi adapter consumes typed errors directly via schema annotations,
-// but Hono's ErrorMiddleware switches on `instanceof NamedError`. Until the
-// legacy adapter is retired, catch the new typed errors here and rethrow the
-// equivalent NamedError so the existing 404 wiring keeps working.
+// TODO(typed-errors): bridge typed service errors to the legacy Hono
+// `NamedError` ErrorMiddleware. HttpApi consumes typed errors directly via
+// schema annotations, but Hono's ErrorMiddleware switches on
+// `instanceof NamedError`. Delete this shim once the legacy adapter retires.
 const adaptTypedErrors = <A, E, R>(
   self: Effect.Effect<A, E, R>,
 ): Effect.Effect<A, Exclude<E, Session.SessionNotFound>, R> =>

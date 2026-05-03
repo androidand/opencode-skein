@@ -105,18 +105,12 @@ describe("404 mapping for missing session", () => {
 })
 
 // ──────────────────────────────────────────────────────────────────────────────
-// Reproducer 3: 404 response body shape should match Hono's NamedError
-// envelope `{ name, data: { message } }`. HttpApi returns the typed-error
-// shape `{ _tag }` instead. SDK consumers reading `error.data.message`
-// see undefined.
-//
-// FIXME: unskip when error JSON shape policy is decided + applied (separate PR).
+// Reproducer 3: 404 response body matches Hono's NamedError envelope
+// `{ name, data: { message } }`. `Session.get` now fails with a typed
+// `SessionNotFound` annotated `httpApiStatus: 404`. The endpoint declares the
+// schema; HttpApi auto-routes status + body — no `mapNotFound` wrapper.
 // ──────────────────────────────────────────────────────────────────────────────
 describe("Error JSON shape parity", () => {
-  // Sketch: validates the typed-error pattern end-to-end on `session.get`. The
-  // service now fails with a typed `SessionNotFound` error annotated
-  // `httpApiStatus: 404`. The endpoint declares the schema, and HttpApi auto-
-  // routes the status + body — no `mapNotFound` wrapper required.
   test("HttpApi 404 body matches NamedError shape (sketch: session.get)", async () => {
     await using tmp = await tmpdir({ config: { formatter: false, lsp: false } })
 

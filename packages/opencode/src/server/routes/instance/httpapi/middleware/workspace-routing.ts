@@ -179,10 +179,12 @@ function routeHttpApiWorkspace<E>(
     const sessionID = getWorkspaceRouteSessionID(requestURL(request))
     const session = sessionID
       ? yield* Session.Service.use((svc) => svc.get(sessionID)).pipe(
-          // Sketch: also swallow the typed `SessionNotFound` so this routing
-          // probe stays best-effort (matches the previous defect-only catch).
-          Effect.catch(() => Effect.succeed(undefined)),
-          Effect.catchDefect(() => Effect.succeed(undefined)),
+          // Best-effort routing probe: swallow only the typed SessionNotFound;
+          // any other error must propagate.
+          Effect.catchIf(
+            (err): err is Session.SessionNotFound => err instanceof Session.SessionNotFound,
+            () => Effect.succeed(undefined),
+          ),
         )
       : undefined
     const plan = yield* planRequest(request, session?.workspaceID)
