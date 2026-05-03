@@ -19,6 +19,7 @@ import { InstanceMiddleware } from "./routes/instance/middleware"
 import { WorkspaceRoutes } from "./routes/control/workspace"
 import { ExperimentalHttpApiServer } from "./routes/instance/httpapi/server"
 import { PublicApi } from "./routes/instance/httpapi/public"
+import { HttpApiListener } from "./httpapi-listener"
 import * as ServerBackend from "./backend"
 import type { CorsOptions } from "./cors"
 
@@ -182,35 +183,53 @@ export async function openapiHono() {
 export let url: URL
 
 export async function listen(opts: ListenOptions): Promise<Listener> {
-  const built = create(opts)
-  const server = await built.runtime.listen(opts)
+  const selected = select()
+  const native = selected.backend === "effect-httpapi" && !Flag.OPENCODE_HTTPAPI_LEGACY_LISTENER
+  let inner: Listener
+  if (native) {
+    log.info("server backend selected", {
+      ...ServerBackend.attributes(selected),
+      "opencode.server.listener": "bun-native",
+    })
+    inner = await HttpApiListener.listen(opts)
+  } else {
+    const built = create(opts)
+    const server = await built.runtime.listen(opts)
+    const innerUrl = new URL("http://localhost")
+    innerUrl.hostname = opts.hostname
+    innerUrl.port = String(server.port)
+    inner = {
+      hostname: opts.hostname,
+      port: server.port,
+      url: innerUrl,
+      stop: (close?: boolean) => server.stop(close),
+    }
+  }
 
-  const next = new URL("http://localhost")
-  next.hostname = opts.hostname
-  next.port = String(server.port)
+  const next = new URL(inner.url)
   url = next
 
   const mdns =
     opts.mdns &&
-    server.port &&
+    inner.port &&
     opts.hostname !== "127.0.0.1" &&
     opts.hostname !== "localhost" &&
     opts.hostname !== "::1"
   if (mdns) {
-    MDNS.publish(server.port, opts.mdnsDomain)
+    MDNS.publish(inner.port, opts.mdnsDomain)
   } else if (opts.mdns) {
     log.warn("mDNS enabled but hostname is loopback; skipping mDNS publish")
   }
 
   let closing: Promise<void> | undefined
   return {
-    hostname: opts.hostname,
-    port: server.port,
+    hostname: inner.hostname,
+    port: inner.port,
     url: next,
     stop(close?: boolean) {
       closing ??= (async () => {
         if (mdns) MDNS.unpublish()
-        await server.stop(close)
+        await inner.stop(close)
       })()
       return closing
     },

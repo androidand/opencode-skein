@@ -94,6 +94,12 @@ export const Flag = {
   OPENCODE_EXPERIMENTAL_HTTPAPI:
     truthy("OPENCODE_EXPERIMENTAL_HTTPAPI") ||
     (!falsy("OPENCODE_EXPERIMENTAL_HTTPAPI") && HTTPAPI_DEFAULT_ON_CHANNELS.has(InstallationChannel)),
+  // Kill-switch that forces the effect-httpapi backend back through the legacy
+  // hono runtime adapter (Hono.fetch + createBunWebSocket) instead of the
+  // native Bun.serve listener. Defaults to false; set to "true"/"1" to revert
+  // if the native listener regresses for a user. Has no effect when the hono
+  // backend is selected.
+  OPENCODE_HTTPAPI_LEGACY_LISTENER: truthy("OPENCODE_HTTPAPI_LEGACY_LISTENER"),
   OPENCODE_EXPERIMENTAL_WORKSPACES: OPENCODE_EXPERIMENTAL || truthy("OPENCODE_EXPERIMENTAL_WORKSPACES"),
   OPENCODE_EXPERIMENTAL_EVENT_SYSTEM: OPENCODE_EXPERIMENTAL || truthy("OPENCODE_EXPERIMENTAL_EVENT_SYSTEM"),
 
