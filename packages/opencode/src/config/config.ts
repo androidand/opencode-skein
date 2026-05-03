@@ -498,7 +498,7 @@ export const layer = Layer.effect(
             const url = key.replace(/\/+$/, "")
             process.env[value.key] = value.token
             log.debug("fetching remote config", { url: `${url}/.well-known/opencode` })
-            const response = yield* Effect.promise(() => fetch(`${url}/.well-known/opencode`))
+            const response = yield* Effect.tryPromise(() => fetch(`${url}/.well-known/opencode`)).pipe(Effect.mapError((cause) => new Error(`failed to fetch remote config from wellknown provider ${url}: ${cause}`)))
             if (!response.ok) {
               throw new Error(`failed to fetch remote config from ${url}: ${response.status}`)
             }
