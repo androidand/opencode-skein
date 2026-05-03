@@ -11,7 +11,7 @@ import type { PreparedQueryConfig, SQLiteSession, SQLiteTransaction, SQLiteTrans
 import { SQLitePreparedQuery } from "drizzle-orm/sqlite-core/session"
 import type { DrizzleConfig } from "drizzle-orm/utils"
 import { Cause, Effect, Exit, Schema } from "effect"
-import { pipeArguments } from "effect/Pipeable"
+import * as Effectable from "effect/Effectable"
 
 export class EffectDrizzleQueryError extends Schema.TaggedErrorClass<EffectDrizzleQueryError>()(
   "EffectDrizzleQueryError",
@@ -22,7 +22,12 @@ export class EffectDrizzleQueryError extends Schema.TaggedErrorClass<EffectDrizz
   },
 ) {
   override get message() {
-    return `Failed query: ${this.query}\nparams: ${JSON.stringify(this.params)}`
+    return `Failed query: ${this.query}\nparams: ${this.params}`
+  }
+
+  constructor(params: { readonly query: string; readonly params: ReadonlyArray<unknown>; readonly cause: unknown }) {
+    super(params)
+    Error.captureStackTrace?.(this, EffectDrizzleQueryError)
   }
 }
 
@@ -75,29 +80,6 @@ class TransactionFailure extends Error {
   }
 }
 
-// These keys are Effect runtime internals (effect/internal/core.ts). They are
-// not exported from the `effect` public API. We rely on them to make Drizzle
-// query builders directly yieldable. If a future Effect version renames or
-// removes them, the module-load assertion below fails loudly instead of
-// failing silently with "Effect.evaluate: Not implemented" defects deep in
-// the fiber executor.
-const EffectTypeId = "~effect/Effect"
-const EffectIdentifier = `${EffectTypeId}/identifier`
-const EffectEvaluate = `${EffectTypeId}/evaluate`
-
-if (!(Effect.succeed(0) as unknown as Record<PropertyKey, unknown>)[EffectTypeId]) {
-  throw new Error(
-    "@opencode-ai/effect-drizzle-sqlite: Effect protocol keys are missing on Effect.succeed(0). " +
-      "The installed `effect` version is incompatible with this adapter.",
-  )
-}
-
-const effectVariance = {
-  _A: (value: unknown) => value,
-  _E: (value: unknown) => value,
-  _R: (value: unknown) => value,
-}
-
 const queryInfo = (query: EffectLikeQuery | PreparedLike) => {
   const info = "getQuery" in query && typeof query.getQuery === "function" ? query.getQuery() : query.toSQL?.()
   return {
@@ -130,26 +112,13 @@ const fromExecuteResult = (result: unknown) => {
 }
 
 const queryEffectProto = {
-  [EffectTypeId]: effectVariance,
-  pipe() {
-    return pipeArguments(this, arguments)
-  },
-  [Symbol.iterator]() {
-    let done = false
-    const self = this
-    return {
-      next(value: unknown) {
-        if (done) return { done: true, value }
-        done = true
-        return { done: false, value: self }
-      },
-      [Symbol.iterator]() {
-        return this
-      },
-    }
-  },
-  [EffectIdentifier]: "DrizzleSqliteQuery",
-  [EffectEvaluate](this: EffectLikeQuery) {
+  ...Effectable.Prototype<Effect.Effect<unknown, EffectDrizzleQueryError> & EffectLikeQuery>({
+    label: "DrizzleSqliteQuery",
+    evaluate(this: EffectLikeQuery) {
+      return this.asEffect?.() ?? Effect.die("Drizzle SQLite query is missing asEffect()")
+    },
+  }),
+  commit(this: EffectLikeQuery) {
     return this.asEffect?.() ?? Effect.die("Drizzle SQLite query is missing asEffect()")
   },
 }
