@@ -8,7 +8,7 @@ import { Agent } from "../agent/agent"
 import type { SessionPrompt } from "../session/prompt"
 import { SessionStatus } from "@/session/status"
 import { TuiEvent } from "@/cli/cmd/tui/event"
-import { Cause, Effect, Option, Schema } from "effect"
+import { Cause, Effect, Option, Schema, Scope, Stream } from "effect"
 import { Config } from "@/config/config"
 import { BackgroundJob } from "@/background/job"
 import { Flag } from "@opencode-ai/core/flag/flag"
@@ -82,6 +82,7 @@ export const TaskTool = Tool.define(
     const sessions = yield* Session.Service
     const status = yield* SessionStatus.Service
     const jobs = yield* BackgroundJob.Service
+    const scope = yield* Scope.Scope
 
     const run = Effect.fn(
       "TaskTool.execute",
@@ -163,6 +164,9 @@ export const TaskTool = Tool.define(
       if (background && !Flag.OPENCODE_EXPERIMENTAL) {
         return yield* Effect.fail(new Error("Background tasks require OPENCODE_EXPERIMENTAL=true"))
       }
+      if ((yield* jobs.get(nextSession.id))?.status === "running") {
+        return yield* Effect.fail(new Error(`Task ${nextSession.id} is already running`))
+      }
 
       const metadata = {
         sessionId: nextSession.id,
@@ -198,11 +202,21 @@ export const TaskTool = Tool.define(
         return result.parts.findLast((item) => item.type === "text")?.text ?? ""
       })
 
-      const continueIfIdle = Effect.fn("TaskTool.continueIfIdle")(function* (input: {
+      const resumeParent: (input: {
         userID: MessageID
         state: "completed" | "error"
-      }) {
-        if ((yield* status.get(ctx.sessionID)).type !== "idle") return
+        attempts?: number
+      }) => Effect.Effect<void> = Effect.fn("TaskTool.resumeParent")(function* (input) {
+        if ((yield* status.get(ctx.sessionID)).type !== "idle") {
+          if ((input.attempts ?? 0) >= 60) return
+          yield* bus.subscribe(SessionStatus.Event.Idle).pipe(
+            Stream.filter((event) => event.properties.sessionID === ctx.sessionID),
+            Stream.take(1),
+            Stream.runDrain,
+            Effect.timeoutOption("1 second"),
+          )
+          return yield* resumeParent({ ...input, attempts: (input.attempts ?? 0) + 1 })
+        }
         const latest = yield* sessions.findMessage(ctx.sessionID, (item) => item.info.role === "user")
         if (Option.isNone(latest)) return
         if (latest.value.info.id !== input.userID) return
@@ -238,7 +252,7 @@ export const TaskTool = Tool.define(
               },
             ],
           })
-          yield* continueIfIdle({ userID: message.info.id, state })
+          yield* resumeParent({ userID: message.info.id, state }).pipe(Effect.ignore, Effect.forkIn(scope))
         })
 
         yield* jobs.start({
