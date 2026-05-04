@@ -2520,6 +2520,39 @@ export type ExperimentalWorkspaceStatusResponses = {
 export type ExperimentalWorkspaceStatusResponse =
   ExperimentalWorkspaceStatusResponses[keyof ExperimentalWorkspaceStatusResponses]
 
+export type ExperimentalWorkspaceDetachData = {
+  body?: {
+    workspaceID: string | null
+    sessionID: string
+  }
+  path?: never
+  query?: {
+    directory?: string
+    workspace?: string
+  }
+  url: "/experimental/workspace/warp"
+}
+
+export type ExperimentalWorkspaceDetachErrors = {
+  /**
+   * Bad request
+   */
+  400: BadRequestError
+}
+
+export type ExperimentalWorkspaceDetachError =
+  ExperimentalWorkspaceDetachErrors[keyof ExperimentalWorkspaceDetachErrors]
+
+export type ExperimentalWorkspaceDetachResponses = {
+  /**
+   * Session warped
+   */
+  204: void
+}
+
+export type ExperimentalWorkspaceDetachResponse =
+  ExperimentalWorkspaceDetachResponses[keyof ExperimentalWorkspaceDetachResponses]
+
 export type ExperimentalWorkspaceRemoveData = {
   body?: never
   path: {

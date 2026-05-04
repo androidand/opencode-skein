@@ -6,6 +6,7 @@ import { asc } from "drizzle-orm"
 import { eq } from "drizzle-orm"
 import { inArray } from "drizzle-orm"
 import { Project } from "@/project/project"
+import { Instance } from "@/project/instance"
 import { BusEvent } from "@/bus/bus-event"
 import { GlobalBus } from "@/bus/global"
 import { Auth } from "@/auth"
@@ -83,7 +84,7 @@ export const CreateInput = Schema.Struct({
 export type CreateInput = Schema.Schema.Type<typeof CreateInput>
 
 export const SessionWarpInput = Schema.Struct({
-  workspaceID: WorkspaceID,
+  workspaceID: Schema.NullOr(WorkspaceID),
   sessionID: SessionID,
 }).pipe(withStatics((s) => ({ zod: effectZod(s), zodObject: zodObject(s) })))
 export type SessionWarpInput = Schema.Schema.Type<typeof SessionWarpInput>
@@ -504,13 +505,6 @@ export const layer = Layer.effect(
           sessionID: input.sessionID,
         })
 
-        const space = yield* get(input.workspaceID)
-        if (!space)
-          return yield* new WorkspaceNotFoundError({
-            message: `Workspace not found: ${input.workspaceID}`,
-            workspaceID: input.workspaceID,
-          })
-
         const current = yield* db((db) =>
           db
             .select({ workspaceID: SessionTable.workspace_id })
@@ -541,9 +535,35 @@ export const layer = Layer.effect(
 
             // "claim" this session so any future events coming from
             // the old workspace are ignored
-            SyncEvent.claim(input.sessionID, input.workspaceID)
+            SyncEvent.claim(input.sessionID, input.workspaceID ?? Instance.project.id)
           }
         }
+
+        if (input.workspaceID === null) {
+          yield* Effect.sync(() =>
+            SyncEvent.run(Session.Event.Updated, {
+              sessionID: input.sessionID,
+              info: {
+                workspaceID: null,
+              },
+            }),
+          )
+
+          log.info("session warp complete", {
+            workspaceID: input.workspaceID,
+            sessionID: input.sessionID,
+            target: "local",
+          })
+          return
+        }
+
+        const workspaceID = input.workspaceID
+        const space = yield* get(workspaceID)
+        if (!space)
+          return yield* new WorkspaceNotFoundError({
+            message: `Workspace not found: ${workspaceID}`,
+            workspaceID,
+          })
 
         const adaptor = getAdaptor(space.projectID, space.type)
         const target = yield* Effect.promise(() => Promise.resolve(adaptor.target(space)))
@@ -624,8 +644,8 @@ export const layer = Layer.effect(
                   body,
                 })
                 return yield* new SessionWarpHttpError({
-                  message: `Failed to warp session ${input.sessionID} into workspace ${input.workspaceID}: HTTP ${response.status} ${body}`,
-                  workspaceID: input.workspaceID,
+                  message: `Failed to warp session ${input.sessionID} into workspace ${workspaceID}: HTTP ${response.status} ${body}`,
+                  workspaceID,
                   sessionID: input.sessionID,
                   status: response.status,
                   body,
@@ -658,8 +678,8 @@ export const layer = Layer.effect(
             body,
           })
           return yield* new SessionWarpHttpError({
-            message: `Failed to steal session ${input.sessionID} into workspace ${input.workspaceID}: HTTP ${response.status} ${body}`,
-            workspaceID: input.workspaceID,
+            message: `Failed to steal session ${input.sessionID} into workspace ${workspaceID}: HTTP ${response.status} ${body}`,
+            workspaceID,
             sessionID: input.sessionID,
             status: response.status,
             body,

@@ -56,12 +56,21 @@ export const workspaceHandlers = HttpApiBuilder.group(InstanceHttpApi, "workspac
       return HttpApiSchema.NoContent.make()
     })
 
+    const warpLocal = Effect.fn("WorkspaceHttpApi.warpLocal")(function* (ctx: {
+      payload: typeof Workspace.SessionWarpInput.Type
+    }) {
+      const instance = yield* InstanceState.context
+      yield* Effect.promise(() => Instance.restore(instance, () => Workspace.sessionWarp(ctx.payload)))
+      return HttpApiSchema.NoContent.make()
+    })
+
     return handlers
       .handle("adaptors", adaptors)
       .handle("list", list)
       .handle("create", create)
       .handle("status", status)
       .handle("remove", remove)
+      .handle("warpLocal", warpLocal)
       .handle("warp", warp)
   }),
 )

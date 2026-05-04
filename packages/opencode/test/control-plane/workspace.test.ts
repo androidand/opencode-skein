@@ -297,6 +297,16 @@ function sessionSequence(sessionID: SessionID) {
   )?.seq
 }
 
+function sessionSequenceOwner(sessionID: SessionID) {
+  return Database.use((db) =>
+    db
+      .select({ ownerID: EventSequenceTable.owner_id })
+      .from(EventSequenceTable)
+      .where(eq(EventSequenceTable.aggregate_id, sessionID))
+      .get(),
+  )?.ownerID
+}
+
 function sessionUpdatedType() {
   return SyncEvent.versionedType(SessionNs.Event.Updated.type, SessionNs.Event.Updated.version)
 }
@@ -584,6 +594,134 @@ describe("workspace-old CRUD", () => {
 
       expect(await WorkspaceOld.remove(info.id)).toEqual(info)
       expect(await WorkspaceOld.get(info.id)).toBeUndefined()
+    })
+  })
+
+  test("sessionWarp moves a session into a local workspace and claims ownership", async () => {
+    await withInstance(async (dir) => {
+      const previousType = unique("warp-prev-local")
+      const targetType = unique("warp-target-local")
+      const previous = workspaceInfo(Instance.project.id, previousType)
+      const target = workspaceInfo(Instance.project.id, targetType)
+      insertWorkspace(previous)
+      insertWorkspace(target)
+      registerAdaptor(Instance.project.id, previousType, localAdaptor(path.join(dir, "warp-prev-local")).adaptor)
+      registerAdaptor(Instance.project.id, targetType, localAdaptor(path.join(dir, "warp-target-local")).adaptor)
+      const session = await AppRuntime.runPromise(SessionNs.Service.use((svc) => svc.create({})))
+      attachSessionToWorkspace(session.id, previous.id)
+
+      await WorkspaceOld.sessionWarp({ workspaceID: target.id, sessionID: session.id })
+
+      expect(
+        Database.use((db) =>
+          db.select({ workspaceID: SessionTable.workspace_id }).from(SessionTable).where(eq(SessionTable.id, session.id)).get(),
+        )?.workspaceID,
+      ).toBe(target.id)
+      expect(sessionSequenceOwner(session.id)).toBe(target.id)
+    })
+  })
+
+  test("sessionWarp detaches a session to the local project and claims project ownership", async () => {
+    await withInstance(async (dir) => {
+      const previousType = unique("warp-detach-local")
+      const previous = workspaceInfo(Instance.project.id, previousType)
+      insertWorkspace(previous)
+      registerAdaptor(Instance.project.id, previousType, localAdaptor(path.join(dir, "warp-detach-local")).adaptor)
+      const session = await AppRuntime.runPromise(SessionNs.Service.use((svc) => svc.create({})))
+      attachSessionToWorkspace(session.id, previous.id)
+
+      await WorkspaceOld.sessionWarp({ workspaceID: null, sessionID: session.id })
+
+      expect(
+        Database.use((db) =>
+          db.select({ workspaceID: SessionTable.workspace_id }).from(SessionTable).where(eq(SessionTable.id, session.id)).get(),
+        )?.workspaceID,
+      ).toBeNull()
+      expect(sessionSequenceOwner(session.id)).toBe(Instance.project.id)
+    })
+  })
+
+  it.live("sessionWarp syncs previous remote history, replays it, steals, and claims the sequence", () => {
+    const calls: FetchCall[] = []
+    let historySessionID: SessionID | undefined
+    let historyNextSeq = 0
+    return Effect.gen(function* () {
+      yield* HttpServer.serveEffect()(
+        Effect.gen(function* () {
+          const req = yield* HttpServerRequest.HttpServerRequest
+          const bodyText = yield* req.text
+          const call = {
+            url: new URL(req.url, "http://localhost"),
+            method: req.method,
+            headers: new Headers(req.headers),
+            bodyText,
+            json: bodyText ? JSON.parse(bodyText) : undefined,
+          }
+          calls.push(call)
+          if (call.url.pathname === "/warp-source/sync/history") {
+            return yield* HttpServerResponse.json([
+              {
+                id: `evt_${unique("warp-source-history")}`,
+                aggregate_id: historySessionID!,
+                seq: historyNextSeq,
+                type: sessionUpdatedType(),
+                data: { sessionID: historySessionID!, info: { title: "from source history" } },
+              },
+            ])
+          }
+          if (call.url.pathname === "/warp-target/sync/replay") return yield* HttpServerResponse.json({ sessionID: "ok" })
+          if (call.url.pathname === "/warp-target/sync/steal") return yield* HttpServerResponse.json({ sessionID: "ok" })
+          return HttpServerResponse.text("unexpected", { status: 500 })
+        }),
+      )
+      const url = yield* serverUrl()
+      yield* provideTmpdirInstance(
+        () =>
+          Effect.gen(function* () {
+            const workspace = yield* WorkspaceOld.Service
+            const sessionSvc = yield* SessionNs.Service
+            const previousType = unique("warp-remote-source")
+            const targetType = unique("warp-remote-target")
+            const previous = workspaceInfo(Instance.project.id, previousType)
+            const target = workspaceInfo(Instance.project.id, targetType, { directory: "remote-target-dir" })
+            insertWorkspace(previous)
+            insertWorkspace(target)
+            registerAdaptor(Instance.project.id, previousType, remoteAdaptor(`${url}/warp-source`).adaptor)
+            registerAdaptor(Instance.project.id, targetType, remoteAdaptor(`${url}/warp-target`).adaptor)
+            const session = yield* sessionSvc.create({})
+            attachSessionToWorkspace(session.id, previous.id)
+            historySessionID = session.id
+            historyNextSeq = (sessionSequence(session.id) ?? -1) + 1
+
+            yield* workspace.sessionWarp({ workspaceID: target.id, sessionID: session.id })
+
+            expect(calls.map((call) => `${call.method} ${call.url.pathname}`)).toEqual([
+              "POST /warp-source/sync/history",
+              "POST /warp-target/sync/replay",
+              "POST /warp-target/sync/steal",
+            ])
+            expect(calls[0].json).toEqual({ [session.id]: historyNextSeq - 1 })
+            expect(calls[1].json).toMatchObject({
+              directory: "remote-target-dir",
+              events: [
+                {
+                  aggregateID: session.id,
+                  seq: 0,
+                  type: SyncEvent.versionedType(SessionNs.Event.Created.type, SessionNs.Event.Created.version),
+                },
+                {
+                  aggregateID: session.id,
+                  seq: historyNextSeq,
+                  type: sessionUpdatedType(),
+                },
+              ],
+            })
+            expect(calls[2].json).toEqual({ sessionID: session.id })
+            expect((yield* sessionSvc.get(session.id)).title).toBe("from source history")
+            expect(sessionSequenceOwner(session.id)).toBe(target.id)
+          }),
+        { git: true },
+      )
     })
   })
 })

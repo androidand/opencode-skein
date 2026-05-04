@@ -138,6 +138,25 @@ export const WorkspaceRoutes = lazy(() =>
       },
     )
     .post(
+      "/warp",
+      describeRoute({
+        summary: "Warp session into workspace",
+        description: "Move a session's sync history into the target workspace, or detach it to the local project.",
+        operationId: "experimental.workspace.detach",
+        responses: {
+          204: {
+            description: "Session warped",
+          },
+          ...errors(400),
+        },
+      }),
+      validator("json", Workspace.SessionWarpInput.zodObject),
+      async (c) => {
+        await Workspace.sessionWarp(c.req.valid("json") as Workspace.SessionWarpInput)
+        return c.body(null, 204)
+      },
+    )
+    .post(
       "/:id/warp",
       describeRoute({
         summary: "Warp session into workspace",

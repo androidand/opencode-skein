@@ -5,7 +5,7 @@ import { Bus } from "../../src/bus"
 import { Instance } from "../../src/project/instance"
 import { SyncEvent } from "../../src/sync"
 import { Database } from "@/storage/db"
-import { EventTable } from "../../src/sync/event.sql"
+import { EventSequenceTable, EventTable } from "../../src/sync/event.sql"
 import { Identifier } from "../../src/id/id"
 import { Flag } from "@opencode-ai/core/flag/flag"
 import { initProjectors } from "../../src/server/projectors"
@@ -231,6 +231,73 @@ describe("SyncEvent", () => {
 
         const rows = Database.use((db) => db.select().from(EventTable).all())
         expect(rows.map((row) => row.seq)).toEqual([0, 1, 2, 3])
+      }),
+    )
+
+    test(
+      "claims unowned event sequence on replay with ownerID",
+      withInstance(() => {
+        const { Created } = setup()
+        const id = Identifier.descending("message")
+
+        SyncEvent.replay(
+          {
+            id: "evt_1",
+            type: SyncEvent.versionedType(Created.type, Created.version),
+            seq: 0,
+            aggregateID: id,
+            data: { id, name: "owned" },
+          },
+          { publish: false, ownerID: "owner-1" },
+        )
+
+        const row = Database.use((db) =>
+          db
+            .select({ seq: EventSequenceTable.seq, ownerID: EventSequenceTable.owner_id })
+            .from(EventSequenceTable)
+            .get(),
+        )
+        expect(row).toEqual({ seq: 0, ownerID: "owner-1" })
+      }),
+    )
+
+    test(
+      "ignores replay from a different owner after sequence is claimed",
+      withInstance(() => {
+        const { Created } = setup()
+        const id = Identifier.descending("message")
+
+        SyncEvent.replay(
+          {
+            id: "evt_1",
+            type: SyncEvent.versionedType(Created.type, Created.version),
+            seq: 0,
+            aggregateID: id,
+            data: { id, name: "first" },
+          },
+          { publish: false, ownerID: "owner-1" },
+        )
+        SyncEvent.replay(
+          {
+            id: "evt_2",
+            type: SyncEvent.versionedType(Created.type, Created.version),
+            seq: 1,
+            aggregateID: id,
+            data: { id, name: "ignored" },
+          },
+          { publish: false, ownerID: "owner-2" },
+        )
+
+        const events = Database.use((db) => db.select().from(EventTable).all())
+        const sequence = Database.use((db) =>
+          db
+            .select({ seq: EventSequenceTable.seq, ownerID: EventSequenceTable.owner_id })
+            .from(EventSequenceTable)
+            .get(),
+        )
+        expect(events).toHaveLength(1)
+        expect(events[0].id).toBe("evt_1")
+        expect(sequence).toEqual({ seq: 0, ownerID: "owner-1" })
       }),
     )
   })

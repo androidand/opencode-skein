@@ -46,7 +46,19 @@ export function DialogSessionList() {
     const workspace = project.workspace.get(session.workspaceID!)
     const list = () => dialog.replace(() => <DialogSessionList />)
     const warp = async (selection: WorkspaceSelection) => {
-      if (selection.type === "none") return
+      if (selection.type === "none") {
+        await warpWorkspaceSession({
+          dialog,
+          sdk,
+          sync,
+          project,
+          toast,
+          workspaceID: null,
+          sessionID: session.id,
+          done: list,
+        })
+        return
+      }
       const workspaceID = await (async () => {
         if (selection.type === "existing") return selection.workspaceID
         const result = await sdk.client.experimental.workspace

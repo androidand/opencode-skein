@@ -71,17 +71,21 @@ export async function warpWorkspaceSession(input: {
   sync: ReturnType<typeof useSync>
   project: ReturnType<typeof useProject>
   toast: ReturnType<typeof useToast>
-  workspaceID: string
+  workspaceID: string | null
   sessionID: string
   done?: () => void
   showSuccessToast?: boolean
 }): Promise<boolean> {
-  const result = await input.sdk.client.experimental.workspace
-    .warp({
-      id: input.workspaceID,
-      sessionID: input.sessionID,
-    })
-    .catch(() => undefined)
+  const result = await (input.workspaceID === null
+    ? input.sdk.client.experimental.workspace.detach({
+        workspaceID: null,
+        sessionID: input.sessionID,
+      })
+    : input.sdk.client.experimental.workspace.warp({
+        id: input.workspaceID,
+        sessionID: input.sessionID,
+      })
+  ).catch(() => undefined)
   if (!result || result.error) {
     input.toast.show({
       message: `Failed to warp session: ${errorMessage(result?.error ?? "no response")}`,
@@ -98,7 +102,7 @@ export async function warpWorkspaceSession(input: {
 
   if (input.showSuccessToast !== false) {
     input.toast.show({
-      message: "Session warped into the new workspace",
+      message: input.workspaceID === null ? "Session moved to the local project" : "Session warped into the new workspace",
       variant: "success",
     })
   }

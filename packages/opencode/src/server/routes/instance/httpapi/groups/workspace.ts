@@ -16,6 +16,7 @@ export const WorkspacePaths = {
   list: root,
   status: `${root}/status`,
   remove: `${root}/:id`,
+  warpLocal: `${root}/warp`,
   warp: `${root}/:id/warp`,
 } as const
 
@@ -70,6 +71,17 @@ export const WorkspaceApi = HttpApi.make("workspace")
             identifier: "experimental.workspace.remove",
             summary: "Remove workspace",
             description: "Remove an existing workspace.",
+          }),
+        ),
+        HttpApiEndpoint.post("warpLocal", WorkspacePaths.warpLocal, {
+          payload: Workspace.SessionWarpInput,
+          success: described(HttpApiSchema.NoContent, "Session warped"),
+          error: HttpApiError.BadRequest,
+        }).annotateMerge(
+          OpenApi.annotations({
+            identifier: "experimental.workspace.detach",
+            summary: "Warp session into workspace",
+            description: "Move a session's sync history into the target workspace, or detach it to the local project.",
           }),
         ),
         HttpApiEndpoint.post("warp", WorkspacePaths.warp, {
