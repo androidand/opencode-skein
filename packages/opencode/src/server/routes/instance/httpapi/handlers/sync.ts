@@ -75,10 +75,6 @@ export const syncHandlers = HttpApiBuilder.group(InstanceHttpApi, "sync", (handl
       )
     })
 
-    return handlers
-      .handle("start", start)
-      .handle("replay", replay)
-      .handle("steal", steal)
-      .handle("history", history)
+    return handlers.handle("start", start).handle("replay", replay).handle("steal", steal).handle("history", history)
   }),
 )

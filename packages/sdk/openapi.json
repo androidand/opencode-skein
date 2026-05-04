@@ -5448,6 +5448,80 @@
         ]
       }
     },
+    "/sync/steal": {
+      "post": {
+        "operationId": "sync.steal",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "directory",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "workspace",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "summary": "Steal session into workspace",
+        "description": "Update a session to belong to the current workspace through the sync event system.",
+        "responses": {
+          "200": {
+            "description": "Session stolen into workspace",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "sessionID": {
+                      "type": "string",
+                      "pattern": "^ses.*"
+                    }
+                  },
+                  "required": ["sessionID"]
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Bad request",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BadRequestError"
+                }
+              }
+            }
+          }
+        },
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "sessionID": {
+                    "type": "string",
+                    "pattern": "^ses.*"
+                  }
+                },
+                "required": ["sessionID"]
+              }
+            }
+          }
+        },
+        "x-codeSamples": [
+          {
+            "lang": "js",
+            "source": "import { createOpencodeClient } from \"@opencode-ai/sdk\n\nconst client = createOpencodeClient()\nawait client.sync.steal({\n  ...\n})"
+          }
+        ]
+      }
+    },
     "/sync/history": {
       "post": {
         "operationId": "sync.history.list",

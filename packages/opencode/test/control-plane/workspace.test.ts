@@ -321,7 +321,6 @@ describe("workspace-old schemas and exports", () => {
     expect(() => WorkspaceOld.CreateInput.zod.parse({ ...input, id: "bad" })).toThrow()
     expect(() => WorkspaceOld.CreateInput.zod.parse({ ...input, branch: 1 })).toThrow()
   })
-
 })
 
 describe("workspace-old CRUD", () => {

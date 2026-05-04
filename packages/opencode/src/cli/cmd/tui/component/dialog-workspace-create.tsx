@@ -30,8 +30,40 @@ export type WorkspaceSelection =
       workspaceName: string
     }
 
-type WorkspaceSelectValue = WorkspaceSelection | { type: "existing-list" } | { type: "loading" }
+type WorkspaceSelectValue = WorkspaceSelection | { type: "existing-list" }
 type ExistingWorkspaceSelectValue = { workspace: Workspace }
+
+async function loadWorkspaceAdaptors(input: {
+  sdk: ReturnType<typeof useSDK>
+  sync: ReturnType<typeof useSync>
+  toast: ReturnType<typeof useToast>
+}) {
+  const dir = input.sync.path.directory || input.sdk.directory
+  const url = new URL("/experimental/workspace/adaptor", input.sdk.url)
+  if (dir) url.searchParams.set("directory", dir)
+  const res = await input.sdk
+    .fetch(url)
+    .then((x) => x.json() as Promise<Adaptor[]>)
+    .catch(() => undefined)
+  if (res) return res
+  input.toast.show({
+    message: "Failed to load workspace adaptors",
+    variant: "error",
+  })
+}
+
+export async function openWorkspaceSelect(input: {
+  dialog: ReturnType<typeof useDialog>
+  sdk: ReturnType<typeof useSDK>
+  sync: ReturnType<typeof useSync>
+  toast: ReturnType<typeof useToast>
+  onSelect: (selection: WorkspaceSelection) => Promise<void> | void
+}) {
+  input.dialog.clear()
+  const adaptors = await loadWorkspaceAdaptors(input)
+  if (!adaptors) return
+  input.dialog.replace(() => <DialogWorkspaceSelect adaptors={adaptors} onSelect={input.onSelect} />)
+}
 
 export async function warpWorkspaceSession(input: {
   dialog: ReturnType<typeof useDialog>
@@ -77,7 +109,7 @@ export async function warpWorkspaceSession(input: {
 }
 
 export function DialogWorkspaceSelect(props: {
-  current?: WorkspaceSelection
+  adaptors?: Adaptor[]
   onSelect: (selection: WorkspaceSelection) => Promise<void> | void
 }) {
   const dialog = useDialog()
@@ -85,41 +117,21 @@ export function DialogWorkspaceSelect(props: {
   const sync = useSync()
   const sdk = useSDK()
   const toast = useToast()
-  const [adaptors, setAdaptors] = createSignal<Adaptor[]>()
+  const [adaptors, setAdaptors] = createSignal<Adaptor[] | undefined>(props.adaptors)
 
   onMount(() => {
     dialog.setSize("medium")
     void (async () => {
-      const dir = sync.path.directory || sdk.directory
-      const url = new URL("/experimental/workspace/adaptor", sdk.url)
-      if (dir) url.searchParams.set("directory", dir)
-      const res = await sdk
-        .fetch(url)
-        .then((x) => x.json() as Promise<Adaptor[]>)
-        .catch(() => undefined)
-      if (!res) {
-        toast.show({
-          message: "Failed to load workspace adaptors",
-          variant: "error",
-        })
-        return
-      }
+      if (adaptors()) return
+      const res = await loadWorkspaceAdaptors({ sdk, sync, toast })
+      if (!res) return
       setAdaptors(res)
     })()
   })
 
   const options = createMemo<DialogSelectOption<WorkspaceSelectValue>[]>(() => {
     const list = adaptors()
-    if (!list) {
-      return [
-        {
-          title: "Loading workspaces...",
-          value: { type: "loading" as const },
-          description: "Fetching available workspace adaptors",
-          category: "New workspace",
-        },
-      ]
-    }
+    if (!list) return []
     const recent = sync.data.session
       .toSorted((a, b) => b.time.updated - a.time.updated)
       .flatMap((session) => (session.workspaceID ? [session.workspaceID] : []))
@@ -162,13 +174,13 @@ export function DialogWorkspaceSelect(props: {
     ]
   })
 
+  if (!adaptors()) return null
   return (
     <DialogSelect<WorkspaceSelectValue>
       title="Warp"
       skipFilter={true}
       renderFilter={false}
       options={options()}
-      current={props.current}
       onSelect={(option) => {
         if (!option.value) return
         if (option.value.type === "none") {

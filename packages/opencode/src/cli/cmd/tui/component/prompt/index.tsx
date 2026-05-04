@@ -41,7 +41,7 @@ import { useKV } from "../../context/kv"
 import { createFadeIn } from "../../util/signal"
 import { useTextareaKeybindings } from "../textarea-keybindings"
 import { DialogSkill } from "../dialog-skill"
-import { DialogWorkspaceSelect, warpWorkspaceSession, type WorkspaceSelection } from "../dialog-workspace-create"
+import { openWorkspaceSelect, warpWorkspaceSession, type WorkspaceSelection } from "../dialog-workspace-create"
 import { DialogWorkspaceUnavailable } from "../dialog-workspace-unavailable"
 import { useArgs } from "@tui/context/args"
 import { Flag } from "@opencode-ai/core/flag/flag"
@@ -557,14 +557,15 @@ export function Prompt(props: PromptProps) {
           name: "warp",
         },
         onSelect: (dialog) => {
-          dialog.replace(() => (
-            <DialogWorkspaceSelect
-              current={selectedWorkspace()}
-              onSelect={(selection) => {
-                void warpSession(selection)
-              }}
-            />
-          ))
+          void openWorkspaceSelect({
+            dialog,
+            sdk,
+            sync,
+            toast,
+            onSelect: (selection) => {
+              void warpSession(selection)
+            },
+          })
         },
       },
     ]
@@ -815,14 +816,15 @@ export function Prompt(props: PromptProps) {
       dialog.replace(() => (
         <DialogWorkspaceUnavailable
           onRestore={() => {
-            dialog.replace(() => (
-              <DialogWorkspaceSelect
-                current={selectedWorkspace()}
-                onSelect={(selection) => {
-                  void warpSession(selection)
-                }}
-              />
-            ))
+            void openWorkspaceSelect({
+              dialog,
+              sdk,
+              sync,
+              toast,
+              onSelect: (selection) => {
+                void warpSession(selection)
+              },
+            })
             return false
           }}
         />
