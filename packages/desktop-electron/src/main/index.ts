@@ -4,6 +4,8 @@ import { createServer } from "node:net"
 import { homedir } from "node:os"
 import { join } from "node:path"
 import { app, BrowserWindow, dialog } from "electron"
+import * as NodeRuntime from "@effect/platform-node/NodeRuntime"
+import * as NodeHttpClient from "@effect/platform-node/NodeHttpClient"
 import pkg from "electron-updater"
 import { Data, Deferred, Effect, Fiber, Option, PubSub, Queue, Ref, Stream, SubscriptionRef } from "effect"
 
@@ -312,7 +314,7 @@ const main = Effect.gen(function* () {
   ),
 )
 
-void Effect.runPromise(main)
+main.pipe(Effect.provide(NodeHttpClient.layerFetch), NodeRuntime.runMain())
 
 const wireMenu = (win: BrowserWindow) => {
   createMenu({
@@ -364,10 +366,10 @@ const registerIpcHandlersImpl = () =>
           Effect.tap(() => Deferred.succeed(deepLinksConsumed, undefined)),
         ),
       ),
-    getDefaultServerUrl: () => Effect.runPromise(getDefaultServerUrl),
-    setDefaultServerUrl: (url) => Effect.runPromise(setDefaultServerUrl(url)),
-    getWslConfig: () => Effect.runPromise(getWslConfig),
-    setWslConfig: (config: WslConfig) => Effect.runPromise(setWslConfig(config)),
+    getDefaultServerUrl: () => getDefaultServerUrl(),
+    setDefaultServerUrl: (url) => setDefaultServerUrl(url),
+    getWslConfig: () => Promise.resolve(getWslConfig()),
+    setWslConfig: (config: WslConfig) => setWslConfig(config),
     getDisplayBackend: () => Promise.resolve(null),
     setDisplayBackend: () => Promise.resolve(undefined),
     parseMarkdown: (markdown) => Promise.resolve(parseMarkdown(markdown)),
