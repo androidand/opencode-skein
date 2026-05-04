@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, test } from "bun:test"
 import { Flag } from "@opencode-ai/core/flag/flag"
 import * as Log from "@opencode-ai/core/util/log"
-import { ConfigProvider, Effect, Layer } from "effect"
+import { Effect, Layer, Option } from "effect"
 import {
   HttpClient,
   HttpClientRequest,
@@ -50,12 +50,10 @@ function app(input?: { password?: string; username?: string }) {
   const handler = HttpRouter.toWebHandler(
     ExperimentalHttpApiServer.routes.pipe(
       Layer.provide(
-        ConfigProvider.layer(
-          ConfigProvider.fromUnknown({
-            OPENCODE_SERVER_PASSWORD: input?.password,
-            OPENCODE_SERVER_USERNAME: input?.username,
-          }),
-        ),
+        ServerAuth.Config.layer({
+          password: input?.password ? Option.some(input.password) : Option.none(),
+          username: input?.username ?? "opencode",
+        }),
       ),
     ),
     { disableLogger: true },
@@ -71,6 +69,10 @@ function app(input?: { password?: string; username?: string }) {
 }
 
 function uiApp(input?: { password?: string; username?: string; client?: Layer.Layer<HttpClient.HttpClient> }) {
+  const authConfigLayer = ServerAuth.Config.layer({
+    password: input?.password ? Option.some(input.password) : Option.none(),
+    username: input?.username ?? "opencode",
+  })
   const handler = HttpRouter.toWebHandler(
     HttpRouter.use((router) =>
       Effect.gen(function* () {
@@ -79,17 +81,11 @@ function uiApp(input?: { password?: string; username?: string; client?: Layer.La
         yield* router.add("*", "/*", (request) => serveUIEffect(request, { fs, client }))
       }),
     ).pipe(
-      Layer.provide(authorizationRouterMiddleware.layer.pipe(Layer.provide(ServerAuth.Config.defaultLayer))),
+      Layer.provide(authorizationRouterMiddleware.layer.pipe(Layer.provide(authConfigLayer))),
       Layer.provide([
         AppFileSystem.defaultLayer,
         input?.client ?? httpClient(new Response("ui")),
         HttpServer.layerServices,
-        ConfigProvider.layer(
-          ConfigProvider.fromUnknown({
-            OPENCODE_SERVER_PASSWORD: input?.password,
-            OPENCODE_SERVER_USERNAME: input?.username,
-          }),
-        ),
       ]),
     ),
     { disableLogger: true },

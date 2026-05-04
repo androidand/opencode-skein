@@ -1,8 +1,6 @@
 import { afterEach, describe, expect, test } from "bun:test"
-import { ConfigProvider, Layer } from "effect"
 import { HttpRouter } from "effect/unstable/http"
 import { Flag } from "@opencode-ai/core/flag/flag"
-import { Instance } from "../../src/project/instance"
 import { EventPaths } from "../../src/server/routes/instance/httpapi/event"
 import { PtyPaths } from "../../src/server/routes/instance/httpapi/groups/pty"
 import { ExperimentalHttpApiServer } from "../../src/server/routes/instance/httpapi/server"
@@ -13,23 +11,19 @@ import * as Log from "@opencode-ai/core/util/log"
 
 void Log.init({ print: false })
 
-const originalHttpApi = Flag.OPENCODE_EXPERIMENTAL_HTTPAPI
+const original = {
+  OPENCODE_EXPERIMENTAL_HTTPAPI: Flag.OPENCODE_EXPERIMENTAL_HTTPAPI,
+  OPENCODE_SERVER_PASSWORD: Flag.OPENCODE_SERVER_PASSWORD,
+  OPENCODE_SERVER_USERNAME: Flag.OPENCODE_SERVER_USERNAME,
+}
 
 function app(input: { password?: string; username?: string }) {
   Flag.OPENCODE_EXPERIMENTAL_HTTPAPI = true
-  const handler = HttpRouter.toWebHandler(
-    ExperimentalHttpApiServer.routes.pipe(
-      Layer.provide(
-        ConfigProvider.layer(
-          ConfigProvider.fromUnknown({
-            OPENCODE_SERVER_PASSWORD: input.password,
-            OPENCODE_SERVER_USERNAME: input.username,
-          }),
-        ),
-      ),
-    ),
-    { disableLogger: true },
-  ).handler
+  Flag.OPENCODE_SERVER_PASSWORD = input.password
+  Flag.OPENCODE_SERVER_USERNAME = input.username
+  const handler = HttpRouter.toWebHandler(ExperimentalHttpApiServer.routes, {
+    disableLogger: true,
+  }).handler
 
   return {
     fetch: (request: Request) => handler(request, ExperimentalHttpApiServer.context),
@@ -48,7 +42,9 @@ async function cancelBody(response: Response) {
 }
 
 afterEach(async () => {
-  Flag.OPENCODE_EXPERIMENTAL_HTTPAPI = originalHttpApi
+  Flag.OPENCODE_EXPERIMENTAL_HTTPAPI = original.OPENCODE_EXPERIMENTAL_HTTPAPI
+  Flag.OPENCODE_SERVER_PASSWORD = original.OPENCODE_SERVER_PASSWORD
+  Flag.OPENCODE_SERVER_USERNAME = original.OPENCODE_SERVER_USERNAME
   await disposeAllInstances()
   await resetDatabase()
 })
