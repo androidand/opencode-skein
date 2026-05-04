@@ -9,7 +9,6 @@ import { useRouteData } from "@tui/context/route"
 import { usePromptRef } from "../context/prompt"
 import { useLocal } from "../context/local"
 import { TuiPluginRuntime } from "@/cli/cmd/tui/plugin/runtime"
-import type { WorkspaceSelection } from "../component/dialog-workspace-create"
 
 let once = false
 const placeholder = {
@@ -23,27 +22,9 @@ export function Home() {
   const route = useRouteData("home")
   const promptRef = usePromptRef()
   const [ref, setRef] = createSignal<PromptRef | undefined>()
-  const [workspaceSelection, setWorkspaceSelection] = createSignal<WorkspaceSelection>()
   const args = useArgs()
   const local = useLocal()
   let sent = false
-
-  const currentWorkspaceSelection = (): WorkspaceSelection | undefined => {
-    const workspaceID = project.workspace.current()
-    if (!workspaceID) return { type: "none" }
-    const workspace = project.workspace.get(workspaceID)
-    return {
-      type: "existing",
-      workspaceID,
-      workspaceType: workspace?.type ?? "unknown",
-      workspaceName: workspace?.name ?? workspaceID,
-    }
-  }
-
-  createEffect(() => {
-    if (workspaceSelection()) return
-    setWorkspaceSelection(currentWorkspaceSelection())
-  })
 
   const bind = (r: PromptRef | undefined) => {
     setRef(r)
@@ -92,8 +73,6 @@ export function Home() {
             <Prompt
               ref={bind}
               workspaceID={project.workspace.current()}
-              workspaceSelection={workspaceSelection()}
-              onWorkspaceSelectionChange={setWorkspaceSelection}
               right={<TuiPluginRuntime.Slot name="home_prompt_right" workspace_id={project.workspace.current()} />}
               placeholders={placeholder}
             />

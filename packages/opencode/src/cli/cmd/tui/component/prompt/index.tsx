@@ -50,8 +50,6 @@ import { WorkspaceLabel, type WorkspaceStatus } from "../workspace-label"
 export type PromptProps = {
   sessionID?: string
   workspaceID?: string
-  workspaceSelection?: WorkspaceSelection
-  onWorkspaceSelectionChange?: (selection: WorkspaceSelection | undefined) => void
   onWorkspaceCreatingChange?: (creating: boolean) => void
   visible?: boolean
   disabled?: boolean
@@ -161,11 +159,9 @@ export function Prompt(props: PromptProps) {
   const [warpNotice, setWarpNotice] = createSignal<string>()
   const currentProviderLabel = createMemo(() => local.model.parsed().provider)
   const hasRightContent = createMemo(() => Boolean(props.right))
-  const selectedWorkspace = () => props.workspaceSelection ?? workspaceSelection()
 
   function selectWorkspace(selection: WorkspaceSelection | undefined) {
     setWorkspaceSelection(selection)
-    props.onWorkspaceSelectionChange?.(selection)
   }
 
   function setCreatingWorkspace(creating: boolean) {
@@ -782,6 +778,7 @@ export function Prompt(props: PromptProps) {
 
   async function submit() {
     setWarpNotice(undefined)
+
     // IME: double-defer may fire before onContentChange flushes the last
     // composed character (e.g. Korean hangul) to the store, so read
     // plainText directly and sync before any downstream reads.
@@ -891,7 +888,7 @@ export function Prompt(props: PromptProps) {
 
     let sessionID = props.sessionID
     if (sessionID == null) {
-      const workspace = selectedWorkspace()
+      const workspace = workspaceSelection()
       const workspaceID = iife(() => {
         if (!workspace) return undefined
         if (workspace.type === "none") return undefined
@@ -1125,7 +1122,7 @@ export function Prompt(props: PromptProps) {
     | { type: "existing"; workspaceType: string; workspaceName: string; status?: WorkspaceStatus }
     | undefined
   >(() => {
-    const selected = selectedWorkspace()
+    const selected = workspaceSelection()
     if (!selected) return
     if (selected.type === "none") return
     if (props.sessionID && !workspaceCreating()) return
