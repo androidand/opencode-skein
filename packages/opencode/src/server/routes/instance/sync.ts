@@ -9,7 +9,7 @@ import { not } from "drizzle-orm"
 import { or } from "drizzle-orm"
 import { lte } from "drizzle-orm"
 import { eq } from "drizzle-orm"
-import { EventSequenceTable, EventTable } from "@/sync/event.sql"
+import { EventTable } from "@/sync/event.sql"
 import { lazy } from "@/util/lazy"
 import * as Log from "@opencode-ai/core/util/log"
 import { startWorkspaceSyncing } from "@/control-plane/workspace"
@@ -132,15 +132,7 @@ export const SyncRoutes = lazy(() =>
       validator("json", SessionPayload),
       async (c) => {
         const body = c.req.valid("json")
-        Database.transaction((tx) => {
-          tx.delete(EventTable).where(eq(EventTable.aggregate_id, body.sessionID)).run()
-          tx.delete(EventSequenceTable).where(eq(EventSequenceTable.aggregate_id, body.sessionID)).run()
-        })
-
-        log.info("sync events erased", {
-          sessionID: body.sessionID,
-        })
-
+        SyncEvent.remove(body.sessionID)
         return c.json({
           sessionID: body.sessionID,
         })
