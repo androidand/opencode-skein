@@ -146,6 +146,10 @@ function matchLegacyOpenApi(input: Record<string, unknown>) {
           if (properties?.branch) properties.branch = { anyOf: [properties.branch, { type: "null" }] }
           if (properties?.extra) properties.extra = { anyOf: [properties.extra, { type: "null" }] }
         }
+        if (path === "/experimental/workspace/warp" && method === "post") {
+          const properties = operation.requestBody.content?.["application/json"]?.schema?.properties
+          if (properties?.id) properties.id = nullable(properties.id)
+        }
       }
       for (const response of Object.values(operation.responses ?? {})) {
         for (const content of Object.values(response.content ?? {})) {
