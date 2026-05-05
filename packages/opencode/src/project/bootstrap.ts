@@ -5,40 +5,62 @@ import { Snapshot } from "../snapshot"
 import * as Project from "./project"
 import * as Vcs from "./vcs"
 import { Bus } from "../bus"
-import { Command } from "../command"
 import { Plugin } from "../plugin"
 import { InstanceState } from "@/effect/instance-state"
-import * as Log from "@opencode-ai/core/util/log"
 import { FileWatcher } from "@/file/watcher"
 import { ShareNext } from "@/share/share-next"
-import * as Effect from "effect/Effect"
+import { Effect, Layer } from "effect"
 import { Config } from "@/config/config"
+import { Service } from "./bootstrap-service"
 
-export const InstanceBootstrap = Effect.gen(function* () {
-  const ctx = yield* InstanceState.context
-  Log.Default.info("bootstrapping", { directory: ctx.directory })
-  yield* Effect.all(
-    [
-      Config.Service.use((i) => i.get()),
-      ...[
-        Plugin.Service,
-        LSP.Service,
-        ShareNext.Service,
-        Format.Service,
-        File.Service,
-        FileWatcher.Service,
-        Vcs.Service,
-        Snapshot.Service,
-      ].map((s) => s.use((i) => i.init())),
-    ].map((e) => Effect.forkDetach(e)),
-  ).pipe(Effect.withSpan("InstanceBootstrap.init"))
+export { Service } from "./bootstrap-service"
+export type { Interface } from "./bootstrap-service"
 
-  const projectID = ctx.project.id
-  yield* Bus.Service.use((svc) =>
-    svc.subscribeCallback(Command.Event.Executed, async (payload) => {
-      if (payload.properties.name === Command.Default.INIT) {
-        Project.setInitialized(projectID)
-      }
-    }),
-  )
-}).pipe(Effect.withSpan("InstanceBootstrap"))
+export const layer = Layer.effect(
+  Service,
+  Effect.gen(function* () {
+    // Yield each bootstrap dep at layer init so `run` itself has R = never.
+    // InstanceStore imports only the lightweight tag from bootstrap-service.ts,
+    // so it can depend on bootstrap without importing this implementation graph.
+    const file = yield* File.Service
+    const fileWatcher = yield* FileWatcher.Service
+    const format = yield* Format.Service
+    const lsp = yield* LSP.Service
+    const project = yield* Project.Service
+    const shareNext = yield* ShareNext.Service
+    const snapshot = yield* Snapshot.Service
+    const vcs = yield* Vcs.Service
+
+    const run = Effect.gen(function* () {
+      const ctx = yield* InstanceState.context
+      yield* Effect.logInfo("bootstrapping", { directory: ctx.directory })
+      // Each service self-manages its own slow work via Effect.forkScoped against
+      // its per-instance state scope. We just await materialization here.
+      yield* Effect.forEach(
+        [lsp, shareNext, format, file, fileWatcher, vcs, snapshot, project],
+        (s) => s.init().pipe(Effect.catchCause((cause) => Effect.logWarning("init failed", { cause }))),
+        { concurrency: "unbounded", discard: true },
+      ).pipe(Effect.withSpan("InstanceBootstrap.init"))
+    }).pipe(Effect.withSpan("InstanceBootstrap"))
+
+    return Service.of({ run })
+  }),
+)
+
+export const defaultLayer: Layer.Layer<Service> = layer.pipe(
+  Layer.provide([
+    Bus.layer,
+    Config.defaultLayer,
+    File.defaultLayer,
+    FileWatcher.defaultLayer,
+    Format.defaultLayer,
+    LSP.defaultLayer,
+    Plugin.defaultLayer,
+    Project.defaultLayer,
+    ShareNext.defaultLayer,
+    Snapshot.defaultLayer,
+    Vcs.defaultLayer,
+  ]),
+)
+
+export * as InstanceBootstrap from "./bootstrap"
