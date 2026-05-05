@@ -122,7 +122,7 @@ function normalizeMessages(
     })
   }
   if (["@ai-sdk/anthropic", "@ai-sdk/google-vertex/anthropic"].includes(model.api.npm)) {
-    // Anthropic rejects assistant turns where tool_use blocks are followed by non-tool
+    // Anthropic rejects assistant turns where client tool_use blocks are followed by non-tool
     // content, e.g. [tool_use, tool_use, text], with:
     // `tool_use` ids were found without `tool_result` blocks immediately after...
     //
@@ -130,19 +130,26 @@ function normalizeMessages(
     // assistant messages are later merged by the provider/SDK, so preserving the
     // original [tool_use...] then [text] order still produces the invalid payload.
     //
-    // The root cause appears to be somewhere upstream where the stream is originally
-    // processed. We were unable to locate an exact narrower reproduction elsewhere,
-    // so we keep this transform in place for the time being.
+    // Provider-executed tools are different: the AI SDK intentionally represents
+    // their tool-call and tool-result together in assistant content.
     msgs = msgs.flatMap((msg) => {
       if (msg.role !== "assistant" || !Array.isArray(msg.content)) return [msg]
 
       const parts = msg.content
-      const first = parts.findIndex((part) => part.type === "tool-call")
+      const providerExecuted = new Set(
+        parts.flatMap((part) => (part.type === "tool-call" && part.providerExecuted === true ? [part.toolCallId] : [])),
+      )
+      const isClientToolPart = (part: (typeof parts)[number]) => {
+        if (part.type === "tool-call") return part.providerExecuted !== true
+        if (part.type === "tool-result") return !providerExecuted.has(part.toolCallId)
+        return false
+      }
+      const first = parts.findIndex((part) => part.type === "tool-call" && part.providerExecuted !== true)
       if (first === -1) return [msg]
-      if (!parts.slice(first).some((part) => part.type !== "tool-call")) return [msg]
+      if (!parts.slice(first).some((part) => !isClientToolPart(part))) return [msg]
       return [
-        { ...msg, content: parts.filter((part) => part.type !== "tool-call") },
-        { ...msg, content: parts.filter((part) => part.type === "tool-call") },
+        { ...msg, content: parts.filter((part) => !isClientToolPart(part)) },
+        { ...msg, content: parts.filter(isClientToolPart) },
       ]
     })
   }

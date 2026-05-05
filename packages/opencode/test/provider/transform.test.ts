@@ -1498,6 +1498,117 @@ describe("ProviderTransform.message - anthropic empty content filtering", () => 
     ])
   })
 
+  test("keeps tool-call and tool-result paired when splitting anthropic messages", () => {
+    const msgs = [
+      {
+        role: "assistant",
+        content: [
+          { type: "tool-call", toolCallId: "toolu_1", toolName: "read", input: { filePath: "/root" } },
+          { type: "tool-result", toolCallId: "toolu_1", toolName: "read", output: { type: "text", value: "ok" } },
+          { type: "text", text: "I checked your home directory." },
+        ],
+      },
+    ] as any[]
+
+    const result = ProviderTransform.message(msgs, anthropicModel, {}) as any[]
+
+    expect(result).toHaveLength(2)
+    expect(result[0]).toMatchObject({
+      role: "assistant",
+      content: [{ type: "text", text: "I checked your home directory." }],
+    })
+    expect(result[1]).toMatchObject({
+      role: "assistant",
+      content: [
+        { type: "tool-call", toolCallId: "toolu_1", toolName: "read", input: { filePath: "/root" } },
+        { type: "tool-result", toolCallId: "toolu_1", toolName: "read", output: { type: "text", value: "ok" } },
+      ],
+    })
+  })
+
+  test("leaves provider-executed anthropic tool results with trailing text unchanged", () => {
+    const msgs = [
+      {
+        role: "assistant",
+        content: [
+          {
+            type: "tool-call",
+            toolCallId: "srvtoolu_1",
+            toolName: "code_execution",
+            input: { code: "print('ok')", type: "programmatic-tool-call" },
+            providerExecuted: true,
+          },
+          {
+            type: "tool-result",
+            toolCallId: "srvtoolu_1",
+            toolName: "code_execution",
+            output: {
+              type: "json",
+              value: { type: "code_execution_result", stdout: "ok", stderr: "", return_code: 0 },
+            },
+          },
+          { type: "text", text: "The code ran successfully." },
+        ],
+      },
+    ] as any[]
+
+    const result = ProviderTransform.message(msgs, anthropicModel, {}) as any[]
+
+    expect(result).toHaveLength(1)
+    expect(result[0].content).toMatchObject(msgs[0].content)
+  })
+
+  test("keeps provider-executed pairs together when splitting mixed anthropic tool parts", () => {
+    const msgs = [
+      {
+        role: "assistant",
+        content: [
+          { type: "tool-call", toolCallId: "toolu_1", toolName: "read", input: { filePath: "/root" } },
+          {
+            type: "tool-call",
+            toolCallId: "srvtoolu_1",
+            toolName: "code_execution",
+            input: { code: "print('ok')", type: "programmatic-tool-call" },
+            providerExecuted: true,
+          },
+          {
+            type: "tool-result",
+            toolCallId: "srvtoolu_1",
+            toolName: "code_execution",
+            output: {
+              type: "json",
+              value: { type: "code_execution_result", stdout: "ok", stderr: "", return_code: 0 },
+            },
+          },
+          { type: "text", text: "The server-side tool ran successfully." },
+        ],
+      },
+    ] as any[]
+
+    const result = ProviderTransform.message(msgs, anthropicModel, {}) as any[]
+
+    expect(result).toHaveLength(2)
+    expect(result[0].content).toMatchObject([
+      {
+        type: "tool-call",
+        toolCallId: "srvtoolu_1",
+        toolName: "code_execution",
+        input: { code: "print('ok')", type: "programmatic-tool-call" },
+        providerExecuted: true,
+      },
+      {
+        type: "tool-result",
+        toolCallId: "srvtoolu_1",
+        toolName: "code_execution",
+        output: { type: "json", value: { type: "code_execution_result", stdout: "ok", stderr: "", return_code: 0 } },
+      },
+      { type: "text", text: "The server-side tool ran successfully." },
+    ])
+    expect(result[1].content).toMatchObject([
+      { type: "tool-call", toolCallId: "toolu_1", toolName: "read", input: { filePath: "/root" } },
+    ])
+  })
+
   test("splits vertex anthropic assistant messages when text trails tool calls", () => {
     const model = {
       ...anthropicModel,
