@@ -2011,6 +2011,30 @@ describe("SessionNs.getUsage", () => {
     expect(result.tokens.total).toBe(1500)
   })
 
+  test("clamps reasoning tokens to completion tokens", () => {
+    const model = createModel({ context: 100_000, output: 32_000 })
+    const result = SessionNs.getUsage({
+      model,
+      usage: {
+        inputTokens: 1000,
+        outputTokens: 45,
+        totalTokens: 1045,
+        inputTokenDetails: {
+          noCacheTokens: undefined,
+          cacheReadTokens: undefined,
+          cacheWriteTokens: undefined,
+        },
+        outputTokenDetails: {
+          textTokens: undefined,
+          reasoningTokens: 47,
+        },
+      },
+    })
+
+    expect(result.tokens.output).toBe(0)
+    expect(result.tokens.reasoning).toBe(45)
+  })
+
   test("does not double count reasoning tokens in cost", () => {
     const model = createModel({
       context: 100_000,
