@@ -1,7 +1,7 @@
 import { SECRET } from "./secret"
 import { domain } from "./stage"
 
-const webhookRecipient = new honeycomb.WebhookRecipient("DiscordAlerts", {
+const webhookRecipient = new honeycombio.WebhookRecipient("DiscordAlerts", {
   name: $app.stage === "production" ? "Discord Alerts" : `Discord Alerts (${$app.stage})`,
   url: `https://${domain}/honeycomb/webhook`,
   secret: SECRET.HoneycombWebhookSecret.result,
@@ -33,7 +33,7 @@ const modelHttpErrorsQuery = (product: "go" | "zen") => {
     { column: "isGoTier", op: "=", value: product === "go" ? "true" : "false" },
   ]
 
-  return honeycomb.getQuerySpecificationOutput({
+  return honeycombio.getQuerySpecificationOutput({
     breakdowns: ["model"],
     calculatedFields: [
       {
@@ -57,7 +57,7 @@ const providerHttpErrorsQuery = (product: "go" | "zen") => {
     { column: "isGoTier", op: "=", value: product === "go" ? "true" : "false" },
   ]
 
-  return honeycomb.getQuerySpecificationOutput({
+  return honeycombio.getQuerySpecificationOutput({
     breakdowns: ["provider"],
     calculatedFields: [
       {
@@ -94,7 +94,7 @@ const providerHttpErrorsQuery = (product: "go" | "zen") => {
 
 const description = "Managed by SST (Don't edit in Honeycomb UI)"
 
-new honeycomb.Trigger("IncreasedModelHttpErrorsGo", {
+new honeycombio.Trigger("IncreasedModelHttpErrorsGo", {
   name: "Increased Model HTTP Errors [Go]",
   description,
   queryJson: modelHttpErrorsQuery("go"),
@@ -113,7 +113,7 @@ new honeycomb.Trigger("IncreasedModelHttpErrorsGo", {
   ],
 })
 
-new honeycomb.Trigger("IncreasedModelHttpErrorsZen", {
+new honeycombio.Trigger("IncreasedModelHttpErrorsZen", {
   name: "Increased Model HTTP Errors [Zen]",
   description,
   queryJson: modelHttpErrorsQuery("zen"),
@@ -132,7 +132,7 @@ new honeycomb.Trigger("IncreasedModelHttpErrorsZen", {
   ],
 })
 
-new honeycomb.Trigger("IncreasedProviderHttpErrorsGo", {
+new honeycombio.Trigger("IncreasedProviderHttpErrorsGo", {
   name: "Increased Provider HTTP Errors [Go]",
   description,
   queryJson: providerHttpErrorsQuery("go"),
@@ -151,7 +151,7 @@ new honeycomb.Trigger("IncreasedProviderHttpErrorsGo", {
   ],
 })
 
-new honeycomb.Trigger("IncreasedProviderHttpErrorsZen", {
+new honeycombio.Trigger("IncreasedProviderHttpErrorsZen", {
   name: "Increased Provider HTTP Errors [Zen]",
   description,
   queryJson: providerHttpErrorsQuery("zen"),
@@ -170,11 +170,11 @@ new honeycomb.Trigger("IncreasedProviderHttpErrorsZen", {
   ],
 })
 
-new honeycomb.Trigger("IncreasedFreeTierRequests", {
+new honeycombio.Trigger("IncreasedFreeTierRequests", {
   disabled: true,
   name: "Increased Free Tier Requests",
   description,
-  queryJson: honeycomb.getQuerySpecificationOutput({
+  queryJson: honeycombio.getQuerySpecificationOutput({
     calculations: [{ op: "COUNT" }],
     filters: [
       { column: "event_type", op: "=", value: "completions" },
