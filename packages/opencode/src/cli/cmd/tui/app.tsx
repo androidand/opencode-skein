@@ -64,7 +64,7 @@ import { TuiPluginRuntime } from "@/cli/cmd/tui/plugin/runtime"
 import { createTuiApi } from "@/cli/cmd/tui/plugin/api"
 import type { RouteMap } from "@/cli/cmd/tui/plugin/api"
 import { FormatError, FormatUnknownError } from "@/cli/error"
-import { CommandPaletteProvider, useCommandPalette } from "./context/command-palette"
+import { CommandPaletteProvider } from "./context/command-palette"
 import {
   OPENCODE_BASE_MODE,
   OpencodeKeymapProvider,
@@ -233,7 +233,6 @@ function App(props: { onSnapshot?: () => Promise<string[]> }) {
   const dialog = useDialog()
   const local = useLocal()
   const kv = useKV()
-  const command = useCommandPalette()
   const keymap = useOpencodeKeymap()
   const event = useEvent()
   const sdk = useSDK()
@@ -405,14 +404,6 @@ function App(props: { onSnapshot?: () => Promise<string[]> }) {
   const connected = useConnected()
   const appCommands = createMemo(() =>
     [
-      {
-        name: "command.palette.show",
-        title: "Show command palette",
-        hidden: true,
-        run: () => {
-          command.show()
-        },
-      },
       {
         name: "session.list",
         title: "Switch session",
@@ -761,7 +752,7 @@ function App(props: { onSnapshot?: () => Promise<string[]> }) {
   }))
 
   event.on(TuiEvent.CommandExecute.type, (evt) => {
-    command.run(evt.properties.command)
+    keymap.dispatchCommand(evt.properties.command)
   })
 
   event.on(TuiEvent.ToastShow.type, (evt) => {

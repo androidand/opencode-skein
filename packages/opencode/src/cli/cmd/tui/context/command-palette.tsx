@@ -1,9 +1,10 @@
-import { createContext, createMemo, useContext, type Accessor, type ParentProps } from "solid-js"
+import { createMemo, type Accessor, type ParentProps } from "solid-js"
 import { DialogSelect, type DialogSelectRef } from "@tui/ui/dialog-select"
 import { useDialog, type DialogContext } from "@tui/ui/dialog"
 import {
   formatKeyBindings,
   type OpenTuiKeymap,
+  useBindings,
   useKeymapSelector,
   useOpencodeKeymap,
 } from "../keymap"
@@ -16,14 +17,7 @@ type SlashEntry = {
   onSelect: () => void
 }
 
-type CommandPaletteContext = {
-  run(command: string): void
-  show(): void
-  slashes: Accessor<readonly SlashEntry[]>
-}
-
 const COMMAND_PALETTE_DIALOG = "command.palette.show"
-const ctx = createContext<CommandPaletteContext>()
 type PaletteCommandEntry = ReturnType<OpenTuiKeymap["getCommandEntries"]>[number]
 
 function isVisiblePaletteCommand(entry: PaletteCommandEntry) {
@@ -39,60 +33,25 @@ function isSuggestedPaletteCommand(entry: PaletteCommandEntry) {
 
 export function CommandPaletteProvider(props: ParentProps) {
   const dialog = useDialog()
-  const keymap = useOpencodeKeymap()
-  const entries = useKeymapSelector((keymap: OpenTuiKeymap) =>
-    keymap
-      .getCommandEntries({
-        visibility: "reachable",
-        namespace: "palette",
-      })
-      .filter(isVisiblePaletteCommand),
-  )
+  useBindings(() => ({
+    commands: [
+      {
+        name: COMMAND_PALETTE_DIALOG,
+        title: "Show command palette",
+        hidden: true,
+        run() {
+          dialog.replace(() => <CommandPaletteDialog />)
+        },
+      },
+    ],
+  }))
 
-  const run = (command: string) => {
-    keymap.dispatchCommand(command)
-  }
-
-  const slashes = createMemo<SlashEntry[]>(() =>
-    entries().flatMap((entry) => {
-      const slashName = entry.command.slashName
-      if (typeof slashName !== "string" || !slashName) return []
-      const slashAliases = entry.command.slashAliases
-      return {
-        display: `/${slashName}`,
-        description:
-          typeof entry.command.desc === "string"
-            ? entry.command.desc
-            : typeof entry.command.title === "string"
-              ? entry.command.title
-              : undefined,
-        aliases: Array.isArray(slashAliases)
-          ? slashAliases.filter((alias): alias is string => typeof alias === "string").map((alias) => `/${alias}`)
-          : undefined,
-        onSelect: () => run(entry.command.name),
-      }
-    }),
-  )
-
-  const value: CommandPaletteContext = {
-    run,
-    show() {
-      dialog.replace(() => <CommandPaletteDialog run={run} />)
-    },
-    slashes,
-  }
-
-  return <ctx.Provider value={value}>{props.children}</ctx.Provider>
+  return <>{props.children}</>
 }
 
-export function useCommandPalette() {
-  const value = useContext(ctx)
-  if (!value) throw new Error("CommandPalette context must be used within a CommandPaletteProvider")
-  return value
-}
-
-function CommandPaletteDialog(props: { run(command: string): void }) {
+function CommandPaletteDialog() {
   const config = useTuiConfig()
+  const keymap = useOpencodeKeymap()
   const entries = useKeymapSelector((keymap: OpenTuiKeymap) => {
     const query = {
       namespace: "palette",
@@ -123,7 +82,7 @@ function CommandPaletteDialog(props: { run(command: string): void }) {
       suggested: isSuggestedPaletteCommand(entry),
       onSelect: (dialog: DialogContext) => {
         dialog.clear()
-        props.run(entry.command.name)
+        keymap.dispatchCommand(entry.command.name)
       },
     })),
   )
@@ -147,5 +106,34 @@ function CommandPaletteDialog(props: { run(command: string): void }) {
 }
 
 export function useCommandSlashes(): Accessor<readonly SlashEntry[]> {
-  return useCommandPalette().slashes
+  const keymap = useOpencodeKeymap()
+  const entries = useKeymapSelector((keymap: OpenTuiKeymap) =>
+    keymap
+      .getCommandEntries({
+        visibility: "reachable",
+        namespace: "palette",
+      })
+      .filter(isVisiblePaletteCommand),
+  )
+
+  return createMemo<SlashEntry[]>(() =>
+    entries().flatMap((entry) => {
+      const slashName = entry.command.slashName
+      if (typeof slashName !== "string" || !slashName) return []
+      const slashAliases = entry.command.slashAliases
+      return {
+        display: `/${slashName}`,
+        description:
+          typeof entry.command.desc === "string"
+            ? entry.command.desc
+            : typeof entry.command.title === "string"
+              ? entry.command.title
+              : undefined,
+        aliases: Array.isArray(slashAliases)
+          ? slashAliases.filter((alias): alias is string => typeof alias === "string").map((alias) => `/${alias}`)
+          : undefined,
+        onSelect: () => keymap.dispatchCommand(entry.command.name),
+      }
+    }),
+  )
 }
