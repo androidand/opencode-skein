@@ -1,9 +1,8 @@
-import { createContext, createMemo, createSignal, useContext, type Accessor, type ParentProps } from "solid-js"
+import { createContext, createMemo, useContext, type Accessor, type ParentProps } from "solid-js"
 import { DialogSelect, type DialogSelectRef } from "@tui/ui/dialog-select"
 import { useDialog, type DialogContext } from "@tui/ui/dialog"
 import {
   formatKeyBindings,
-  reactiveMatcherFromSignal,
   type OpenTuiKeymap,
   useKeymapSelector,
   useOpencodeKeymap,
@@ -21,9 +20,6 @@ type CommandPaletteContext = {
   run(command: string): void
   show(): void
   slashes: Accessor<readonly SlashEntry[]>
-  suspend(enabled: boolean): void
-  readonly suspended: boolean
-  matcher: ReturnType<typeof reactiveMatcherFromSignal>
 }
 
 const COMMAND_PALETTE_DIALOG = "command.palette.show"
@@ -44,7 +40,6 @@ function isSuggestedPaletteCommand(entry: PaletteCommandEntry) {
 export function CommandPaletteProvider(props: ParentProps) {
   const dialog = useDialog()
   const keymap = useOpencodeKeymap()
-  const [suspendCount, setSuspendCount] = createSignal(0)
   const entries = useKeymapSelector((keymap: OpenTuiKeymap) =>
     keymap
       .getCommandEntries({
@@ -85,13 +80,6 @@ export function CommandPaletteProvider(props: ParentProps) {
       dialog.replace(() => <CommandPaletteDialog run={run} />)
     },
     slashes,
-    suspend(enabled: boolean) {
-      setSuspendCount((count) => Math.max(0, count + (enabled ? 1 : -1)))
-    },
-    get suspended() {
-      return suspendCount() > 0 || dialog.stack.length > 0
-    },
-    matcher: reactiveMatcherFromSignal(() => suspendCount() === 0 && dialog.stack.length === 0),
   }
 
   return <ctx.Provider value={value}>{props.children}</ctx.Provider>

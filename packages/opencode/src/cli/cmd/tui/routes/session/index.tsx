@@ -89,7 +89,7 @@ import { DialogGoUpsell } from "../../component/dialog-go-upsell"
 import { SessionRetry } from "@/session/retry"
 import { getRevertDiffFiles } from "../../util/revert-diff"
 import { useCommandPalette } from "../../context/command-palette"
-import { useBindings, useCommandShortcut } from "../../keymap"
+import { OPENCODE_BASE_MODE, useBindings, useCommandShortcut } from "../../keymap"
 
 addDefaultParsers(parsers.parsers)
 
@@ -991,7 +991,7 @@ export function Session() {
   }))
 
   useBindings(() => ({
-    enabled: command.matcher,
+    opencodeMode: OPENCODE_BASE_MODE,
     bindings: sections.session,
   }))
 

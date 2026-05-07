@@ -6,7 +6,6 @@ import {
 } from "@opentui/keymap/extras"
 import {
   KeymapProvider,
-  reactiveMatcherFromSignal,
   useBindings,
   useKeymap,
   useKeymapSelector,
@@ -16,13 +15,70 @@ import type { TuiConfig } from "./config/tui"
 import { useTuiConfig } from "./context/tui-config"
 
 export const LEADER_TOKEN = "leader"
+export const OPENCODE_BASE_MODE = "base"
+
+const OPENCODE_MODE_KEY = "opencode.mode"
 
 export const OpencodeKeymapProvider = KeymapProvider
 export const useOpencodeKeymap = useKeymap
 
-export { reactiveMatcherFromSignal, useBindings, useKeymapSelector }
+export { useBindings, useKeymapSelector }
 
 export type OpenTuiKeymap = ReturnType<typeof useKeymap>
+type OpencodeModeStack = ReturnType<typeof createOpencodeModeStack>
+
+const modeStacks = new WeakMap<OpenTuiKeymap, OpencodeModeStack>()
+
+export function createOpencodeModeStack(keymap: OpenTuiKeymap) {
+  keymap.setData(OPENCODE_MODE_KEY, OPENCODE_BASE_MODE)
+
+  const offFields = keymap.registerLayerFields({
+    opencodeMode(value, ctx) {
+      ctx.require(OPENCODE_MODE_KEY, value)
+    },
+  })
+
+  const stack: { id: symbol; mode: string }[] = []
+  let disposed = false
+
+  const update = () => {
+    keymap.setData(OPENCODE_MODE_KEY, stack.at(-1)?.mode ?? OPENCODE_BASE_MODE)
+  }
+
+  const stackApi = {
+    push(mode: string) {
+      if (disposed) return () => {}
+      const id = Symbol(mode)
+      let active = true
+      stack.push({ id, mode })
+      update()
+
+      return () => {
+        if (!active) return
+        active = false
+        const index = stack.findIndex((item) => item.id === id)
+        if (index !== -1) stack.splice(index, 1)
+        update()
+      }
+    },
+    dispose() {
+      if (disposed) return
+      disposed = true
+      stack.length = 0
+      offFields()
+      keymap.setData(OPENCODE_MODE_KEY, undefined)
+    },
+  }
+
+  modeStacks.set(keymap, stackApi)
+  return stackApi
+}
+
+export function useOpencodeModeStack() {
+  const value = modeStacks.get(useOpencodeKeymap())
+  if (!value) throw new Error("Opencode mode stack is not registered for this keymap")
+  return value
+}
 
 function formatOptions(config: TuiConfig.Resolved) {
   return {

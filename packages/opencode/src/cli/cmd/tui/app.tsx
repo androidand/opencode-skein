@@ -65,7 +65,14 @@ import { createTuiApi } from "@/cli/cmd/tui/plugin/api"
 import type { RouteMap } from "@/cli/cmd/tui/plugin/api"
 import { FormatError, FormatUnknownError } from "@/cli/error"
 import { CommandPaletteProvider, useCommandPalette } from "./context/command-palette"
-import { OpencodeKeymapProvider, registerOpencodeKeymap, useBindings, useOpencodeKeymap } from "./keymap"
+import {
+  OPENCODE_BASE_MODE,
+  OpencodeKeymapProvider,
+  createOpencodeModeStack,
+  registerOpencodeKeymap,
+  useBindings,
+  useOpencodeKeymap,
+} from "./keymap"
 
 import type { EventSource } from "./context/sdk"
 import { DialogVariant } from "./component/dialog-variant"
@@ -133,6 +140,7 @@ export function tui(input: {
 
     const onBeforeExit = async () => {
       offKeymap()
+      modeStack.dispose()
       await TuiPluginRuntime.dispose()
     }
 
@@ -142,6 +150,7 @@ export function tui(input: {
     const mode = (await renderer.waitForThemeMode(1000)) ?? "dark"
 
     const keymap = createDefaultOpenTuiKeymap(renderer)
+    const modeStack = createOpencodeModeStack(keymap)
     const offKeymap = registerOpencodeKeymap(keymap, renderer, input.config)
 
     await render(() => {
@@ -747,7 +756,7 @@ function App(props: { onSnapshot?: () => Promise<string[]> }) {
   }))
 
   useBindings(() => ({
-    enabled: command.matcher,
+    opencodeMode: OPENCODE_BASE_MODE,
     bindings: sections.global,
   }))
 
