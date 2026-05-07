@@ -64,7 +64,7 @@ import { TuiPluginRuntime } from "@/cli/cmd/tui/plugin/runtime"
 import { createTuiApi } from "@/cli/cmd/tui/plugin/api"
 import type { RouteMap } from "@/cli/cmd/tui/plugin/api"
 import { FormatError, FormatUnknownError } from "@/cli/error"
-import { CommandPaletteProvider } from "./context/command-palette"
+import { COMMAND_PALETTE_DIALOG, CommandPaletteDialog } from "./component/command-palette"
 import {
   OPENCODE_BASE_MODE,
   OpencodeKeymapProvider,
@@ -190,17 +190,15 @@ export function tui(input: {
                                   <LocalProvider>
                                     <PromptStashProvider>
                                       <DialogProvider>
-                                        <CommandPaletteProvider>
-                                          <FrecencyProvider>
-                                            <PromptHistoryProvider>
-                                              <PromptRefProvider>
-                                                <EditorContextProvider>
-                                                  <App onSnapshot={input.onSnapshot} />
-                                                </EditorContextProvider>
-                                              </PromptRefProvider>
-                                            </PromptHistoryProvider>
-                                          </FrecencyProvider>
-                                        </CommandPaletteProvider>
+                                        <FrecencyProvider>
+                                          <PromptHistoryProvider>
+                                            <PromptRefProvider>
+                                              <EditorContextProvider>
+                                                <App onSnapshot={input.onSnapshot} />
+                                              </EditorContextProvider>
+                                            </PromptRefProvider>
+                                          </PromptHistoryProvider>
+                                        </FrecencyProvider>
                                       </DialogProvider>
                                     </PromptStashProvider>
                                   </LocalProvider>
@@ -404,6 +402,14 @@ function App(props: { onSnapshot?: () => Promise<string[]> }) {
   const connected = useConnected()
   const appCommands = createMemo(() =>
     [
+      {
+        name: COMMAND_PALETTE_DIALOG,
+        title: "Show command palette",
+        hidden: true,
+        run: () => {
+          dialog.replace(() => <CommandPaletteDialog />)
+        },
+      },
       {
         name: "session.list",
         title: "Switch session",

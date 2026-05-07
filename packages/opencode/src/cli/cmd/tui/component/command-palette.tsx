@@ -1,14 +1,8 @@
-import { createMemo, type Accessor, type ParentProps } from "solid-js"
+import { createMemo, type Accessor } from "solid-js"
 import { DialogSelect, type DialogSelectRef } from "@tui/ui/dialog-select"
-import { useDialog, type DialogContext } from "@tui/ui/dialog"
-import {
-  formatKeyBindings,
-  type OpenTuiKeymap,
-  useBindings,
-  useKeymapSelector,
-  useOpencodeKeymap,
-} from "../keymap"
-import { useTuiConfig } from "./tui-config"
+import { type DialogContext } from "@tui/ui/dialog"
+import { formatKeyBindings, type OpenTuiKeymap, useKeymapSelector, useOpencodeKeymap } from "../keymap"
+import { useTuiConfig } from "../context/tui-config"
 
 type SlashEntry = {
   display: string
@@ -17,7 +11,7 @@ type SlashEntry = {
   onSelect: () => void
 }
 
-const COMMAND_PALETTE_DIALOG = "command.palette.show"
+export const COMMAND_PALETTE_DIALOG = "command.palette.show"
 type PaletteCommandEntry = ReturnType<OpenTuiKeymap["getCommandEntries"]>[number]
 
 function isVisiblePaletteCommand(entry: PaletteCommandEntry) {
@@ -31,25 +25,7 @@ function isSuggestedPaletteCommand(entry: PaletteCommandEntry) {
   return false
 }
 
-export function CommandPaletteProvider(props: ParentProps) {
-  const dialog = useDialog()
-  useBindings(() => ({
-    commands: [
-      {
-        name: COMMAND_PALETTE_DIALOG,
-        title: "Show command palette",
-        hidden: true,
-        run() {
-          dialog.replace(() => <CommandPaletteDialog />)
-        },
-      },
-    ],
-  }))
-
-  return <>{props.children}</>
-}
-
-function CommandPaletteDialog() {
+export function CommandPaletteDialog() {
   const config = useTuiConfig()
   const keymap = useOpencodeKeymap()
   const entries = useKeymapSelector((keymap: OpenTuiKeymap) => {
