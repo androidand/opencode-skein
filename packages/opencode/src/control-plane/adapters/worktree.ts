@@ -48,7 +48,7 @@ export const WorktreeAdapter: WorkspaceAdapter = {
     return (await AppRuntime.runPromise(Worktree.Service.use((svc) => svc.list()))).map((info) => ({
       type: "worktree",
       name: info.name,
-      branch: info.branch,
+      branch: info.branch ?? null,
       directory: info.directory,
       extra: null,
       projectID: Instance.project.id,

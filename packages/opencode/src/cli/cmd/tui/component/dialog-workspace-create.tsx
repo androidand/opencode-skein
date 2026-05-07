@@ -43,9 +43,7 @@ export function recentConnectedWorkspaces<WorkspaceInfo extends { id: string; ti
   omitWorkspaceID?: string
 }) {
   const allWorkspaces = input.workspaces.filter((workspace) => input.status(workspace.id) === "connected")
-  const workspaces = allWorkspaces
-    .filter((workspace) => workspace.id !== input.omitWorkspaceID)
-    .toSorted((a, b) => Number(b.timeUsed) - Number(a.timeUsed))
+  const workspaces = allWorkspaces.toSorted((a, b) => Number(b.timeUsed) - Number(a.timeUsed))
   const recent = workspaces.slice(0, input.limit ?? 3)
 
   return { recent, hasMore: recent.length < workspaces.length }
@@ -83,10 +81,8 @@ export async function openWorkspaceSelect(input: {
   onSelect: (selection: WorkspaceSelection) => Promise<void> | void
 }) {
   input.dialog.clear()
-  void input.sdk.client.experimental.workspace
-    .syncList()
-    .then(() => input.project.workspace.sync())
-    .catch(() => undefined)
+  await input.sdk.client.experimental.workspace.syncList().catch(() => undefined)
+  await input.project.workspace.sync().catch(() => undefined)
   const adapters = await loadWorkspaceAdapters(input)
   if (!adapters) return
   input.dialog.replace(() => <DialogWorkspaceSelect adapters={adapters} onSelect={input.onSelect} />)

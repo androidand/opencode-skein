@@ -156,7 +156,7 @@ export interface Interface {
   readonly makeWorktreeInfo: (name?: string) => Effect.Effect<Info>
   readonly createFromInfo: (info: Info, startCommand?: string) => Effect.Effect<void>
   readonly create: (input?: CreateInput) => Effect.Effect<Info>
-  readonly list: () => Effect.Effect<Info[]>
+  readonly list: () => Effect.Effect<(Omit<Info, "branch"> & { branch?: string })[]>
   readonly remove: (input: RemoveInput) => Effect.Effect<boolean>
   readonly reset: (input: ResetInput) => Effect.Effect<boolean>
 }
@@ -368,8 +368,8 @@ export const layer: Layer.Layer<
           if (directory === primary) return undefined
           return {
             name: pathSvc.basename(directory),
-            branch: entry.branch ? entry.branch.replace(/^refs\/heads\//, "") : null,
             directory,
+            ...(entry.branch ? { branch: entry.branch.replace(/^refs\/heads\//, "") } : {}),
           }
         }),
       ).pipe(Effect.map((items) => items.filter((item) => item !== undefined)))
