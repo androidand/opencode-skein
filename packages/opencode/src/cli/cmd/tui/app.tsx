@@ -64,8 +64,9 @@ import { TuiPluginRuntime } from "@/cli/cmd/tui/plugin/runtime"
 import { createTuiApi } from "@/cli/cmd/tui/plugin/api"
 import type { RouteMap } from "@/cli/cmd/tui/plugin/api"
 import { FormatError, FormatUnknownError } from "@/cli/error"
-import { COMMAND_PALETTE_DIALOG, CommandPaletteDialog } from "./component/command-palette"
+import { CommandPaletteDialog } from "./component/command-palette"
 import {
+  COMMAND_PALETTE_COMMAND,
   OPENCODE_BASE_MODE,
   OpencodeKeymapProvider,
   createOpencodeModeStack,
@@ -403,7 +404,7 @@ function App(props: { onSnapshot?: () => Promise<string[]> }) {
   const appCommands = createMemo(() =>
     [
       {
-        name: COMMAND_PALETTE_DIALOG,
+        name: COMMAND_PALETTE_COMMAND,
         title: "Show command palette",
         hidden: true,
         run: () => {

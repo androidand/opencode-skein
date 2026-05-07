@@ -10,12 +10,13 @@ import {
   useKeymap,
   useKeymapSelector,
 } from "@opentui/keymap/solid"
-import type { Accessor } from "solid-js"
+import { createMemo, type Accessor } from "solid-js"
 import type { TuiConfig } from "./config/tui"
 import { useTuiConfig } from "./context/tui-config"
 
 export const LEADER_TOKEN = "leader"
 export const OPENCODE_BASE_MODE = "base"
+export const COMMAND_PALETTE_COMMAND = "command.palette.show"
 
 const OPENCODE_MODE_KEY = "opencode.mode"
 
@@ -26,8 +27,19 @@ export { useBindings, useKeymapSelector }
 
 export type OpenTuiKeymap = ReturnType<typeof useKeymap>
 type OpencodeModeStack = ReturnType<typeof createOpencodeModeStack>
+type CommandSlashEntry = {
+  display: string
+  description?: string
+  aliases?: string[]
+  onSelect: () => void
+}
+type CommandEntry = ReturnType<OpenTuiKeymap["getCommandEntries"]>[number]
 
 const modeStacks = new WeakMap<OpenTuiKeymap, OpencodeModeStack>()
+
+function isVisiblePaletteCommand(entry: CommandEntry) {
+  return entry.command.hidden !== true && entry.command.name !== COMMAND_PALETTE_COMMAND
+}
 
 export function createOpencodeModeStack(keymap: OpenTuiKeymap) {
   keymap.setData(OPENCODE_MODE_KEY, OPENCODE_BASE_MODE)
@@ -144,4 +156,37 @@ export function useCommandShortcut(command: string): Accessor<string> {
 
 export function useLeaderActive(): Accessor<boolean> {
   return useKeymapSelector((keymap: OpenTuiKeymap) => keymap.getPendingSequence()[0]?.tokenName === LEADER_TOKEN)
+}
+
+export function useCommandSlashes(): Accessor<readonly CommandSlashEntry[]> {
+  const keymap = useOpencodeKeymap()
+  const entries = useKeymapSelector((keymap: OpenTuiKeymap) =>
+    keymap
+      .getCommandEntries({
+        visibility: "reachable",
+        namespace: "palette",
+      })
+      .filter(isVisiblePaletteCommand),
+  )
+
+  return createMemo<CommandSlashEntry[]>(() =>
+    entries().flatMap((entry) => {
+      const slashName = entry.command.slashName
+      if (typeof slashName !== "string" || !slashName) return []
+      const slashAliases = entry.command.slashAliases
+      return {
+        display: `/${slashName}`,
+        description:
+          typeof entry.command.desc === "string"
+            ? entry.command.desc
+            : typeof entry.command.title === "string"
+              ? entry.command.title
+              : undefined,
+        aliases: Array.isArray(slashAliases)
+          ? slashAliases.filter((alias): alias is string => typeof alias === "string").map((alias) => `/${alias}`)
+          : undefined,
+        onSelect: () => keymap.dispatchCommand(entry.command.name),
+      }
+    }),
+  )
 }

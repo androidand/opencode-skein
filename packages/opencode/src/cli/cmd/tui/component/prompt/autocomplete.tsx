@@ -12,12 +12,11 @@ import { getScrollAcceleration } from "../../util/scroll"
 import { useTuiConfig } from "../../context/tui-config"
 import { useTheme, selectedForeground } from "@tui/context/theme"
 import { SplitBorder } from "@tui/component/border"
-import { useCommandSlashes } from "../command-palette"
 import { useTerminalDimensions } from "@opentui/solid"
 import { Locale } from "@/util/locale"
 import type { PromptInfo } from "./history"
 import { useFrecency } from "./frecency"
-import { useBindings, useOpencodeModeStack } from "../../keymap"
+import { useBindings, useCommandSlashes, useOpencodeModeStack } from "../../keymap"
 
 function removeLineRange(input: string) {
   const hashIndex = input.lastIndexOf("#")

@@ -1,21 +1,19 @@
-import { createMemo, type Accessor } from "solid-js"
+import { createMemo } from "solid-js"
 import { DialogSelect, type DialogSelectRef } from "@tui/ui/dialog-select"
 import { type DialogContext } from "@tui/ui/dialog"
-import { formatKeyBindings, type OpenTuiKeymap, useKeymapSelector, useOpencodeKeymap } from "../keymap"
+import {
+  COMMAND_PALETTE_COMMAND,
+  formatKeyBindings,
+  type OpenTuiKeymap,
+  useKeymapSelector,
+  useOpencodeKeymap,
+} from "../keymap"
 import { useTuiConfig } from "../context/tui-config"
 
-type SlashEntry = {
-  display: string
-  description?: string
-  aliases?: string[]
-  onSelect: () => void
-}
-
-export const COMMAND_PALETTE_DIALOG = "command.palette.show"
 type PaletteCommandEntry = ReturnType<OpenTuiKeymap["getCommandEntries"]>[number]
 
 function isVisiblePaletteCommand(entry: PaletteCommandEntry) {
-  return entry.command.hidden !== true && entry.command.name !== COMMAND_PALETTE_DIALOG
+  return entry.command.hidden !== true && entry.command.name !== COMMAND_PALETTE_COMMAND
 }
 
 function isSuggestedPaletteCommand(entry: PaletteCommandEntry) {
@@ -79,37 +77,4 @@ export function CommandPaletteDialog() {
   }
 
   return <DialogSelect ref={(value) => (ref = value)} title="Commands" options={list()} />
-}
-
-export function useCommandSlashes(): Accessor<readonly SlashEntry[]> {
-  const keymap = useOpencodeKeymap()
-  const entries = useKeymapSelector((keymap: OpenTuiKeymap) =>
-    keymap
-      .getCommandEntries({
-        visibility: "reachable",
-        namespace: "palette",
-      })
-      .filter(isVisiblePaletteCommand),
-  )
-
-  return createMemo<SlashEntry[]>(() =>
-    entries().flatMap((entry) => {
-      const slashName = entry.command.slashName
-      if (typeof slashName !== "string" || !slashName) return []
-      const slashAliases = entry.command.slashAliases
-      return {
-        display: `/${slashName}`,
-        description:
-          typeof entry.command.desc === "string"
-            ? entry.command.desc
-            : typeof entry.command.title === "string"
-              ? entry.command.title
-              : undefined,
-        aliases: Array.isArray(slashAliases)
-          ? slashAliases.filter((alias): alias is string => typeof alias === "string").map((alias) => `/${alias}`)
-          : undefined,
-        onSelect: () => keymap.dispatchCommand(entry.command.name),
-      }
-    }),
-  )
 }
