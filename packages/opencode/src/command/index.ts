@@ -96,7 +96,6 @@ export const layer = Layer.effect(
         get template() {
           return PROMPT_REVIEW.replace("${path}", ctx.worktree)
         },
-        subtask: true,
         hints: hints(PROMPT_REVIEW),
       }
 
