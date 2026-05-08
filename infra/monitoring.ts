@@ -45,7 +45,7 @@ const modelHttpErrorsQuery = (product: "go" | "zen") => {
       { op: "COUNT", name: "TOTAL", filterCombination: "AND", filters },
       { op: "SUM", name: "FAILED", column: "is_failed_http_status", filterCombination: "AND", filters },
     ],
-    formulas: [{ name: "ERROR", expression: "IF(GTE($TOTAL, 500), DIV($FAILED, $TOTAL), 0)" }],
+    formulas: [{ name: "ERROR", expression: "IF(GTE($TOTAL, 100), DIV($FAILED, $TOTAL), 0)" }],
     timeRange: 900,
   }).json
 }
@@ -86,9 +86,9 @@ const providerHttpErrorsQuery = (product: "go" | "zen") => {
       },
     ],
     formulas: [
-      { name: "ERROR", expression: "IF(GTE(SUM($SUCCESS, $FAILED), 250), DIV($FAILED, SUM($SUCCESS, $FAILED)), 0)" },
+      { name: "ERROR", expression: "IF(GTE(SUM($SUCCESS, $FAILED), 50), DIV($FAILED, SUM($SUCCESS, $FAILED)), 0)" },
     ],
-    timeRange: 1800,
+    timeRange: 900,
   }).json
 }
 
@@ -100,7 +100,7 @@ new honeycombio.Trigger("IncreasedModelHttpErrorsGo", {
   queryJson: modelHttpErrorsQuery("go"),
   alertType: "on_change",
   frequency: 300,
-  thresholds: [{ op: ">=", value: 0.8, exceededLimit: 1 }],
+  thresholds: [{ op: ">=", value: 0.7, exceededLimit: 1 }],
   recipients: [
     {
       id: webhookRecipient.id,
@@ -119,7 +119,7 @@ new honeycombio.Trigger("IncreasedModelHttpErrorsZen", {
   queryJson: modelHttpErrorsQuery("zen"),
   alertType: "on_change",
   frequency: 300,
-  thresholds: [{ op: ">=", value: 0.8, exceededLimit: 1 }],
+  thresholds: [{ op: ">=", value: 0.7, exceededLimit: 1 }],
   recipients: [
     {
       id: webhookRecipient.id,
@@ -137,8 +137,8 @@ new honeycombio.Trigger("IncreasedProviderHttpErrorsGo", {
   description,
   queryJson: providerHttpErrorsQuery("go"),
   alertType: "on_change",
-  frequency: 600,
-  thresholds: [{ op: ">=", value: 0.8, exceededLimit: 1 }],
+  frequency: 300,
+  thresholds: [{ op: ">=", value: 0.7, exceededLimit: 1 }],
   recipients: [
     {
       id: webhookRecipient.id,
@@ -156,8 +156,8 @@ new honeycombio.Trigger("IncreasedProviderHttpErrorsZen", {
   description,
   queryJson: providerHttpErrorsQuery("zen"),
   alertType: "on_change",
-  frequency: 600,
-  thresholds: [{ op: ">=", value: 0.8, exceededLimit: 1 }],
+  frequency: 300,
+  thresholds: [{ op: ">=", value: 0.7, exceededLimit: 1 }],
   recipients: [
     {
       id: webhookRecipient.id,
