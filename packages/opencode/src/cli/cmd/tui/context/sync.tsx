@@ -4,6 +4,10 @@ import type {
   Provider,
   Session,
   Part,
+  TextPartInput,
+  FilePartInput,
+  AgentPartInput,
+  SubtaskPartInput,
   Config,
   Todo,
   Command,
@@ -32,6 +36,8 @@ import * as Log from "@opencode-ai/core/util/log"
 import { emptyConsoleState, type ConsoleState } from "@/config/console-state"
 import path from "path"
 import { useKV } from "./kv"
+
+type OptimisticPromptPart = (TextPartInput | FilePartInput | AgentPartInput | SubtaskPartInput) & { id: string }
 
 export const { use: useSync, provider: SyncProvider } = createSimpleContext({
   name: "Sync",
@@ -511,6 +517,82 @@ export const { use: useSync, provider: SyncProvider } = createSimpleContext({
           if (!last) return "idle"
           if (last.role === "user") return "working"
           return last.time.completed ? "idle" : "working"
+        },
+        addOptimisticPrompt(input: {
+          sessionID: string
+          messageID: string
+          agent: string
+          model: { providerID: string; modelID: string }
+          variant?: string
+          parts: OptimisticPromptPart[]
+        }) {
+          const messages = store.message[input.sessionID]
+          const match = messages ? Binary.search(messages, input.messageID, (m) => m.id) : undefined
+          const info: Message = {
+            id: input.messageID,
+            sessionID: input.sessionID,
+            role: "user",
+            time: { created: Date.now() },
+            agent: input.agent,
+            model: {
+              providerID: input.model.providerID,
+              modelID: input.model.modelID,
+              ...(input.variant ? { variant: input.variant } : {}),
+            },
+          }
+          const parts = input.parts.map((part): Part => {
+            const withIDs = {
+              ...part,
+              sessionID: input.sessionID,
+              messageID: input.messageID,
+            }
+            if (withIDs.type !== "text") return withIDs
+            return {
+              ...withIDs,
+              metadata: {
+                ...withIDs.metadata,
+                optimistic: true,
+              },
+            }
+          })
+
+          batch(() => {
+            if (!messages) {
+              setStore("message", input.sessionID, [info])
+            } else if (!match?.found) {
+              setStore(
+                "message",
+                input.sessionID,
+                produce((draft) => {
+                  draft.splice(match?.index ?? draft.length, 0, info)
+                }),
+              )
+            }
+            setStore("part", input.messageID, reconcile(parts))
+          })
+        },
+        removeOptimisticPrompt(sessionID: string, messageID: string) {
+          if (!store.part[messageID]?.some((part) => part.type === "text" && part.metadata?.optimistic === true)) return
+          const messages = store.message[sessionID]
+          if (!messages) return
+          const match = Binary.search(messages, messageID, (m) => m.id)
+          batch(() => {
+            if (match.found) {
+              setStore(
+                "message",
+                sessionID,
+                produce((draft) => {
+                  draft.splice(match.index, 1)
+                }),
+              )
+            }
+            setStore(
+              "part",
+              produce((draft) => {
+                delete draft[messageID]
+              }),
+            )
+          })
         },
         async sync(sessionID: string) {
           if (fullSyncedSessions.has(sessionID)) return

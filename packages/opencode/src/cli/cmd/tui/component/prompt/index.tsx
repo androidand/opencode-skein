@@ -1170,6 +1170,23 @@ export function Prompt(props: PromptProps) {
           })),
       })
     } else {
+      const parts = [
+        ...editorParts,
+        {
+          id: PartID.ascending(),
+          type: "text" as const,
+          text: inputText,
+        },
+        ...nonTextParts.map(assign),
+      ]
+      sync.session.addOptimisticPrompt({
+        sessionID,
+        messageID,
+        agent: agent.name,
+        model: selectedModel,
+        variant,
+        parts,
+      })
       sdk.client.session
         .prompt({
           sessionID,
@@ -1178,17 +1195,9 @@ export function Prompt(props: PromptProps) {
           agent: agent.name,
           model: selectedModel,
           variant,
-          parts: [
-            ...editorParts,
-            {
-              id: PartID.ascending(),
-              type: "text",
-              text: inputText,
-            },
-            ...nonTextParts.map(assign),
-          ],
+          parts,
         })
-        .catch(() => {})
+        .catch(() => sync.session.removeOptimisticPrompt(sessionID, messageID))
       if (editorParts.length > 0) editor.markSelectionSent()
     }
     history.append({
