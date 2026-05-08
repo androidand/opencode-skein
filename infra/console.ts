@@ -276,9 +276,6 @@ new sst.cloudflare.x.SolidStart("Console", {
       : []),
     gatewayKv,
   ],
-  dev: {
-    autostart: false,
-  },
   environment: {
     //VITE_DOCS_URL: web.url.apply((url) => url!),
     //VITE_API_URL: gateway.url.apply((url) => url!),
