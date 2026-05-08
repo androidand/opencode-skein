@@ -509,23 +509,23 @@ const OPENAI_NONE_EFFORT_RELEASE_DATE = "2025-11-13"
 // OpenAI rolled out the `xhigh` reasoning_effort tier on this date. Same reasoning.
 const OPENAI_XHIGH_EFFORT_RELEASE_DATE = "2025-12-04"
 
-// Matches members of the gpt-5 family across the id formats we encounter:
-//   "gpt-5", "gpt-5-nano", "gpt-5.4", "openai/gpt-5.4-codex".
-// Anchored to start-of-string or "/" so it doesn't false-match "gpt-50" or "gpt-5o".
-const GPT5_FAMILY_RE = /(?:^|\/)gpt-5(?:[.-]|$)/
+// Matches the first generation GPT-5 ids that still accept `minimal`.
+const GPT5_INITIAL_RE = /(?:^|\/)gpt-5(?:-(?:mini|nano))?$/
 
 // Computes the reasoning_effort tiers an OpenAI (or OpenAI-compatible upstream
 // routed through it, e.g. cf-ai-gateway) model exposes. Returns null for models
 // with no tunable effort knob (gpt-5-pro). Effort order: weakest to strongest.
 function openaiReasoningEfforts(apiId: string, releaseDate: string): string[] | null {
   const id = apiId.toLowerCase()
-  if (id === "gpt-5-pro" || id === "openai/gpt-5-pro") return null
+  if (id.endsWith("chat-latest")) return ["medium"]
+  if (id.endsWith("-pro")) return id.includes("5.1") ? null : ["medium", "high", "xhigh"]
   if (id.includes("codex")) {
-    if (id.includes("5.2") || id.includes("5.3")) return [...WIDELY_SUPPORTED_EFFORTS, "xhigh"]
-    return [...WIDELY_SUPPORTED_EFFORTS]
+    const efforts = ["minimal", ...WIDELY_SUPPORTED_EFFORTS]
+    if (!["5-codex", "5.1-codex", "5.1-codex-mini"].some((v) => id.endsWith(v))) efforts.push("xhigh")
+    return efforts
   }
   const efforts = [...WIDELY_SUPPORTED_EFFORTS]
-  if (GPT5_FAMILY_RE.test(id)) efforts.unshift("minimal")
+  if (GPT5_INITIAL_RE.test(id)) efforts.unshift("minimal")
   if (releaseDate >= OPENAI_NONE_EFFORT_RELEASE_DATE) efforts.unshift("none")
   if (releaseDate >= OPENAI_XHIGH_EFFORT_RELEASE_DATE) efforts.push("xhigh")
   return efforts
