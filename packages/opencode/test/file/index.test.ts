@@ -3,7 +3,6 @@ import { $ } from "bun"
 import { Effect } from "effect"
 import path from "path"
 import fs from "fs/promises"
-import { ConfigReference } from "@/config/reference"
 import { File } from "../../src/file"
 import { Instance } from "../../src/project/instance"
 import { WithInstance } from "../../src/project/with-instance"
@@ -20,7 +19,8 @@ const run = <A, E>(eff: Effect.Effect<A, E, File.Service>) =>
 const status = () => run(File.Service.use((svc) => svc.status()))
 const read = (file: string) => run(File.Service.use((svc) => svc.read(file)))
 const list = (dir?: string) => run(File.Service.use((svc) => svc.list(dir)))
-const search = (input: File.SearchInput) => run(File.Service.use((svc) => svc.search(input)))
+const search = (input: { query: string; limit?: number; dirs?: boolean; type?: "file" | "directory" }) =>
+  run(File.Service.use((svc) => svc.search(input)))
 
 describe("file/index Filesystem patterns", () => {
   describe("read() - text content", () => {
@@ -826,27 +826,6 @@ describe("file/index Filesystem patterns", () => {
 
           const result = await search({ query: "fresh", type: "file" })
           expect(result).toContain("fresh.ts")
-        },
-      })
-    })
-
-    test("searches reference files only after reference path prefix", async () => {
-      await using tmp = await setupSearchableRepo()
-      await using docs = await tmpdir()
-      await fs.writeFile(path.join(docs.path, "guide.md"), "guide", "utf-8")
-      await fs.writeFile(path.join(docs.path, "..guide.md"), "hidden guide", "utf-8")
-
-      const references = { docs: { path: docs.path } } satisfies ConfigReference.Info
-
-      await WithInstance.provide({
-        directory: tmp.path,
-        fn: async () => {
-          await init()
-
-          expect(await search({ query: "guide", type: "file", references })).not.toContain("docs:/guide.md")
-          expect(await search({ query: "docs:/guide", type: "file", references })).toContain("docs:/guide.md")
-          expect(await search({ query: "docs:/..guide", type: "file", references })).toEqual(["docs:/..guide.md"])
-          expect(await search({ query: "docs/", type: "file", references })).toContain("docs:/guide.md")
         },
       })
     })

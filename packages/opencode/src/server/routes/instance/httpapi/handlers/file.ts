@@ -1,5 +1,4 @@
 import * as InstanceState from "@/effect/instance-state"
-import { Config } from "@/config/config"
 import { File } from "@/file"
 import { Ripgrep } from "@/file/ripgrep"
 import { Effect } from "effect"
@@ -9,7 +8,6 @@ import { InstanceHttpApi } from "../api"
 export const fileHandlers = HttpApiBuilder.group(InstanceHttpApi, "file", (handlers) =>
   Effect.gen(function* () {
     const svc = yield* File.Service
-    const config = yield* Config.Service
     const ripgrep = yield* Ripgrep.Service
 
     const findText = Effect.fn("FileHttpApi.findText")(function* (ctx: { query: { pattern: string } }) {
@@ -26,7 +24,6 @@ export const fileHandlers = HttpApiBuilder.group(InstanceHttpApi, "file", (handl
         limit: ctx.query.limit ?? 10,
         dirs: ctx.query.dirs !== "false",
         type: ctx.query.type,
-        references: (yield* config.get()).reference,
       })
     })
 

@@ -1,7 +1,6 @@
 import { Hono } from "hono"
 import { describeRoute, validator, resolver } from "hono-openapi"
 import z from "zod"
-import { Config } from "@/config/config"
 import { File } from "@/file"
 import { Ripgrep } from "@/file/ripgrep"
 import { LSP } from "@/lsp/lsp"
@@ -71,14 +70,12 @@ export const FileRoutes = lazy(() =>
       async (c) =>
         jsonRequest("FileRoutes.findFile", c, function* () {
           const query = c.req.valid("query")
-          const config = yield* Config.Service
           const svc = yield* File.Service
           return yield* svc.search({
             query: query.query,
             limit: query.limit ?? 10,
             dirs: query.dirs !== "false",
             type: query.type,
-            references: (yield* config.get()).reference,
           })
         }),
     )

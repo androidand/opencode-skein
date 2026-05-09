@@ -41,22 +41,6 @@ const fileQuery = (selection: FileSelection | undefined) =>
 
 const mention = /(^|[\s([{"'])@(\S+)/g
 
-const referencePath = (value: string) => {
-  const match = value.match(/^([^:/\\]+):\/(.*)$/)
-  if (!match) return
-  if (/^[A-Za-z]$/.test(match[1]!)) return
-  return { name: match[1]!, path: match[2] ?? "" }
-}
-
-const referenceUrl = (value: string, selection?: FileSelection) => {
-  const reference = referencePath(value)
-  if (!reference) return
-  return `opencode-reference://${encodeURIComponent(reference.name)}/${reference.path
-    .split("/")
-    .map(encodeURIComponent)
-    .join("/")}${fileQuery(selection)}`
-}
-
 const parseCommentMentions = (comment: string) => {
   return Array.from(comment.matchAll(mention)).flatMap((match) => {
     const path = (match[2] ?? "").replace(/[.,!?;:)}\]"']+$/, "")
@@ -113,34 +97,25 @@ export function buildRequestParts(input: BuildRequestPartsInput) {
     },
   ]
 
-  const filePart = (file: string, selection?: FileSelection, source?: FileAttachmentPart) => {
-    const url = referenceUrl(file, selection)
-    const filepath = url ? file : absolute(input.sessionDirectory, file)
+  const files = input.prompt.filter(isFileAttachment).map((attachment) => {
+    const path = absolute(input.sessionDirectory, attachment.path)
     return {
       id: Identifier.ascending("part"),
       type: "file",
       mime: "text/plain",
-      url: url ?? `file://${encodeFilePath(filepath)}${fileQuery(selection)}`,
-      filename: getFilename(file),
-      ...(source
-        ? {
-            source: {
-              type: "file" as const,
-              text: {
-                value: source.content,
-                start: source.start,
-                end: source.end,
-              },
-              path: filepath,
-            },
-          }
-        : {}),
+      url: `file://${encodeFilePath(path)}${fileQuery(attachment.selection)}`,
+      filename: getFilename(attachment.path),
+      source: {
+        type: "file",
+        text: {
+          value: attachment.content,
+          start: attachment.start,
+          end: attachment.end,
+        },
+        path,
+      },
     } satisfies PromptRequestPart
-  }
-
-  const files = input.prompt
-    .filter(isFileAttachment)
-    .map((attachment) => filePart(attachment.path, attachment.selection, attachment))
+  })
 
   const agents = input.prompt.filter(isAgentAttachment).map((attachment) => {
     return {
@@ -158,20 +133,34 @@ export function buildRequestParts(input: BuildRequestPartsInput) {
   const used = new Set(files.map((part) => part.url))
   const context = input.context.flatMap((item) => {
     const path = absolute(input.sessionDirectory, item.path)
-    const url = referenceUrl(item.path, item.selection) ?? `file://${encodeFilePath(path)}${fileQuery(item.selection)}`
+    const url = `file://${encodeFilePath(path)}${fileQuery(item.selection)}`
     const comment = item.comment?.trim()
     if (!comment && used.has(url)) return []
     used.add(url)
 
-    const contextFilePart = filePart(item.path, item.selection)
+    const filePart = {
+      id: Identifier.ascending("part"),
+      type: "file",
+      mime: "text/plain",
+      url,
+      filename: getFilename(item.path),
+    } satisfies PromptRequestPart
 
-    if (!comment) return [contextFilePart]
+    if (!comment) return [filePart]
 
     const mentions = parseCommentMentions(comment).flatMap((path) => {
-      const url = referenceUrl(path) ?? `file://${encodeFilePath(absolute(input.sessionDirectory, path))}`
+      const url = `file://${encodeFilePath(absolute(input.sessionDirectory, path))}`
       if (used.has(url)) return []
       used.add(url)
-      return [filePart(path)]
+      return [
+        {
+          id: Identifier.ascending("part"),
+          type: "file",
+          mime: "text/plain",
+          url,
+          filename: getFilename(path),
+        } satisfies PromptRequestPart,
+      ]
     })
 
     return [
@@ -188,7 +177,7 @@ export function buildRequestParts(input: BuildRequestPartsInput) {
           origin: item.commentOrigin,
         }),
       } satisfies PromptRequestPart,
-      contextFilePart,
+      filePart,
       ...mentions,
     ]
   })

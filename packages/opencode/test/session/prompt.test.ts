@@ -3,7 +3,6 @@ import { FetchHttpClient } from "effect/unstable/http"
 import { expect } from "bun:test"
 import { Cause, Effect, Exit, Fiber, Layer } from "effect"
 import path from "path"
-import fs from "fs/promises"
 import { fileURLToPath } from "url"
 import { NamedError } from "@opencode-ai/core/util/error"
 import { Agent as AgentSvc } from "../../src/agent/agent"
@@ -415,57 +414,6 @@ it.live("prompt emits v2 prompted and synthetic events", () =>
       )
     }),
     { git: true, config: providerCfg },
-  ),
-)
-
-it.live("prompt resolves configured reference file URLs", () =>
-  provideTmpdirServer(
-    Effect.fnUntraced(function* ({ dir }) {
-      const prompt = yield* SessionPrompt.Service
-      const sessions = yield* Session.Service
-      const chat = yield* sessions.create({ title: "Pinned" })
-      yield* Effect.promise(() => fs.mkdir(path.join(dir, "reference-docs"), { recursive: true }))
-      yield* Effect.promise(() => Bun.write(path.join(dir, "reference-docs", "guide.md"), "reference guide"))
-
-      yield* prompt.prompt({
-        sessionID: chat.id,
-        agent: "build",
-        noReply: true,
-        parts: [
-          { type: "text", text: "read @docs:/guide.md" },
-          {
-            type: "file",
-            mime: "text/plain",
-            filename: "guide.md",
-            url: "opencode-reference://docs/guide.md",
-            source: {
-              type: "file",
-              path: "docs:/guide.md",
-              text: { value: "@docs:/guide.md", start: 5, end: 20 },
-            },
-          },
-        ],
-      })
-
-      const messages = yield* SessionV2.Service.use((session) => session.messages({ sessionID: chat.id })).pipe(
-        Effect.provide(SessionV2.layer),
-      )
-      expect(messages).toEqual(
-        expect.arrayContaining([
-          expect.objectContaining({ type: "synthetic", text: expect.stringContaining("Called the Read tool") }),
-          expect.objectContaining({ type: "synthetic", text: expect.stringContaining("reference guide") }),
-        ]),
-      )
-    }),
-    {
-      git: true,
-      config: (url) => ({
-        ...providerCfg(url),
-        reference: {
-          docs: { path: "./reference-docs" },
-        },
-      }),
-    },
   ),
 )
 
