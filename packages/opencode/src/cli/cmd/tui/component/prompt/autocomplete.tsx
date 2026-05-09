@@ -18,7 +18,6 @@ import { Locale } from "@/util/locale"
 import type { PromptInfo } from "./history"
 import { useFrecency } from "./frecency"
 import { useBindings } from "../../keymap"
-import { ConfigReference } from "@/config/reference"
 
 function removeLineRange(input: string) {
   const hashIndex = input.lastIndexOf("#")
@@ -226,10 +225,8 @@ export function Autocomplete(props: {
 
   function createFilePart(item: string, lineRange?: { startLine: number; endLine?: number }) {
     const baseDir = (sync.path.directory || process.cwd()).replace(/\/+$/, "")
-    const reference = ConfigReference.parseFilePath(item, sync.data.config.reference)
-    const urlObj = reference
-      ? new URL(ConfigReference.fileUrl(reference.name, reference.path))
-      : pathToFileURL(path.isAbsolute(item) ? item : path.join(baseDir, item))
+    const fullPath = path.isAbsolute(item) ? item : path.join(baseDir, item)
+    const urlObj = pathToFileURL(fullPath)
     const filename =
       lineRange && !item.endsWith("/")
         ? `${item}#${lineRange.startLine}${lineRange.endLine ? `-${lineRange.endLine}` : ""}`
@@ -264,9 +261,6 @@ export function Autocomplete(props: {
   }
 
   function normalizeMentionPath(filePath: string) {
-    const reference = ConfigReference.parseFilePath(filePath, sync.data.config.reference)
-    if (reference) return ConfigReference.formatFilePath(reference.name, reference.path)
-
     const baseDir = sync.path.directory || process.cwd()
     const absolute = path.resolve(filePath)
     const relative = path.relative(baseDir, absolute)
@@ -436,15 +430,11 @@ export function Autocomplete(props: {
     const filesValue = files()
     const agentsValue = agents()
     const commandsValue = commands()
-    const searchValue = search()
-    const reference = ConfigReference.parseFilePath(removeLineRange(searchValue), sync.data.config.reference)
 
     const mixed: AutocompleteOption[] =
-      store.visible === "@"
-        ? reference
-          ? filesValue || []
-          : [...agentsValue, ...(filesValue || []), ...mcpResources()]
-        : [...commandsValue]
+      store.visible === "@" ? [...agentsValue, ...(filesValue || []), ...mcpResources()] : [...commandsValue]
+
+    const searchValue = search()
 
     if (!searchValue) {
       return mixed
@@ -516,7 +506,7 @@ export function Autocomplete(props: {
     const currentCursorOffset = input.cursorOffset
 
     const displayText = selected.display.trimEnd()
-    const path = selected.path ?? (displayText.startsWith("@") ? displayText.slice(1) : displayText)
+    const path = displayText.startsWith("@") ? displayText.slice(1) : displayText
 
     input.cursorOffset = store.index
     const startCursor = input.logicalCursor
