@@ -1,4 +1,10 @@
-import type { TuiDialogSelectOption, TuiPluginApi, TuiRouteDefinition, TuiSlotProps } from "@opencode-ai/plugin/tui"
+import type {
+  TuiCommand,
+  TuiDialogSelectOption,
+  TuiPluginApi,
+  TuiRouteDefinition,
+  TuiSlotProps,
+} from "@opencode-ai/plugin/tui"
 import type { useEvent } from "@tui/context/event"
 import type { useRoute } from "@tui/context/route"
 import type { useSDK } from "@tui/context/sdk"
@@ -17,6 +23,7 @@ import { Slot as HostSlot } from "./slots"
 import type { useToast } from "../ui/toast"
 import { InstallationVersion } from "@opencode-ai/core/installation/version"
 import * as Keymap from "../keymap"
+import type { useCommandPalette } from "../context/command-palette"
 
 type RouteEntry = {
   key: symbol
@@ -26,6 +33,7 @@ type RouteEntry = {
 export type RouteMap = Map<string, RouteEntry[]>
 
 type Input = {
+  command: ReturnType<typeof useCommandPalette>
   tuiConfig: TuiConfig.Resolved
   dialog: ReturnType<typeof useDialog>
   keymap: ReturnType<typeof useOpencodeKeymap>
@@ -39,6 +47,54 @@ type Input = {
   theme: ReturnType<typeof useTheme>
   toast: ReturnType<typeof useToast>
   renderer: TuiPluginApi["renderer"]
+}
+
+let warnedLegacyCommand = false
+
+function warnLegacyCommandApi() {
+  if (warnedLegacyCommand) return
+  warnedLegacyCommand = true
+  console.warn("[tui.plugin] api.command is deprecated; use api.keymap.registerLayer({ commands, bindings }) instead")
+}
+
+function commandBinding(command: TuiCommand, input: Input) {
+  if (!command.keybind) return []
+  return input.tuiConfig.keybinds.get(command.keybind).map((binding) => ({ ...binding, cmd: command.value }))
+}
+
+function legacyCommandApi(input: Input): TuiPluginApi["command"] {
+  return {
+    register(cb) {
+      warnLegacyCommandApi()
+      const list = cb()
+      return input.keymap.registerLayer({
+        commands: list.map((command) => ({
+          name: command.value,
+          title: command.title,
+          desc: command.description,
+          category: command.category,
+          namespace: "palette",
+          suggested: command.suggested,
+          hidden: command.hidden,
+          enabled: command.enabled,
+          slashName: command.slash?.name,
+          slashAliases: command.slash?.aliases,
+          run() {
+            command.onSelect?.()
+          },
+        })),
+        bindings: list.flatMap((command) => commandBinding(command, input)),
+      })
+    },
+    trigger(value) {
+      warnLegacyCommandApi()
+      input.keymap.dispatchCommand(value)
+    },
+    show() {
+      warnLegacyCommandApi()
+      input.command.show()
+    },
+  }
 }
 
 function routeRegister(routes: RouteMap, list: TuiRouteDefinition[], bump: () => void) {
@@ -209,6 +265,7 @@ export function createTuiApi(input: Input): TuiPluginApi {
       },
     },
     keymap: input.keymap,
+    command: legacyCommandApi(input),
     route: {
       register(list) {
         return routeRegister(input.routes, list, input.bump)

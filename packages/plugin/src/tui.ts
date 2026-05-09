@@ -70,6 +70,23 @@ export type TuiRouteDefinition = {
   render: (input: { params?: Record<string, unknown> }) => JSX.Element
 }
 
+/** @deprecated Use api.keymap.registerLayer({ commands, bindings }) instead. */
+export type TuiCommand = {
+  title: string
+  value: string
+  description?: string
+  category?: string
+  keybind?: string
+  suggested?: boolean
+  hidden?: boolean
+  enabled?: boolean
+  slash?: {
+    name: string
+    aliases?: string[]
+  }
+  onSelect?: () => void
+}
+
 export type TuiKeys = {
   formatSequence: (parts: readonly KeySequenceFormatPart[] | undefined) => string
   formatBindings: (bindings: readonly SequenceBindingLike[] | undefined) => string | undefined
@@ -463,6 +480,12 @@ export type TuiPluginApi = {
   app: TuiApp
   keys: TuiKeys
   keymap: TuiKeymap
+  /** @deprecated Use api.keymap.registerLayer({ commands, bindings }) instead. */
+  command: {
+    register: (cb: () => TuiCommand[]) => () => void
+    trigger: (value: string) => void
+    show: () => void
+  }
   route: {
     register: (routes: TuiRouteDefinition[]) => () => void
     navigate: (name: string, params?: Record<string, unknown>) => void

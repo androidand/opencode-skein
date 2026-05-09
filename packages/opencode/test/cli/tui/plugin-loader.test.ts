@@ -776,6 +776,79 @@ test("auto-disposes plugin keymap layers", async () => {
   }
 })
 
+test("supports legacy plugin command API", async () => {
+  await using tmp = await tmpdir({
+    init: async (dir) => {
+      const file = path.join(dir, "legacy-command-plugin.ts")
+      const spec = pathToFileURL(file).href
+      const marker = path.join(dir, "legacy-command.txt")
+
+      await Bun.write(
+        file,
+        `export default {
+  id: "demo.command.legacy",
+  tui: async (api) => {
+    api.command.register(() => [{
+      title: "Legacy command",
+      value: "demo.command.legacy.run",
+      onSelect() {
+        Bun.write(${JSON.stringify(marker)}, "called")
+      },
+    }])
+    api.command.trigger("demo.command.legacy.run")
+    api.command.show()
+  },
+}
+`,
+      )
+
+      return { spec, marker }
+    },
+  })
+
+  let add = 0
+  let drop = 0
+  let show = 0
+  const wait = spyOn(TuiConfig, "waitForDependencies").mockResolvedValue()
+  const cwd = spyOn(process, "cwd").mockImplementation(() => tmp.path)
+
+  try {
+    await TuiPluginRuntime.init({
+      api: createTuiPluginApi({
+        command: {
+          register(cb) {
+            add += 1
+            const list = cb()
+            return () => {
+              drop += list.length
+            }
+          },
+          trigger(value) {
+            expect(value).toBe("demo.command.legacy.run")
+            Bun.write(tmp.extra.marker, "called")
+          },
+          show() {
+            show += 1
+          },
+        },
+      }),
+      config: createTuiResolvedConfig({
+        plugin: [tmp.extra.spec],
+        plugin_origins: [{ spec: tmp.extra.spec, scope: "local", source: path.join(tmp.path, "tui.json") }],
+      }),
+    })
+
+    expect(add).toBe(1)
+    expect(show).toBe(1)
+    await expect(fs.readFile(tmp.extra.marker, "utf8")).resolves.toBe("called")
+  } finally {
+    await TuiPluginRuntime.dispose()
+    expect(drop).toBe(1)
+    cwd.mockRestore()
+    wait.mockRestore()
+  }
+})
+
 test("plugin keymap proxy preserves real keymap receiver", async () => {
   await using tmp = await tmpdir({
     init: async (dir) => {

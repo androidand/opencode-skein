@@ -275,6 +275,7 @@ function App(props: { onSnapshot?: () => Promise<string[]> }) {
   }
 
   const api = createTuiApi({
+    command,
     tuiConfig,
     dialog,
     keymap,

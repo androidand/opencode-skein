@@ -82,6 +82,7 @@ function themeCurrent(): HostPluginApi["theme"]["current"] {
 
 type Opts = {
   client?: HostPluginApi["client"] | (() => HostPluginApi["client"])
+  command?: Partial<HostPluginApi["command"]>
   renderer?: HostPluginApi["renderer"]
   count?: Count
   keymap?: HostPluginApi["keymap"]
@@ -131,6 +132,7 @@ export function createTuiPluginApi(opts: Opts = {}): HostPluginApi {
         ? () => opts.client as HostPluginApi["client"]
         : fallback
   const client = () => read()
+  const commands: ReturnType<Parameters<HostPluginApi["command"]["register"]>[0]> = []
   let depth = 0
   let size: "medium" | "large" | "xlarge" = "medium"
   const has = opts.theme?.has ?? (() => false)
@@ -186,6 +188,25 @@ export function createTuiPluginApi(opts: Opts = {}): HostPluginApi {
     keys: {
       formatSequence: () => "",
       formatBindings: () => undefined,
+    },
+    command: {
+      register(cb) {
+        if (opts.command?.register) return opts.command.register(cb)
+        const list = cb()
+        commands.push(...list)
+        if (count) count.command_add += 1
+        return () => {
+          if (count) count.command_drop += 1
+          commands.splice(0, commands.length, ...commands.filter((command) => !list.includes(command)))
+        }
+      },
+      trigger(value) {
+        if (opts.command?.trigger) return opts.command.trigger(value)
+        commands.find((command) => command.value === value)?.onSelect?.()
+      },
+      show() {
+        opts.command?.show?.()
+      },
     },
     get client() {
       return client()

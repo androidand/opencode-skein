@@ -563,6 +563,18 @@ function pluginApi(runtime: RuntimeState, plugin: PluginEntry, scope: PluginScop
 
   const keymap = createScopedKeymap(api.keymap, scope)
 
+  const command: TuiPluginApi["command"] = {
+    register(cb) {
+      return scope.track(api.command.register(cb))
+    },
+    trigger(value) {
+      api.command.trigger(value)
+    },
+    show() {
+      api.command.show()
+    },
+  }
+
   let count = 0
 
   const slots: TuiPluginApi["slots"] = {
@@ -578,6 +590,7 @@ function pluginApi(runtime: RuntimeState, plugin: PluginEntry, scope: PluginScop
     app: api.app,
     keys: api.keys,
     keymap,
+    command,
     route,
     ui: api.ui,
     tuiConfig: api.tuiConfig,
