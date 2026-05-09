@@ -48,6 +48,7 @@ const it = testEffect(
         Skill.Service.of({
           get: (name) => Effect.succeed(skills.find((skill) => skill.name === name)),
           all: () => Effect.succeed(skills),
+          invalid: () => Effect.succeed([]),
           dirs: () => Effect.succeed([]),
           available: () => Effect.succeed(skills),
         }),

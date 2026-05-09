@@ -9,7 +9,7 @@ import { Skill } from "@/skill"
 import { Effect } from "effect"
 import { HttpApiBuilder } from "effect/unstable/httpapi"
 import { InstanceHttpApi } from "../api"
-import { ApiVcsApplyError } from "../groups/instance"
+import { ApiVcsApplyError, SkillQuery } from "../groups/instance"
 import { markInstanceForDisposal } from "../lifecycle"
 
 export const instanceHandlers = HttpApiBuilder.group(InstanceHttpApi, "instance", (handlers) =>
@@ -77,8 +77,15 @@ export const instanceHandlers = HttpApiBuilder.group(InstanceHttpApi, "instance"
       return yield* agent.list()
     })
 
-    const getSkill = Effect.fn("InstanceHttpApi.skill")(function* () {
-      return yield* skill.all()
+    const getSkill = Effect.fn("InstanceHttpApi.skill")(function* (ctx: { query: typeof SkillQuery.Type }) {
+      const skills = yield* skill.all()
+      if (ctx.query.include === "invalid") {
+        return {
+          skills,
+          invalid: yield* skill.invalid(),
+        }
+      }
+      return skills
     })
 
     const getLsp = Effect.fn("InstanceHttpApi.lsp")(function* () {

@@ -33,6 +33,19 @@ export const Info = Schema.Struct({
 }).pipe(withStatics((s) => ({ zod: zod(s) })))
 export type Info = Schema.Schema.Type<typeof Info>
 
+export const Invalid = Schema.Struct({
+  path: Schema.String,
+  reason: Schema.Literals(["parse", "frontmatter", "schema", "duplicate"]),
+  message: Schema.String,
+}).pipe(withStatics((s) => ({ zod: zod(s) })))
+export type Invalid = Schema.Schema.Type<typeof Invalid>
+
+export const ListWithInvalid = Schema.Struct({
+  skills: Schema.Array(Info),
+  invalid: Schema.Array(Invalid),
+}).pipe(withStatics((s) => ({ zod: zod(s) })))
+export type ListWithInvalid = Schema.Schema.Type<typeof ListWithInvalid>
+
 export const InvalidError = NamedError.create(
   "SkillInvalidError",
   z.object({
@@ -53,6 +66,7 @@ export const NameMismatchError = NamedError.create(
 
 type State = {
   skills: Record<string, Info>
+  invalid: Invalid[]
   dirs: Set<string>
 }
 
@@ -69,6 +83,7 @@ type ScanState = {
 export interface Interface {
   readonly get: (name: string) => Effect.Effect<Info | undefined>
   readonly all: () => Effect.Effect<Info[]>
+  readonly invalid: () => Effect.Effect<Invalid[]>
   readonly dirs: () => Effect.Effect<string[]>
   readonly available: (agent?: Agent.Info) => Effect.Effect<Info[]>
 }
@@ -80,9 +95,15 @@ const add = Effect.fnUntraced(function* (state: State, match: string, bus: Bus.I
   }).pipe(
     Effect.catch(
       Effect.fnUntraced(function* (err) {
-        const message = ConfigMarkdown.FrontmatterError.isInstance(err)
+        const isFrontmatter = ConfigMarkdown.FrontmatterError.isInstance(err)
+        const message = isFrontmatter
           ? err.data.message
           : `Failed to parse skill ${match}`
+        state.invalid.push({
+          path: match,
+          reason: isFrontmatter ? "frontmatter" : "parse",
+          message,
+        })
         const { Session } = yield* Effect.promise(() => import("@/session/session"))
         yield* bus.publish(Session.Event.Error, { error: new NamedError.Unknown({ message }).toObject() })
         log.error("failed to load skill", { skill: match, err })
@@ -93,15 +114,50 @@ const add = Effect.fnUntraced(function* (state: State, match: string, bus: Bus.I
 
   if (!md) return
 
-  const parsed = z.object({ name: z.string(), description: z.string().optional() }).safeParse(md.data)
-  if (!parsed.success) return
+  const parsed = z
+    .object({
+      name: z
+        .string()
+        .min(1, "Skill name is required")
+        .max(64, "Skill name must be at most 64 characters")
+        .regex(/^[a-z0-9-]+$/, "Skill name must contain only lowercase letters, numbers, and hyphens")
+        .regex(/^[^-].*[^-]$|^[^-]$/, "Skill name must not start or end with a hyphen")
+        .refine((value) => !value.includes("--"), "Skill name must not contain consecutive hyphens")
+        .refine((value) => !/(<[^>]*>)/.test(value), "Skill name must not contain XML tags")
+        .refine(
+          (value) => !value.includes("anthropic") && !value.includes("claude"),
+          'Skill name must not contain reserved words "anthropic" or "claude"',
+        )
+        .refine((value) => value === path.basename(path.dirname(match)), "Skill name must match parent directory name"),
+      description: z
+        .string({ error: "Skill description is required" })
+        .trim()
+        .min(1, "Skill description is required")
+        .max(1024, "Skill description must be at most 1024 characters")
+        .refine((value) => !/(<[^>]*>)/.test(value), "Skill description must not contain XML tags"),
+    })
+    .safeParse(md.data)
+  if (!parsed.success) {
+    state.invalid.push({
+      path: match,
+      reason: "schema",
+      message: parsed.error.issues.map((issue) => issue.message).join(", "),
+    })
+    return
+  }
 
   if (state.skills[parsed.data.name]) {
+    state.invalid.push({
+      path: match,
+      reason: "duplicate",
+      message: `Duplicate skill name "${parsed.data.name}" already loaded from ${state.skills[parsed.data.name].location}`,
+    })
     log.warn("duplicate skill name", {
       name: parsed.data.name,
       existing: state.skills[parsed.data.name].location,
       duplicate: match,
     })
+    return
   }
 
   state.dirs.add(path.dirname(match))
@@ -229,7 +285,7 @@ export const layer = Layer.effect(
     )
     const state = yield* InstanceState.make(
       Effect.fn("Skill.state")(function* () {
-        const s: State = { skills: {}, dirs: new Set() }
+        const s: State = { skills: {}, invalid: [], dirs: new Set() }
         yield* loadSkills(s, yield* InstanceState.get(discovered), bus)
         return s
       }),
@@ -245,6 +301,10 @@ export const layer = Layer.effect(
       return Object.values(s.skills)
     })
 
+    const invalid = Effect.fn("Skill.invalid")(function* () {
+      return (yield* InstanceState.get(state)).invalid
+    })
+
     const dirs = Effect.fn("Skill.dirs")(function* () {
       return (yield* InstanceState.get(discovered)).dirs
     })
@@ -256,7 +316,7 @@ export const layer = Layer.effect(
       return list.filter((skill) => Permission.evaluate("skill", skill.name, agent.permission).action !== "deny")
     })
 
-    return Service.of({ get, all, dirs, available })
+    return Service.of({ get, all, invalid, dirs, available })
   }),
 )
 

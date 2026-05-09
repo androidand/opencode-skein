@@ -407,6 +407,7 @@ export class App extends HeyApiClient {
     parameters?: {
       directory?: string
       workspace?: string
+      include?: "invalid"
     },
     options?: Options<never, ThrowOnError>,
   ) {
@@ -417,6 +418,7 @@ export class App extends HeyApiClient {
           args: [
             { in: "query", key: "directory" },
             { in: "query", key: "workspace" },
+            { in: "query", key: "include" },
           ],
         },
       ],

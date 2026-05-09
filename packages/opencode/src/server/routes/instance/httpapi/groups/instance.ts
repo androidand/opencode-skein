@@ -23,6 +23,10 @@ export const VcsDiffQuery = Schema.Struct({
   mode: Vcs.Mode,
 })
 
+export const SkillQuery = Schema.Struct({
+  include: Schema.optional(Schema.Literals(["invalid"])),
+})
+
 export class ApiVcsApplyError extends Schema.ErrorClass<ApiVcsApplyError>("VcsApplyError")(
   {
     name: Schema.Literal("VcsApplyError"),
@@ -143,7 +147,8 @@ export const InstanceApi = HttpApi.make("instance")
           }),
         ),
         HttpApiEndpoint.get("skill", InstancePaths.skill, {
-          success: described(Schema.Array(Skill.Info), "List of skills"),
+          query: SkillQuery,
+          success: described(Schema.Union([Schema.Array(Skill.Info), Skill.ListWithInvalid]), "List of skills"),
         }).annotateMerge(
           OpenApi.annotations({
             identifier: "app.skills",

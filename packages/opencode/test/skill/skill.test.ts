@@ -163,7 +163,7 @@ Just some content without YAML frontmatter.
     ),
   )
 
-  it.live("discovers skills without descriptions", () =>
+  it.live("tracks skills without descriptions as invalid", () =>
     provideTmpdirInstance(
       (dir) =>
         Effect.gen(function* () {
@@ -183,10 +183,11 @@ Instructions here.
 
           const skill = yield* Skill.Service
           const list = yield* skill.all()
-          expect(list.length).toBe(1)
-          const item = list.find((x) => x.name === "manual-skill")
-          expect(item).toBeDefined()
-          expect(item!.description).toBeUndefined()
+          const invalid = yield* skill.invalid()
+          expect(list.length).toBe(0)
+          expect(invalid.length).toBe(1)
+          expect(invalid[0].reason).toBe("schema")
+          expect(invalid[0].message).toContain("Skill description is required")
           expect(Skill.fmt(list, { verbose: false })).toBe("No skills are currently available.")
           expect(Skill.fmt(list, { verbose: true })).toBe("No skills are currently available.")
         }),
@@ -200,13 +201,13 @@ Instructions here.
         Effect.gen(function* () {
           yield* Effect.promise(() =>
             Bun.write(
-              path.join(dir, ".claude", "skills", "claude-skill", "SKILL.md"),
+              path.join(dir, ".claude", "skills", "external-skill", "SKILL.md"),
               `---
-name: claude-skill
+name: external-skill
 description: A skill in the .claude/skills directory.
 ---
 
-# Claude Skill
+# External Skill
 `,
             ),
           )
@@ -214,9 +215,9 @@ description: A skill in the .claude/skills directory.
           const skill = yield* Skill.Service
           const list = yield* skill.all()
           expect(list.length).toBe(1)
-          const item = list.find((x) => x.name === "claude-skill")
+          const item = list.find((x) => x.name === "external-skill")
           expect(item).toBeDefined()
-          expect(item!.location).toContain(path.join(".claude", "skills", "claude-skill", "SKILL.md"))
+          expect(item!.location).toContain(path.join(".claude", "skills", "external-skill", "SKILL.md"))
         }),
       { git: true },
     ),
@@ -332,13 +333,13 @@ This skill is loaded from the global home directory.
           yield* Effect.promise(() =>
             Promise.all([
               Bun.write(
-                path.join(dir, ".claude", "skills", "claude-skill", "SKILL.md"),
+                path.join(dir, ".claude", "skills", "external-skill", "SKILL.md"),
                 `---
-name: claude-skill
+name: external-skill
 description: A skill in the .claude/skills directory.
 ---
 
-# Claude Skill
+# External Skill
 `,
               ),
               Bun.write(
@@ -357,8 +358,50 @@ description: A skill in the .agents/skills directory.
           const skill = yield* Skill.Service
           const list = yield* skill.all()
           expect(list.length).toBe(2)
-          expect(list.find((x) => x.name === "claude-skill")).toBeDefined()
+          expect(list.find((x) => x.name === "external-skill")).toBeDefined()
           expect(list.find((x) => x.name === "agent-skill")).toBeDefined()
+        }),
+      { git: true },
+    ),
+  )
+
+  it.live("tracks duplicate skill names as invalid diagnostics", () =>
+    provideTmpdirInstance(
+      (dir) =>
+        Effect.gen(function* () {
+          yield* Effect.promise(() =>
+            Promise.all([
+              Bun.write(
+                path.join(dir, ".agents", "skills", "duplicate-skill", "SKILL.md"),
+                `---
+name: duplicate-skill
+description: A duplicate skill in the .agents directory.
+---
+
+# Duplicate Skill
+`,
+              ),
+              Bun.write(
+                path.join(dir, ".claude", "skills", "duplicate-skill", "SKILL.md"),
+                `---
+name: duplicate-skill
+description: A duplicate skill in the .claude directory.
+---
+
+# Duplicate Skill
+`,
+              ),
+            ]),
+          )
+
+          const skill = yield* Skill.Service
+          const list = yield* skill.all()
+          const invalid = yield* skill.invalid()
+          expect(list.length).toBe(1)
+          expect(list[0].name).toBe("duplicate-skill")
+          expect(invalid.length).toBe(1)
+          expect(invalid[0].reason).toBe("duplicate")
+          expect(invalid[0].message).toContain("Duplicate skill name")
         }),
       { git: true },
     ),

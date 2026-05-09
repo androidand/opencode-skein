@@ -4233,6 +4233,7 @@ export type AppSkillsData = {
   query?: {
     directory?: string
     workspace?: string
+    include?: "invalid"
   }
   url: "/skill"
 }
@@ -4241,12 +4242,26 @@ export type AppSkillsResponses = {
   /**
    * List of skills
    */
-  200: Array<{
-    name: string
-    description?: string
-    location: string
-    content: string
-  }>
+  200:
+    | Array<{
+        name: string
+        description?: string
+        location: string
+        content: string
+      }>
+    | {
+        skills: Array<{
+          name: string
+          description?: string
+          location: string
+          content: string
+        }>
+        invalid: Array<{
+          path: string
+          reason: "parse" | "frontmatter" | "schema" | "duplicate"
+          message: string
+        }>
+      }
 }
 
 export type AppSkillsResponse = AppSkillsResponses[keyof AppSkillsResponses]
