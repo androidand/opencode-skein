@@ -137,25 +137,30 @@ function remoteURL(key: string, value: string) {
   log.warn("invalid remote mcp url", { key })
 }
 
-function isSchemaReferenceError(err: Error) {
-  return /can't resolve reference|schema.*reference|reference.*schema/i.test(err.message)
+function isSchemaReferenceError(err: unknown) {
+  return err instanceof Error && /can't resolve reference|schema.*reference|reference.*schema/i.test(err.message)
 }
 
-async function listTools(key: string, client: MCPClient, timeout: number) {
-  try {
-    return (await client.listTools(undefined, { timeout })).tools
-  } catch (err) {
-    const error = err instanceof Error ? err : new Error(String(err))
-    if (!isSchemaReferenceError(error)) throw error
+const wrapAsError = (err: unknown) => (err instanceof Error ? err : new Error(String(err)))
 
-    log.warn("failed to validate MCP tool output schemas, retrying without output schema validation", {
-      key,
-      error,
-    })
-
-    const result = await client.request({ method: "tools/list" }, TolerantListToolsResultSchema, { timeout })
-    return result.tools as MCPToolDef[]
-  }
+function listToolsTolerant(key: string, client: MCPClient, timeout: number) {
+  return Effect.tryPromise({
+    try: () => client.listTools(undefined, { timeout }),
+    catch: wrapAsError,
+  }).pipe(
+    Effect.map((result) => result.tools),
+    Effect.catch((err) => {
+      if (!isSchemaReferenceError(err)) return Effect.fail(err)
+      log.warn("failed to validate MCP tool output schemas, retrying without output schema validation", {
+        key,
+        error: err,
+      })
+      return Effect.tryPromise({
+        try: () => client.request({ method: "tools/list" }, TolerantListToolsResultSchema, { timeout }),
+        catch: wrapAsError,
+      }).pipe(Effect.map((result) => result.tools as MCPToolDef[]))
+    }),
+  )
 }
 
 // Convert MCP tool definition to AI SDK Tool type
@@ -190,11 +195,7 @@ function convertMcpTool(mcpTool: MCPToolDef, client: MCPClient, timeout?: number
 }
 
 function defs(key: string, client: MCPClient, timeout?: number) {
-  return Effect.tryPromise({
-    try: () => listTools(key, client, timeout ?? DEFAULT_TIMEOUT),
-    catch: (err) => (err instanceof Error ? err : new Error(String(err))),
-  }).pipe(
-    Effect.map((tools) => tools),
+  return listToolsTolerant(key, client, timeout ?? DEFAULT_TIMEOUT).pipe(
     Effect.catch((err) => {
       log.error("failed to get tools from client", { key, error: err })
       return Effect.succeed(undefined)
