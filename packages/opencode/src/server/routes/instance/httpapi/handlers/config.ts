@@ -13,9 +13,10 @@ export const configHandlers = HttpApiBuilder.group(InstanceHttpApi, "config", (h
     const configSvc = yield* Config.Service
 
     const get = Effect.fn("ConfigHttpApi.get")(function* () {
-      // Plugin `config` hooks may attach non-JSON-safe values (function,
-      // symbol, undefined, bigint) to the live config. Project a JSON-safe
-      // copy at the HTTP boundary so the response matches the typed schema
+      // Plugin `config` hooks may attach runtime-only values (functions,
+      // bigints, etc.) under schema-allowed fields like provider.options
+      // (Schema.Any). Project a JSON-safe copy at the HTTP boundary so
+      // response encode succeeds and clients see the typed schema shape
       // (mirrors Provider.toPublicInfo in #26550).
       return toJsonSafe(yield* configSvc.get())
     })
