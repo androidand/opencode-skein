@@ -12,6 +12,7 @@ import fuzzysort from "fuzzysort"
 import path from "path"
 import { createEffect, createMemo, createResource, createSignal, onCleanup, onMount, type Accessor } from "solid-js"
 import * as Locale from "@/util/locale"
+import { ConfigReference } from "@/config/reference"
 import {
   createPromptHistory,
   isExitCommand,
@@ -283,6 +284,19 @@ export function createPromptState(input: PromptInput): PromptState {
         },
       }))
   })
+  const referenceNames = createMemo(() =>
+    input
+      .agents()
+      .filter((item) => item.options.reference !== undefined)
+      .map((item) => item.name)
+      .toSorted((a, b) => b.length - a.length),
+  )
+  const referenceFilePath = (value: string) => {
+    for (const name of referenceNames()) {
+      if (value.startsWith(`${name}:/`)) return { name, path: value.slice(name.length + 2).replace(/\\/g, "/") }
+      if (value.startsWith(`${name}/`)) return { name, path: value.slice(name.length + 1).replace(/\\/g, "/") }
+    }
+  }
   const resources = createMemo<Auto[]>(() => {
     return input.resources().map((item) => ({
       kind: "mention",
@@ -331,7 +345,10 @@ export function createPromptState(input: PromptInput): PromptState {
           return a.localeCompare(b)
         })
         .map((item): Auto => {
-          const url = pathToFileURL(path.resolve(input.directory, item))
+          const reference = referenceFilePath(item)
+          const url = reference
+            ? new URL(ConfigReference.fileUrl(reference.name, reference.path))
+            : pathToFileURL(path.resolve(input.directory, item))
           let filename = item
           if (next.line && !item.endsWith("/")) {
             filename = `${item}#${next.line.start}${next.line.end ? `-${next.line.end}` : ""}`
@@ -366,7 +383,9 @@ export function createPromptState(input: PromptInput): PromptState {
     },
     { initialValue: [] as Auto[] },
   )
-  const mentionOptions = createMemo(() => [...agents(), ...files(), ...resources()])
+  const mentionOptions = createMemo(() =>
+    referenceFilePath(removeLineRange(query())) ? files() : [...agents(), ...files(), ...resources()],
+  )
   const slashOptions = createMemo<SlashOption[]>(() => {
     const builtins = [
       { kind: "slash", name: "new", display: "/new", description: "start a new session" } satisfies SlashOption,
