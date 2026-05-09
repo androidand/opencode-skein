@@ -1,6 +1,7 @@
 import { Config } from "@/config/config"
 import { Provider } from "@/provider/provider"
 import * as InstanceState from "@/effect/instance-state"
+import { toJsonSafe } from "@/util/json-safe"
 import { Effect } from "effect"
 import { HttpApiBuilder } from "effect/unstable/httpapi"
 import { InstanceHttpApi } from "../api"
@@ -12,7 +13,11 @@ export const configHandlers = HttpApiBuilder.group(InstanceHttpApi, "config", (h
     const configSvc = yield* Config.Service
 
     const get = Effect.fn("ConfigHttpApi.get")(function* () {
-      return yield* configSvc.get()
+      // Plugin `config` hooks may attach non-JSON-safe values (function,
+      // symbol, undefined, bigint) to the live config. Project a JSON-safe
+      // copy at the HTTP boundary so the response matches the typed schema
+      // (mirrors Provider.toPublicInfo in #26550).
+      return toJsonSafe(yield* configSvc.get())
     })
 
     const update = Effect.fn("ConfigHttpApi.update")(function* (ctx) {
