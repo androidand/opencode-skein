@@ -1,4 +1,5 @@
 import { BusEvent } from "@/bus/bus-event"
+import { ConfigReference } from "@/config/reference"
 import { InstanceState } from "@/effect/instance-state"
 
 import { AppFileSystem } from "@opencode-ai/core/filesystem"
@@ -278,6 +279,14 @@ const mime: Record<string, string> = {
 }
 
 type Entry = { files: string[]; dirs: string[] }
+type CachedEntry = { entry: Entry; time: number }
+export type SearchInput = {
+  query: string
+  limit?: number
+  dirs?: boolean
+  type?: "file" | "directory"
+  references?: ConfigReference.Info
+}
 
 const ext = (file: string) => path.extname(file).toLowerCase().slice(1)
 const name = (file: string) => path.basename(file).toLowerCase()
@@ -314,6 +323,23 @@ const sortHiddenLast = (items: string[], prefer: boolean) => {
   return [...visible, ...hiddenItems]
 }
 
+function searchEntry(entry: Entry, input: SearchInput) {
+  const query = input.query.trim()
+  const limit = input.limit ?? 100
+  const kind = input.type ?? (input.dirs === false ? "file" : "all")
+  const preferHidden = query.startsWith(".") || query.includes("/.")
+
+  if (!query) {
+    if (kind === "file") return entry.files.slice(0, limit)
+    return sortHiddenLast(entry.dirs.toSorted(), preferHidden).slice(0, limit)
+  }
+
+  const items = kind === "file" ? entry.files : kind === "directory" ? entry.dirs : [...entry.files, ...entry.dirs]
+  const searchLimit = kind === "directory" && !preferHidden ? limit * 20 : limit
+  const sorted = fuzzysort.go(query, items, { limit: searchLimit }).map((item) => item.target)
+  return kind === "directory" ? sortHiddenLast(sorted, preferHidden).slice(0, limit) : sorted
+}
+
 interface State {
   cache: Entry
 }
@@ -323,12 +349,7 @@ export interface Interface {
   readonly status: () => Effect.Effect<Info[]>
   readonly read: (file: string) => Effect.Effect<Content>
   readonly list: (dir?: string) => Effect.Effect<Node[]>
-  readonly search: (input: {
-    query: string
-    limit?: number
-    dirs?: boolean
-    type?: "file" | "directory"
-  }) => Effect.Effect<string[]>
+  readonly search: (input: SearchInput) => Effect.Effect<string[]>
 }
 
 export class Service extends Context.Service<Service, Interface>()("@opencode/File") {}
@@ -340,6 +361,7 @@ export const layer = Layer.effect(
     const rg = yield* Ripgrep.Service
     const git = yield* Git.Service
     const scope = yield* Scope.Scope
+    const referenceCache = new Map<string, CachedEntry>()
 
     const state = yield* InstanceState.make<State>(
       Effect.fn("File.state")(() =>
@@ -348,6 +370,38 @@ export const layer = Layer.effect(
         }),
       ),
     )
+
+    const scanDirectory = Effect.fn("File.scanDirectory")(function* (cwd: string) {
+      const files = yield* rg.files({ cwd }).pipe(
+        Stream.runCollect,
+        Effect.map((chunk) => [...chunk]),
+      )
+      const seen = new Set<string>()
+      const entry: Entry = { files: [], dirs: [] }
+      for (const file of files) {
+        entry.files.push(file)
+        let current = file
+        while (true) {
+          const dir = path.dirname(current)
+          if (dir === ".") break
+          if (dir === current) break
+          current = dir
+          if (seen.has(dir)) continue
+          seen.add(dir)
+          entry.dirs.push(dir + "/")
+        }
+      }
+      return entry
+    })
+
+    const scanReference = Effect.fn("File.scanReference")(function* (cwd: string) {
+      const cached = referenceCache.get(cwd)
+      if (cached && Date.now() - cached.time < 30_000) return cached.entry
+
+      const entry = yield* scanDirectory(cwd)
+      referenceCache.set(cwd, { entry, time: Date.now() })
+      return entry
+    })
 
     const scan = Effect.fn("File.scan")(function* () {
       const ctx = yield* InstanceState.context
@@ -379,24 +433,9 @@ export const layer = Layer.effect(
 
         next.dirs = Array.from(dirs).toSorted()
       } else {
-        const files = yield* rg.files({ cwd: ctx.directory }).pipe(
-          Stream.runCollect,
-          Effect.map((chunk) => [...chunk]),
-        )
-        const seen = new Set<string>()
-        for (const file of files) {
-          next.files.push(file)
-          let current = file
-          while (true) {
-            const dir = path.dirname(current)
-            if (dir === ".") break
-            if (dir === current) break
-            current = dir
-            if (seen.has(dir)) continue
-            seen.add(dir)
-            next.dirs.push(dir + "/")
-          }
-        }
+        const scanned = yield* scanDirectory(ctx.directory)
+        next.files = scanned.files
+        next.dirs = scanned.dirs
       }
 
       const s = yield* InstanceState.get(state)
@@ -613,32 +652,36 @@ export const layer = Layer.effect(
       })
     })
 
-    const search = Effect.fn("File.search")(function* (input: {
-      query: string
-      limit?: number
-      dirs?: boolean
-      type?: "file" | "directory"
-    }) {
+    const searchReference = Effect.fn("File.searchReference")(function* (input: SearchInput) {
+      const ctx = yield* InstanceState.context
+      const parsed = ConfigReference.parseFilePath(input.query.trim(), input.references)
+      if (!parsed) return
+
+      const root = ConfigReference.resolveFilePath({
+        value: ConfigReference.formatFilePath(parsed.name, ""),
+        references: input.references,
+        ctx,
+      })
+      if (!root) return []
+      if (!(yield* appFs.isDir(root.filepath).pipe(Effect.orElseSucceed(() => false)))) return []
+
+      const entry = yield* scanReference(root.filepath).pipe(Effect.orElseSucceed(() => ({ files: [], dirs: [] })))
+      return searchEntry(entry, { ...input, query: parsed.path }).map((item) =>
+        ConfigReference.formatFilePath(parsed.name, item),
+      )
+    })
+
+    const search = Effect.fn("File.search")(function* (input: SearchInput) {
+      const reference = yield* searchReference(input)
+      if (reference) return reference
+
       yield* ensure()
       const { cache } = yield* InstanceState.get(state)
 
       const query = input.query.trim()
-      const limit = input.limit ?? 100
       const kind = input.type ?? (input.dirs === false ? "file" : "all")
       log.info("search", { query, kind })
-
-      const preferHidden = query.startsWith(".") || query.includes("/.")
-
-      if (!query) {
-        if (kind === "file") return cache.files.slice(0, limit)
-        return sortHiddenLast(cache.dirs.toSorted(), preferHidden).slice(0, limit)
-      }
-
-      const items = kind === "file" ? cache.files : kind === "directory" ? cache.dirs : [...cache.files, ...cache.dirs]
-
-      const searchLimit = kind === "directory" && !preferHidden ? limit * 20 : limit
-      const sorted = fuzzysort.go(query, items, { limit: searchLimit }).map((item) => item.target)
-      const output = kind === "directory" ? sortHiddenLast(sorted, preferHidden).slice(0, limit) : sorted
+      const output = searchEntry(cache, input)
 
       log.info("search", { query, kind, results: output.length })
       return output

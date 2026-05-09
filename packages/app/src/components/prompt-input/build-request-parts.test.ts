@@ -124,6 +124,33 @@ describe("buildRequestParts", () => {
     expect(files.some((part) => part.type === "file" && part.url === "file:///repo/src/shared.ts")).toBe(true)
   })
 
+  test("builds reference file URLs for configured repo paths", () => {
+    const result = buildRequestParts({
+      prompt: [{ type: "file", path: "effect:/src/Effect.ts", content: "@effect:/src/Effect.ts", start: 0, end: 22 }],
+      context: [
+        {
+          key: "ctx:reference-comment",
+          type: "file",
+          path: "src/review.ts",
+          comment: "Compare with @effect:/src/Context.ts.",
+        },
+      ],
+      images: [],
+      text: "@effect:/src/Effect.ts",
+      messageID: "msg_reference",
+      sessionID: "ses_reference",
+      sessionDirectory: "/repo",
+    })
+
+    const files = result.requestParts.filter((part) => part.type === "file")
+    expect(files.some((part) => part.type === "file" && part.url === "opencode-reference://effect/src/Effect.ts")).toBe(
+      true,
+    )
+    expect(
+      files.some((part) => part.type === "file" && part.url === "opencode-reference://effect/src/Context.ts"),
+    ).toBe(true)
+  })
+
   test("handles Windows paths correctly (simulated on macOS)", () => {
     const prompt: Prompt = [{ type: "file", path: "src\\foo.ts", content: "@src\\foo.ts", start: 0, end: 11 }]
 

@@ -32,6 +32,7 @@ import { Command } from "../command"
 import { pathToFileURL, fileURLToPath } from "url"
 import { Config } from "@/config/config"
 import { ConfigMarkdown } from "@/config/markdown"
+import { ConfigReference } from "@/config/reference"
 import { SessionSummary } from "./summary"
 import { NamedError } from "@opencode-ai/core/util/error"
 import { SessionProcessor } from "./processor"
@@ -1072,9 +1073,32 @@ NOTE: At any point in time through this workflow you should feel free to ask the
                 ]
               }
               break
-            case "file:": {
+            case "file:":
+            case ConfigReference.URL_PROTOCOL: {
               log.info("file", { mime: part.mime })
-              const filepath = fileURLToPath(part.url)
+              const referenceFile = ConfigReference.filePathFromUrl(url)
+              const resolvedReference = referenceFile
+                ? ConfigReference.resolveFilePath({
+                    value: referenceFile,
+                    references: (yield* config.get()).reference,
+                    ctx: yield* InstanceState.context,
+                  })
+                : undefined
+              if (url.protocol === ConfigReference.URL_PROTOCOL && !resolvedReference) {
+                return [
+                  {
+                    messageID: info.id,
+                    sessionID: input.sessionID,
+                    type: "text",
+                    synthetic: true,
+                    text: `Reference file not found: ${part.filename ?? part.url}`,
+                  },
+                ]
+              }
+              const filepath = resolvedReference?.filepath ?? fileURLToPath(part.url)
+              const resolvedPart = resolvedReference
+                ? { ...part, url: `${pathToFileURL(filepath).href}${url.search}` }
+                : part
               const mime = (yield* fsys.isDir(filepath)) ? "application/x-directory" : part.mime
 
               const { read } = yield* registry.named()
@@ -1099,7 +1123,7 @@ NOTE: At any point in time through this workflow you should feel free to ask the
                 let limit: number | undefined
                 const range = { start: url.searchParams.get("start"), end: url.searchParams.get("end") }
                 if (range.start != null) {
-                  const filePathURI = part.url.split("?")[0]
+                  const filePathURI = resolvedPart.url.split("?")[0]
                   let start = parseInt(range.start)
                   let end = range.end ? parseInt(range.end) : undefined
                   if (start === end) {
@@ -1152,7 +1176,7 @@ NOTE: At any point in time through this workflow you should feel free to ask the
                       })),
                     )
                   } else {
-                    pieces.push({ ...part, mime, messageID: info.id, sessionID: input.sessionID })
+                    pieces.push({ ...resolvedPart, mime, messageID: info.id, sessionID: input.sessionID })
                   }
                 } else {
                   const error = Cause.squash(exit.cause)
@@ -1209,7 +1233,7 @@ NOTE: At any point in time through this workflow you should feel free to ask the
                     synthetic: true,
                     text: exit.value.output,
                   },
-                  { ...part, mime, messageID: info.id, sessionID: input.sessionID },
+                  { ...resolvedPart, mime, messageID: info.id, sessionID: input.sessionID },
                 ]
               }
 
@@ -1231,7 +1255,7 @@ NOTE: At any point in time through this workflow you should feel free to ask the
                     Buffer.from(yield* fsys.readFile(filepath).pipe(Effect.catch(Effect.die))).toString("base64"),
                   mime,
                   filename: part.filename!,
-                  source: part.source,
+                  source: resolvedPart.source,
                 },
               ]
             }

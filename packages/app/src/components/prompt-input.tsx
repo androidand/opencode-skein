@@ -564,6 +564,9 @@ export const PromptInput: Component<PromptInputProps> = (props) => {
       .filter((agent) => !agent.hidden && agent.mode !== "primary")
       .map((agent): AtOption => ({ type: "agent", name: agent.name, display: agent.name })),
   )
+  const referenceAgentNames = createMemo(() =>
+    sync.data.agent.filter((agent) => agent.options.reference !== undefined).map((agent) => agent.name),
+  )
   const agentNames = createMemo(() => local.agent.list().map((agent) => agent.name))
 
   const handleAtSelect = (option: AtOption | undefined) => {
@@ -589,6 +592,9 @@ export const PromptInput: Component<PromptInputProps> = (props) => {
   } = useFilteredList<AtOption>({
     items: async (query) => {
       const agents = agentList()
+      const reference = referenceAgentNames().find(
+        (name) => query.startsWith(`${name}:/`) || query.startsWith(`${name}/`),
+      )
       const open = recent()
       const seen = new Set(open)
       const pinned: AtOption[] = open.map((path) => ({ type: "file", path, display: path, recent: true }))
@@ -597,6 +603,7 @@ export const PromptInput: Component<PromptInputProps> = (props) => {
       const fileOptions: AtOption[] = paths
         .filter((path) => !seen.has(path))
         .map((path) => ({ type: "file", path, display: path }))
+      if (reference) return fileOptions
       return [...agents, ...pinned, ...fileOptions]
     },
     key: atKey,
