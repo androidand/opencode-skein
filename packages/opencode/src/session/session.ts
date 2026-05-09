@@ -81,7 +81,9 @@ export function fromRow(row: SessionRow): Info {
     agent: row.agent ?? undefined,
     model: row.model
       ? {
-          id: ModelID.make(row.model.id),
+          // Pre-#24512 rows store `modelID` instead of `id`; fall back so
+          // sessions created before 2026-05-02 don't crash `fromRow`.
+          id: ModelID.make(row.model.id ?? (row.model as { modelID?: string }).modelID ?? ""),
           providerID: ProviderID.make(row.model.providerID),
           variant: row.model.variant,
         }
