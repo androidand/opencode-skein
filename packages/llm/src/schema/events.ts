@@ -45,15 +45,6 @@ export class Usage extends Schema.Class<Usage>("LLM.Usage")({
   native: Schema.optional(Schema.Record(Schema.String, Schema.Unknown)),
 }) {}
 
-export namespace Usage {
-  /** Sum of every input-side category. Monotonic under the additive contract. */
-  export const totalInput = (usage: Usage) =>
-    (usage.inputTokens ?? 0) + (usage.cacheReadInputTokens ?? 0) + (usage.cacheWriteInputTokens ?? 0)
-
-  /** Sum of every output-side category. Monotonic under the additive contract. */
-  export const totalOutput = (usage: Usage) => (usage.outputTokens ?? 0) + (usage.reasoningTokens ?? 0)
-}
-
 export const RequestStart = Schema.Struct({
   type: Schema.tag("request-start"),
   id: ResponseID,

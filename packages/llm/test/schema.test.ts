@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test"
 import { Schema } from "effect"
-import { ContentPart, LLMEvent, LLMRequest, ModelID, ModelLimits, ModelRef, ProviderID, Usage } from "../src/schema"
+import { ContentPart, LLMEvent, LLMRequest, ModelID, ModelLimits, ModelRef, ProviderID } from "../src/schema"
 import { ProviderShared } from "../src/protocols/shared"
 
 const model = new ModelRef({
@@ -53,24 +53,12 @@ describe("llm schema", () => {
 describe("LLM.Usage additive contract", () => {
   test("subtractTokens clamps non-sensical breakdowns to zero", () => {
     // Defense against a provider reporting cached_tokens > prompt_tokens or
-    // reasoning_tokens > completion_tokens. The clamp prevents the negative
-    // values that triggered opencode#26620 from ever entering the pipeline.
+    // reasoning_tokens > completion_tokens — the negative would otherwise
+    // round-trip through the pipeline and crash strict downstream schemas.
     expect(ProviderShared.subtractTokens(5, 3)).toBe(2)
     expect(ProviderShared.subtractTokens(5, 10)).toBe(0)
     expect(ProviderShared.subtractTokens(5, undefined)).toBe(5)
     expect(ProviderShared.subtractTokens(undefined, 3)).toBeUndefined()
     expect(ProviderShared.subtractTokens(undefined, undefined)).toBeUndefined()
-  })
-
-  test("totalInput sums every input-side category", () => {
-    expect(Usage.totalInput(new Usage({ inputTokens: 10, cacheReadInputTokens: 3, cacheWriteInputTokens: 2 }))).toBe(15)
-    expect(Usage.totalInput(new Usage({ inputTokens: 10 }))).toBe(10)
-    expect(Usage.totalInput(new Usage({}))).toBe(0)
-  })
-
-  test("totalOutput sums every output-side category", () => {
-    expect(Usage.totalOutput(new Usage({ outputTokens: 7, reasoningTokens: 4 }))).toBe(11)
-    expect(Usage.totalOutput(new Usage({ outputTokens: 7 }))).toBe(7)
-    expect(Usage.totalOutput(new Usage({}))).toBe(0)
   })
 })
