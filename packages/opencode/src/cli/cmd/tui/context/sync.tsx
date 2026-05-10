@@ -528,21 +528,22 @@ export const { use: useSync, provider: SyncProvider } = createSimpleContext({
             sdk.client.session.todo({ sessionID }),
             sdk.client.session.diff({ sessionID }),
           ])
-          setStore(
-            produce((draft) => {
-              const match = Binary.search(draft.session, sessionID, (s) => s.id)
-              if (match.found) draft.session[match.index] = session.data!
-              if (!match.found) draft.session.splice(match.index, 0, session.data!)
-              draft.todo[sessionID] = todo.data ?? []
-              const infos: (typeof draft.message)[string] = []
-              for (const message of messages.data ?? []) {
-                infos.push(message.info)
-                draft.part[message.info.id] = message.parts
-              }
-              draft.message[sessionID] = infos
-              draft.session_diff[sessionID] = diff.data ?? []
-            }),
-          )
+          const sessionMessages = messages.data ?? []
+          batch(() => {
+            setStore(
+              produce((draft) => {
+                const match = Binary.search(draft.session, sessionID, (s) => s.id)
+                if (match.found) draft.session[match.index] = session.data!
+                if (!match.found) draft.session.splice(match.index, 0, session.data!)
+              }),
+            )
+            setStore("todo", sessionID, todo.data ?? [])
+            setStore("message", sessionID, reconcile(sessionMessages.map((message) => message.info), { key: "id" }))
+            sessionMessages.forEach((message) => {
+              setStore("part", message.info.id, reconcile(message.parts, { key: "id" }))
+            })
+            setStore("session_diff", sessionID, diff.data ?? [])
+          })
           fullSyncedSessions.add(sessionID)
         },
       },
