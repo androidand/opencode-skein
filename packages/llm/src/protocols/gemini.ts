@@ -281,14 +281,21 @@ const fromRequest = Effect.fn("Gemini.fromRequest")(function* (request: LLMReque
 // =============================================================================
 // Stream Parsing
 // =============================================================================
+// Gemini reports `promptTokenCount` as the total prompt with cached
+// content included, but `candidatesTokenCount` already excludes
+// `thoughtsTokenCount` (visible vs reasoning are separate). Pull the
+// cached portion out at the boundary so the additive `LLM.Usage` contract
+// holds across providers.
 const mapUsage = (usage: GeminiUsage | undefined) => {
   if (!usage) return undefined
+  const cached = usage.cachedContentTokenCount
+  const inputTokens = ProviderShared.subtractTokens(usage.promptTokenCount, cached)
   return new Usage({
-    inputTokens: usage.promptTokenCount,
+    inputTokens,
     outputTokens: usage.candidatesTokenCount,
     reasoningTokens: usage.thoughtsTokenCount,
-    cacheReadInputTokens: usage.cachedContentTokenCount,
-    totalTokens: ProviderShared.totalTokens(usage.promptTokenCount, usage.candidatesTokenCount, usage.totalTokenCount),
+    cacheReadInputTokens: cached,
+    totalTokens: ProviderShared.totalTokens(inputTokens, usage.candidatesTokenCount, usage.totalTokenCount),
     native: usage,
   })
 }

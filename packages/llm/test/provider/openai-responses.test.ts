@@ -343,7 +343,10 @@ describe("OpenAI Responses route", () => {
           reason: "stop",
           providerMetadata: { openai: { responseId: "resp_1", serviceTier: "default" } },
           usage: {
-            inputTokens: 5,
+            // Additive contract: input_tokens=5 includes 1 cached, so
+            // inputTokens=4 + cacheReadInputTokens=1.
+            // output_tokens=2 includes 0 reasoning, so outputTokens=2.
+            inputTokens: 4,
             outputTokens: 2,
             reasoningTokens: 0,
             cacheReadInputTokens: 1,

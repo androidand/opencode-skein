@@ -364,6 +364,14 @@ const mapFinishReason = (reason: string | null | undefined): FinishReason => {
   return "unknown"
 }
 
+// Anthropic already reports input/cache-read/cache-write as separate
+// non-overlapping categories per the Messages API docs, so the additive
+// `LLM.Usage` contract is satisfied by direct pass-through. Extended
+// thinking tokens are *not* broken out by Anthropic — they're billed as
+// part of `output_tokens`, so `outputTokens` here may include reasoning
+// the same way OpenAI's `output_tokens` does pre-normalization. This is
+// a documented limitation of the Anthropic API surface, not a contract
+// violation.
 const mapUsage = (usage: AnthropicUsage | undefined): Usage | undefined => {
   if (!usage) return undefined
   return new Usage({

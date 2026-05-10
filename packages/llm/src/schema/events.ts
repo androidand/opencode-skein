@@ -3,6 +3,38 @@ import { ContentBlockID, FinishReason, ProtocolID, ProviderMetadata, ResponseID,
 import { ModelRef } from "./options"
 import { ToolResultValue } from "./messages"
 
+/**
+ * Token usage reported by an LLM provider, normalized to a fully-additive
+ * contract so consumers never have to subtract.
+ *
+ * **Field semantics** (each non-negative; missing means "not reported"):
+ *
+ * - `inputTokens` — non-cached input tokens (the "fresh" prompt portion).
+ * - `cacheReadInputTokens` — input tokens served from cache.
+ * - `cacheWriteInputTokens` — input tokens written to cache.
+ * - `outputTokens` — visible output tokens (text + tool calls).
+ * - `reasoningTokens` — hidden reasoning / thinking tokens.
+ * - `totalTokens` — provider-supplied total, or sum of input + output as a
+ *   fallback (see `ProviderShared.totalTokens`).
+ * - `native` — the provider's raw usage payload, preserved for debugging.
+ *
+ * **Invariant**: every aggregate of interest is a *sum*, never a difference.
+ * Total billable input = `inputTokens + cacheReadInputTokens +
+ * cacheWriteInputTokens`. Total billable output = `outputTokens +
+ * reasoningTokens`. Adding two non-negatives cannot underflow, so consumers
+ * cannot reproduce the underflow-then-clamp bug class where a stored
+ * negative gets rejected by a strict schema later.
+ *
+ * Each protocol mapper enforces this contract at the provider boundary.
+ * Providers that report cache or reasoning as subsets of input/output
+ * (OpenAI Chat/Responses, Gemini, Bedrock) have those subsets pulled out
+ * once via `ProviderShared.subtractTokens`, with `Math.max(0, …)` clamping
+ * for defense against provider bugs. Providers that already report
+ * separately (Anthropic) pass through. Where a provider doesn't surface a
+ * category at all (e.g. Anthropic does not break out extended-thinking
+ * tokens), the corresponding field is `undefined` and the parent count
+ * carries the combined total — a documented limitation of that API.
+ */
 export class Usage extends Schema.Class<Usage>("LLM.Usage")({
   inputTokens: Schema.optional(Schema.Number),
   outputTokens: Schema.optional(Schema.Number),
@@ -12,6 +44,24 @@ export class Usage extends Schema.Class<Usage>("LLM.Usage")({
   totalTokens: Schema.optional(Schema.Number),
   native: Schema.optional(Schema.Record(Schema.String, Schema.Unknown)),
 }) {}
+
+export namespace Usage {
+  type InputFields = Pick<Usage, "inputTokens" | "cacheReadInputTokens" | "cacheWriteInputTokens">
+  type OutputFields = Pick<Usage, "outputTokens" | "reasoningTokens">
+
+  /**
+   * Sum of every input-side category: non-cached input + cache reads +
+   * cache writes. Monotonic; cannot underflow under the additive contract.
+   */
+  export const totalInput = (usage: InputFields) =>
+    (usage.inputTokens ?? 0) + (usage.cacheReadInputTokens ?? 0) + (usage.cacheWriteInputTokens ?? 0)
+
+  /**
+   * Sum of every output-side category: visible output + reasoning.
+   * Monotonic; cannot underflow under the additive contract.
+   */
+  export const totalOutput = (usage: OutputFields) => (usage.outputTokens ?? 0) + (usage.reasoningTokens ?? 0)
+}
 
 export const RequestStart = Schema.Struct({
   type: Schema.tag("request-start"),

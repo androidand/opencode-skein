@@ -42,6 +42,13 @@ export interface ToolAccumulator {
  * supplied total; otherwise falls back to `inputTokens + outputTokens` only
  * when at least one is defined. Returns `undefined` when neither input nor
  * output is known so routes don't publish a misleading `0`.
+ *
+ * Under the additive `LLM.Usage` contract, `inputTokens` and `outputTokens`
+ * are the non-cached input and visible output only. The provider-supplied
+ * `total` is the source of truth when present; the computed fallback
+ * under-counts cache and reasoning by design and exists mainly so
+ * Anthropic-style providers (which don't surface a total) still get a
+ * sensible aggregate on the input + output axes.
  */
 export const totalTokens = (
   inputTokens: number | undefined,
@@ -51,6 +58,28 @@ export const totalTokens = (
   if (total !== undefined) return total
   if (inputTokens === undefined && outputTokens === undefined) return undefined
   return (inputTokens ?? 0) + (outputTokens ?? 0)
+}
+
+/**
+ * Subtract `subtrahend` from `total`, clamping to zero if the provider
+ * reports a non-sensical breakdown (e.g. `cached_tokens > prompt_tokens`).
+ * Used by protocol mappers to enforce the additive `LLM.Usage` contract:
+ * each provider's "inclusive" subtotals (cached, reasoning) are pulled out
+ * of the parent count at the boundary so downstream consumers never have to
+ * subtract — eliminating the underflow class of bug where a clamped
+ * difference would silently store the wrong value.
+ *
+ * If `total` is `undefined`, returns `undefined` (we don't fabricate
+ * counts). If `subtrahend` is `undefined`, returns `total` unchanged. The
+ * provider-native breakdown stays available on `Usage.native` for debugging.
+ */
+export const subtractTokens = (
+  total: number | undefined,
+  subtrahend: number | undefined,
+): number | undefined => {
+  if (total === undefined) return undefined
+  if (subtrahend === undefined) return total
+  return Math.max(0, total - subtrahend)
 }
 
 export const eventError = (route: string, message: string, raw?: string) =>

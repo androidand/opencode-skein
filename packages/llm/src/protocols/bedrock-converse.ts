@@ -363,12 +363,21 @@ const mapFinishReason = (reason: string): FinishReason => {
   return "unknown"
 }
 
+// AWS Bedrock Converse reports `inputTokens` as the total prompt with
+// cached and cache-write tokens included (per the Bedrock prompt-caching
+// docs). Pull each subtotal out at the boundary so the additive
+// `LLM.Usage` contract holds. Bedrock does not separately report
+// reasoning tokens for any current model.
 const mapUsage = (usage: BedrockUsageSchema | undefined): Usage | undefined => {
   if (!usage) return undefined
+  const inputTokens = ProviderShared.subtractTokens(
+    ProviderShared.subtractTokens(usage.inputTokens, usage.cacheReadInputTokens),
+    usage.cacheWriteInputTokens,
+  )
   return new Usage({
-    inputTokens: usage.inputTokens,
+    inputTokens,
     outputTokens: usage.outputTokens,
-    totalTokens: ProviderShared.totalTokens(usage.inputTokens, usage.outputTokens, usage.totalTokens),
+    totalTokens: ProviderShared.totalTokens(inputTokens, usage.outputTokens, usage.totalTokens),
     cacheReadInputTokens: usage.cacheReadInputTokens,
     cacheWriteInputTokens: usage.cacheWriteInputTokens,
     native: usage,
