@@ -1,16 +1,6 @@
 import { randomBytes } from "crypto"
 
-const prefixes = {
-  event: "evt",
-  session: "ses",
-  message: "msg",
-  permission: "per",
-  question: "que",
-  part: "prt",
-  pty: "pty",
-  tool: "tool",
-  workspace: "wrk",
-} as const
+export type Prefix = "evt" | "ses" | "msg" | "per" | "que" | "prt" | "pty" | "tool" | "wrk"
 
 const LENGTH = 26
 
@@ -18,21 +8,21 @@ const LENGTH = 26
 let lastTimestamp = 0
 let counter = 0
 
-export function ascending(prefix: keyof typeof prefixes, given?: string) {
+export function ascending(prefix: Prefix, given?: string) {
   return generateID(prefix, "ascending", given)
 }
 
-export function descending(prefix: keyof typeof prefixes, given?: string) {
+export function descending(prefix: Prefix, given?: string) {
   return generateID(prefix, "descending", given)
 }
 
-function generateID(prefix: keyof typeof prefixes, direction: "descending" | "ascending", given?: string): string {
+function generateID(prefix: Prefix, direction: "descending" | "ascending", given?: string): string {
   if (!given) {
-    return create(prefixes[prefix], direction)
+    return create(prefix, direction)
   }
 
-  if (!given.startsWith(prefixes[prefix])) {
-    throw new Error(`ID ${given} does not start with ${prefixes[prefix]}`)
+  if (!given.startsWith(prefix)) {
+    throw new Error(`ID ${given} does not start with ${prefix}`)
   }
   return given
 }

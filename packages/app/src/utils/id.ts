@@ -1,31 +1,15 @@
-import z from "zod"
-
-const prefixes = {
-  session: "ses",
-  message: "msg",
-  permission: "per",
-  user: "usr",
-  part: "prt",
-  pty: "pty",
-} as const
-
 const LENGTH = 26
 let lastTimestamp = 0
 let counter = 0
 
-type Prefix = keyof typeof prefixes
-export namespace Identifier {
-  export function schema(prefix: Prefix) {
-    return z.string().startsWith(prefixes[prefix])
-  }
+type Prefix = "msg" | "prt"
 
-  export function ascending(prefix: Prefix, given?: string) {
-    return generateID(prefix, false, given)
-  }
+export const MessageID = {
+  ascending: (given?: string) => generateID("msg", false, given),
+}
 
-  export function descending(prefix: Prefix, given?: string) {
-    return generateID(prefix, true, given)
-  }
+export const PartID = {
+  ascending: (given?: string) => generateID("prt", false, given),
 }
 
 function generateID(prefix: Prefix, descending: boolean, given?: string): string {
@@ -33,8 +17,8 @@ function generateID(prefix: Prefix, descending: boolean, given?: string): string
     return create(prefix, descending)
   }
 
-  if (!given.startsWith(prefixes[prefix])) {
-    throw new Error(`ID ${given} does not start with ${prefixes[prefix]}`)
+  if (!given.startsWith(prefix)) {
+    throw new Error(`ID ${given} does not start with ${prefix}`)
   }
 
   return given
@@ -61,7 +45,7 @@ function create(prefix: Prefix, descending: boolean, timestamp?: number): string
     timeBytes[i] = Number((now >> BigInt(40 - 8 * i)) & BigInt(0xff))
   }
 
-  return prefixes[prefix] + "_" + bytesToHex(timeBytes) + randomBase62(LENGTH - 12)
+  return prefix + "_" + bytesToHex(timeBytes) + randomBase62(LENGTH - 12)
 }
 
 function bytesToHex(bytes: Uint8Array): string {

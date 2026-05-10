@@ -13,7 +13,7 @@ import { usePermission } from "@/context/permission"
 import { type ContextItem, type ImageAttachmentPart, type Prompt, usePrompt } from "@/context/prompt"
 import { useSDK } from "@/context/sdk"
 import { useSync } from "@/context/sync"
-import { Identifier } from "@/utils/id"
+import { MessageID, PartID } from "@/utils/id"
 import { Worktree as WorktreeState } from "@/utils/worktree"
 import { buildRequestParts } from "./build-request-parts"
 import { setCursorPosition } from "./editor-dom"
@@ -89,7 +89,7 @@ export async function sendFollowupDraft(input: FollowupSendInput) {
         model: `${input.draft.model.providerID}/${input.draft.model.modelID}`,
         variant: input.draft.variant,
         parts: images.map((attachment) => ({
-          id: Identifier.ascending("part"),
+          id: PartID.ascending(),
           type: "file" as const,
           mime: attachment.mime,
           url: attachment.dataUrl,
@@ -103,7 +103,7 @@ export async function sendFollowupDraft(input: FollowupSendInput) {
     }
   }
 
-  const messageID = input.messageID ?? Identifier.ascending("message")
+  const messageID = input.messageID ?? MessageID.ascending()
   const { requestParts, optimisticParts } = buildRequestParts({
     prompt: input.draft.prompt,
     context: input.draft.context,
@@ -467,7 +467,7 @@ export function createPromptSubmit(input: PromptSubmitInput) {
             model: `${model.providerID}/${model.modelID}`,
             variant,
             parts: images.map((attachment) => ({
-              id: Identifier.ascending("part"),
+              id: PartID.ascending(),
               type: "file" as const,
               mime: attachment.mime,
               url: attachment.dataUrl,
@@ -486,7 +486,7 @@ export function createPromptSubmit(input: PromptSubmitInput) {
     }
 
     const commentItems = context.filter((item) => item.type === "file" && !!item.comment?.trim())
-    const messageID = Identifier.ascending("message")
+    const messageID = MessageID.ascending()
 
     const removeOptimisticMessage = () => {
       sync.session.optimistic.remove({
