@@ -1,6 +1,6 @@
 import { describe, expect } from "bun:test"
 import { Effect } from "effect"
-import { CacheHint, LLM, LLMError } from "../../src"
+import { CacheHint, LLM, LLMError, Usage } from "../../src"
 import { LLMClient } from "../../src/route"
 import * as AnthropicMessages from "../../src/protocols/anthropic-messages"
 import { it } from "../lib/effect"
@@ -152,7 +152,7 @@ describe("Anthropic Messages route", () => {
         {
           type: "request-finish",
           reason: "tool-calls",
-          usage: { inputTokens: 5, outputTokens: 1, totalTokens: 6, native: { input_tokens: 5, output_tokens: 1 } },
+          usage: new Usage({ inputTokens: 5, outputTokens: 1, totalTokens: 6, native: { input_tokens: 5, output_tokens: 1 } }),
         },
       ])
     }),

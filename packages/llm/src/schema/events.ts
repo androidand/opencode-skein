@@ -43,7 +43,17 @@ export class Usage extends Schema.Class<Usage>("LLM.Usage")({
   cacheWriteInputTokens: Schema.optional(Schema.Number),
   totalTokens: Schema.optional(Schema.Number),
   native: Schema.optional(Schema.Record(Schema.String, Schema.Unknown)),
-}) {}
+}) {
+  /** Sum of every input-side category. Monotonic under the additive contract. */
+  get totalInputTokens() {
+    return (this.inputTokens ?? 0) + (this.cacheReadInputTokens ?? 0) + (this.cacheWriteInputTokens ?? 0)
+  }
+
+  /** Sum of every output-side category. Monotonic under the additive contract. */
+  get totalOutputTokens() {
+    return (this.outputTokens ?? 0) + (this.reasoningTokens ?? 0)
+  }
+}
 
 export const RequestStart = Schema.Struct({
   type: Schema.tag("request-start"),

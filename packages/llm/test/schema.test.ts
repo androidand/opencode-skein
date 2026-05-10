@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test"
 import { Schema } from "effect"
-import { ContentPart, LLMEvent, LLMRequest, ModelID, ModelLimits, ModelRef, ProviderID } from "../src/schema"
+import { ContentPart, LLMEvent, LLMRequest, ModelID, ModelLimits, ModelRef, ProviderID, Usage } from "../src/schema"
 import { ProviderShared } from "../src/protocols/shared"
 
 const model = new ModelRef({
@@ -60,5 +60,17 @@ describe("LLM.Usage additive contract", () => {
     expect(ProviderShared.subtractTokens(5, undefined)).toBe(5)
     expect(ProviderShared.subtractTokens(undefined, 3)).toBeUndefined()
     expect(ProviderShared.subtractTokens(undefined, undefined)).toBeUndefined()
+  })
+
+  test("totalInputTokens sums every input-side category", () => {
+    expect(new Usage({ inputTokens: 10, cacheReadInputTokens: 3, cacheWriteInputTokens: 2 }).totalInputTokens).toBe(15)
+    expect(new Usage({ inputTokens: 10 }).totalInputTokens).toBe(10)
+    expect(new Usage({}).totalInputTokens).toBe(0)
+  })
+
+  test("totalOutputTokens sums every output-side category", () => {
+    expect(new Usage({ outputTokens: 7, reasoningTokens: 4 }).totalOutputTokens).toBe(11)
+    expect(new Usage({ outputTokens: 7 }).totalOutputTokens).toBe(7)
+    expect(new Usage({}).totalOutputTokens).toBe(0)
   })
 })

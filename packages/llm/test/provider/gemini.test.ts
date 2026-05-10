@@ -1,6 +1,6 @@
 import { describe, expect } from "bun:test"
 import { Effect } from "effect"
-import { LLM, LLMError } from "../../src"
+import { LLM, LLMError, Usage } from "../../src"
 import { LLMClient } from "../../src/route"
 import * as Gemini from "../../src/protocols/gemini"
 import { it } from "../lib/effect"
@@ -210,7 +210,7 @@ describe("Gemini route", () => {
         {
           type: "request-finish",
           reason: "stop",
-          usage: {
+          usage: new Usage({
             inputTokens: 4,
             outputTokens: 2,
             reasoningTokens: 1,
@@ -223,7 +223,7 @@ describe("Gemini route", () => {
               thoughtsTokenCount: 1,
               cachedContentTokenCount: 1,
             },
-          },
+          }),
         },
       ])
     }),
@@ -257,12 +257,12 @@ describe("Gemini route", () => {
         {
           type: "request-finish",
           reason: "tool-calls",
-          usage: {
+          usage: new Usage({
             inputTokens: 5,
             outputTokens: 1,
             totalTokens: 6,
             native: { promptTokenCount: 5, candidatesTokenCount: 1 },
-          },
+          }),
         },
       ])
     }),
