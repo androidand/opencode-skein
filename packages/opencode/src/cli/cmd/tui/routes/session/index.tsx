@@ -21,7 +21,18 @@ import { useEvent } from "@tui/context/event"
 import { SplitBorder } from "@tui/component/border"
 import { Spinner } from "@tui/component/spinner"
 import { selectedForeground, useTheme } from "@tui/context/theme"
-import { BoxRenderable, ScrollBoxRenderable, addDefaultParsers, TextAttributes, RGBA } from "@opentui/core"
+import {
+  BoxRenderable,
+  ScrollBoxRenderable,
+  addDefaultParsers,
+  TextAttributes,
+  RGBA,
+  type MarkdownOptions,
+  type MarkdownRenderable,
+  TextRenderable,
+  StyledText,
+  type TextChunk,
+} from "@opentui/core"
 import { Prompt, type PromptRef } from "@tui/component/prompt"
 import type {
   AssistantMessage,
@@ -1525,15 +1536,87 @@ function ReasoningPart(props: { last: boolean; part: ReasoningPart; message: Ass
 function TextPart(props: { last: boolean; part: TextPart; message: AssistantMessage }) {
   const ctx = use()
   const { theme, syntax } = useTheme()
+  const text = createMemo(() => props.part.text.trim())
+  const diffCache = new Map<string, TextChunk[]>()
+  const colorDiffChunks = (text: string) => {
+    const key = `${theme.diffAdded.toString()}:${theme.diffRemoved.toString()}:${text}`
+    const cached = diffCache.get(key)
+    if (cached) return cached
+
+    let line: "added" | "removed" | undefined
+    let start = true
+    const chunks = (text.match(/[^\n]+|\n/g) ?? [text]).map((part): TextChunk => {
+      if (start && part !== "\n") {
+        line = part.startsWith("+") ? "added" : part.startsWith("-") ? "removed" : undefined
+        start = false
+      }
+      const next = {
+        __isChunk: true,
+        text: part,
+        ...(line === "added" ? { fg: theme.diffAdded } : {}),
+        ...(line === "removed" ? { fg: theme.diffRemoved } : {}),
+      } satisfies TextChunk
+      if (part === "\n") {
+        line = undefined
+        start = true
+      }
+      return next
+    })
+    diffCache.set(key, chunks)
+    if (diffCache.size > 20) diffCache.delete(diffCache.keys().next().value!)
+    return chunks
+  }
+  const configureMarkdown = (node: MarkdownRenderable | undefined) => {
+    if (!node) return
+    const renderNode: NonNullable<MarkdownOptions["renderNode"]> = (token, context) => {
+      if (token.type === "hr") {
+        return new BoxRenderable(node.ctx, {
+          width: "100%",
+          height: 1,
+          border: ["top"],
+          borderColor: theme.border,
+          flexShrink: 0,
+        })
+      }
+
+      const needsCodeTopGap = token.type === "code" && !text().startsWith(token.raw.trimStart())
+      if (token.type === "code" && token.lang?.trim().toLowerCase() === "diff") {
+        const renderable = new TextRenderable(node.ctx, {
+          content: new StyledText(colorDiffChunks(token.text)),
+          width: "100%",
+          flexShrink: 0,
+        })
+        if (needsCodeTopGap) renderable.marginTop = 1
+        return renderable
+      }
+
+      const renderable = context.defaultRender()
+      if (needsCodeTopGap && renderable) {
+        renderable.marginTop = typeof renderable.marginTop === "number" ? Math.max(renderable.marginTop, 1) : 1
+      }
+      return renderable
+    }
+
+    // OpenTUI Solid constructs elements with only `{ id }`, so constructor-only
+    // MarkdownOptions need to be installed on the renderable directly.
+    const target = node as unknown as {
+      _internalBlockMode: "top-level"
+      _renderNode: typeof renderNode
+    }
+    target._internalBlockMode = "top-level"
+    target._renderNode = renderNode
+  }
   return (
-    <Show when={props.part.text.trim()}>
+    <Show when={text()}>
       <box id={"text-" + props.part.id} paddingLeft={3} marginTop={1} flexShrink={0}>
         <Switch>
           <Match when={Flag.OPENCODE_EXPERIMENTAL_MARKDOWN}>
             <markdown
               syntaxStyle={syntax()}
               streaming={true}
-              content={props.part.text.trim()}
+              ref={configureMarkdown}
+              tableOptions={{ style: "grid", widthMode: "content" }}
+              content={text()}
               conceal={ctx.conceal()}
               fg={theme.markdownText}
               bg={theme.background}
@@ -1545,7 +1628,7 @@ function TextPart(props: { last: boolean; part: TextPart; message: AssistantMess
               drawUnstyledText={false}
               streaming={true}
               syntaxStyle={syntax()}
-              content={props.part.text.trim()}
+              content={text()}
               conceal={ctx.conceal()}
               fg={theme.text}
             />

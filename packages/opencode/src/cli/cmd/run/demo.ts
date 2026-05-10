@@ -19,9 +19,11 @@ import type { Event, ToolPart } from "@opencode-ai/sdk/v2"
 import { createSessionData, reduceSessionData, type SessionData } from "./session-data"
 import { writeSessionOutput } from "./stream"
 import type { FooterApi, PermissionReply, QuestionReject, QuestionReply, RunPrompt, StreamCommit } from "./types"
+import { MARKDOWN_PATTERN_KINDS, MARKDOWN_PATTERNS, SAMPLE_MARKDOWN, SAMPLE_TABLE } from "../demo-fixtures"
 
 const KINDS = [
   "markdown",
+  ...MARKDOWN_PATTERN_KINDS,
   "table",
   "text",
   "reasoning",
@@ -51,53 +53,9 @@ function questionKind(value: string | undefined): QuestionKind | undefined {
   return QUESTIONS.find((item) => item === next)
 }
 
-const SAMPLE_MARKDOWN = [
-  "# Direct Mode Demo",
-  "",
-  "This is a realistic assistant response for direct-mode formatting checks.",
-  "It mixes **bold**, _italic_, `inline code`, links, code fences, and tables in one streamed reply.",
-  "",
-  "## Summary",
-  "",
-  "- Restored the final markdown flush so the last block is committed on idle.",
-  "- Switched markdown scrollback commits back to top-level block boundaries.",
-  "- Added footer-level regression coverage for split-footer rendering.",
-  "",
-  "## Status",
-  "",
-  "| Area | Before | After | Notes |",
-  "| --- | --- | --- | --- |",
-  "| Direct mode | Missing final rows | Stable | Final markdown block now flushes on idle |",
-  "| Tables | Dropped in streaming mode | Visible | Block-based commits match the working OpenTUI demo |",
-  "| Tests | Partial coverage | Broader coverage | Includes a footer-level split render capture |",
-  "",
-  "> This sample intentionally includes a wide table so you can spot wrapping and commit bugs quickly.",
-  "",
-  "```ts",
-  "const result = { markdown: true, tables: 2, stable: true }",
-  "```",
-  "",
-  "## Files",
-  "",
-  "| File | Change |",
-  "| --- | --- |",
-  "| `scrollback.surface.ts` | Align markdown commit logic with the split-footer demo |",
-  "| `footer.ts` | Keep active surfaces across footer-height-only resizes |",
-  "| `footer.test.ts` | Capture real split-footer markdown payloads during idle completion |",
-  "",
-  "Next step: run `/fmt table` if you want a tighter table-only sample.",
-].join("\n")
-
-const SAMPLE_TABLE = [
-  "# Table Sample",
-  "",
-  "| Kind | Example | Notes |",
-  "| --- | --- | --- |",
-  "| Pipe | `A\\|B` | Escaped pipes should stay in one cell |",
-  "| Unicode | `漢字` | Wide characters should remain aligned |",
-  "| Wrap | `LongTokenWithoutNaturalBreaks_1234567890` | Useful for width stress |",
-  "| Status | done | Final row should still appear after idle |",
-].join("\n")
+function markdownPattern(value: string): keyof typeof MARKDOWN_PATTERNS | undefined {
+  if (value in MARKDOWN_PATTERNS) return value as keyof typeof MARKDOWN_PATTERNS
+}
 
 type Ref = {
   msg: string
@@ -1028,6 +986,12 @@ async function emitFmt(state: State, kind: string, body: string, signal?: AbortS
 
   if (kind === "markdown" || kind === "md") {
     await emitText(state, body || SAMPLE_MARKDOWN, signal)
+    return true
+  }
+
+  const pattern = markdownPattern(kind)
+  if (pattern) {
+    await emitText(state, body || MARKDOWN_PATTERNS[pattern], signal)
     return true
   }
 

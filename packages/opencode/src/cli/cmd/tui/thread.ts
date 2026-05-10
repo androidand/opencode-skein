@@ -111,6 +111,10 @@ export const TuiThreadCommand = cmd({
       .option("agent", {
         type: "string",
         describe: "agent to use",
+      })
+      .option("demo", {
+        type: "boolean",
+        describe: "open a fake fullscreen TUI session for renderer debugging",
       }),
   handler: async (args) => {
     // Keep ENABLE_PROCESSED_INPUT cleared even if other code flips it.
@@ -130,7 +134,6 @@ export const TuiThreadCommand = cmd({
       // Resolve relative --project paths from PWD, then use the real cwd after
       // chdir so the thread and worker share the same directory key.
       const next = resolveThreadDirectory(args.project)
-      const file = await target()
       try {
         process.chdir(next)
       } catch {
@@ -138,6 +141,31 @@ export const TuiThreadCommand = cmd({
         return
       }
       const cwd = Filesystem.resolve(process.cwd())
+      const config = TuiConfig.get()
+
+      if (args.demo) {
+        const { createTuiDemo } = await import("./demo")
+        const { tui } = await import("./app")
+        const demo = createTuiDemo({ directory: cwd })
+        await tui({
+          url: "http://opencode.demo",
+          config: await config,
+          directory: cwd,
+          fetch: demo.fetch,
+          events: demo.events,
+          args: {
+            continue: false,
+            sessionID: demo.sessionID,
+            agent: args.agent,
+            model: args.model,
+            prompt: await input(args.prompt),
+            fork: false,
+          },
+        })
+        return
+      }
+
+      const file = await target()
       const env = sanitizedProcessEnv({
         [OPENCODE_PROCESS_ROLE]: "worker",
         [OPENCODE_RUN_ID]: ensureRunID(),
@@ -187,8 +215,6 @@ export const TuiThreadCommand = cmd({
       }
 
       const prompt = await input(args.prompt)
-      const config = await TuiConfig.get()
-
       const network = resolveNetworkOptionsNoConfig(args)
       const external =
         process.argv.includes("--port") ||
@@ -236,7 +262,7 @@ export const TuiThreadCommand = cmd({
             const server = await client.call("snapshot", undefined)
             return [tui, server]
           },
-          config,
+          config: await config,
           directory: cwd,
           fetch: transport.fetch,
           events: transport.events,

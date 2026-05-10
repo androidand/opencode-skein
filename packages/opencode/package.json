@@ -13,6 +13,8 @@
     "build": "bun run script/build.ts",
     "fix-node-pty": "bun run script/fix-node-pty.ts",
     "dev": "bun run --conditions=browser ./src/index.ts",
+    "dev:demo": "bun run --conditions=browser ./src/index.ts --demo",
+    "dev:run-demo": "bun run --conditions=browser ./src/index.ts run --interactive --demo",
     "dev:temporary": "bun run --conditions=browser ./src/temporary.ts",
     "db": "bun drizzle-kit"
   },
