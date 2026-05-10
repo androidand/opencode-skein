@@ -2,7 +2,16 @@ import { Provider } from "@/provider/provider"
 import * as Log from "@opencode-ai/core/util/log"
 import { Context, Effect, Layer, Record } from "effect"
 import * as Stream from "effect/Stream"
-import { streamText, wrapLanguageModel, type ModelMessage, type Tool, tool, jsonSchema } from "ai"
+import {
+  streamText,
+  wrapLanguageModel,
+  type LanguageModelUsage,
+  type ModelMessage,
+  type ProviderMetadata as AiProviderMetadata,
+  type Tool,
+  tool,
+  jsonSchema,
+} from "ai"
 import { mergeDeep } from "remeda"
 import { GitLabWorkflowLanguageModel } from "gitlab-ai-provider"
 import { ProviderTransform } from "@/provider/transform"
@@ -27,7 +36,48 @@ import * as OtelTracer from "@effect/opentelemetry/Tracer"
 
 const log = Log.create({ service: "llm" })
 export const OUTPUT_TOKEN_MAX = ProviderTransform.OUTPUT_TOKEN_MAX
-type Result = Awaited<ReturnType<typeof streamText>>
+export type ProviderMetadata = AiProviderMetadata
+export type Usage = LanguageModelUsage
+
+export type ToolOutput = {
+  title: string
+  metadata: Record<string, any>
+  output: string
+  attachments?: MessageV2.FilePart[]
+}
+
+export type Event =
+  | { type: "start" }
+  | { type: "reasoning-start"; id: string; providerMetadata?: ProviderMetadata }
+  | { type: "reasoning-delta"; id: string; text: string; providerMetadata?: ProviderMetadata }
+  | { type: "reasoning-end"; id: string; providerMetadata?: ProviderMetadata }
+  | { type: "tool-input-start"; id: string; toolName: string; providerExecuted?: boolean }
+  | { type: "tool-input-delta"; id: string; delta?: string }
+  | { type: "tool-input-end"; id: string }
+  | { type: "tool-call"; toolCallId: string; toolName: string; input: any; providerMetadata?: ProviderMetadata }
+  | { type: "tool-result"; toolCallId: string; output: ToolOutput }
+  | { type: "tool-error"; toolCallId: string; error: unknown }
+  | { type: "error"; error: unknown }
+  | { type: "start-step" }
+  | {
+      type: "finish-step"
+      finishReason: string
+      rawFinishReason?: string
+      usage: Usage
+      response?: unknown
+      providerMetadata?: ProviderMetadata
+    }
+  | { type: "text-start"; id?: string; providerMetadata?: ProviderMetadata }
+  | { type: "text-delta"; id?: string; text: string; providerMetadata?: ProviderMetadata }
+  | { type: "text-end"; id?: string; providerMetadata?: ProviderMetadata }
+  | {
+      type: "finish"
+      finishReason?: string
+      rawFinishReason?: string
+      usage?: Usage
+      totalUsage?: Usage
+      providerMetadata?: ProviderMetadata
+    }
 
 // Avoid re-instantiating remeda's deep merge types in this hot LLM path; the runtime behavior is still mergeDeep.
 const mergeOptions = (target: Record<string, any>, source: Record<string, any> | undefined): Record<string, any> =>
@@ -51,8 +101,6 @@ export type StreamInput = {
 export type StreamRequest = StreamInput & {
   abort: AbortSignal
 }
-
-export type Event = Result["fullStream"] extends AsyncIterable<infer T> ? T : never
 
 export interface Interface {
   readonly stream: (input: StreamInput) => Stream.Stream<Event, unknown>
@@ -427,7 +475,9 @@ const live: Layer.Layer<
 
             const result = yield* run({ ...input, abort: ctrl.signal })
 
-            return Stream.fromAsyncIterable(result.fullStream, (e) => (e instanceof Error ? e : new Error(String(e))))
+            return Stream.fromAsyncIterable(result.fullStream as AsyncIterable<Event>, (e) =>
+              e instanceof Error ? e : new Error(String(e)),
+            )
           }),
         ),
       )

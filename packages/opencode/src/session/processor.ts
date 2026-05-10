@@ -388,7 +388,7 @@ export const layer: Layer.Layer<
                   text: value.output.output,
                 },
                 ...(value.output.attachments?.map((item: MessageV2.FilePart) => ({
-                  type: "file",
+                  type: "file" as const,
                   uri: item.url,
                   mime: item.mime,
                   name: item.filename,
@@ -578,7 +578,7 @@ export const layer: Layer.Layer<
             return
 
           default:
-            slog.info("unhandled", { event: value.type, value })
+            slog.info("unhandled", { event: (value as { type: string }).type, value })
             return
         }
       })

@@ -1,6 +1,7 @@
 import { NodeFileSystem } from "@effect/platform-node"
 import { expect } from "bun:test"
 import { Cause, Effect, Exit, Fiber, Layer } from "effect"
+import * as Stream from "effect/Stream"
 import path from "path"
 import type { Agent } from "../../src/agent/agent"
 import { Agent as AgentSvc } from "../../src/agent/agent"
@@ -20,7 +21,7 @@ import { SessionSummary } from "../../src/session/summary"
 import { Snapshot } from "../../src/snapshot"
 import * as Log from "@opencode-ai/core/util/log"
 import { CrossSpawnSpawner } from "@opencode-ai/core/cross-spawn-spawner"
-import { provideTmpdirServer } from "../fixture/fixture"
+import { provideTmpdirServer, TestInstance } from "../fixture/fixture"
 import { testEffect } from "../lib/effect"
 import { raw, reply, TestLLMServer } from "../lib/llm-server"
 
@@ -173,6 +174,37 @@ const env = Layer.mergeAll(
 
 const it = testEffect(env)
 
+function llmEvents() {
+  const queue: Array<LLM.Event[]> = []
+
+  return {
+    push(...events: LLM.Event[]) {
+      queue.push(events)
+    },
+    layer: Layer.succeed(
+      LLM.Service,
+      LLM.Service.of({
+        stream: () => Stream.make(...(queue.shift() ?? [])),
+      }),
+    ),
+  }
+}
+
+const directLLM = llmEvents()
+const directDeps = Layer.mergeAll(
+  Session.defaultLayer,
+  Snapshot.defaultLayer,
+  AgentSvc.defaultLayer,
+  Permission.defaultLayer,
+  Plugin.defaultLayer,
+  Config.defaultLayer,
+  directLLM.layer,
+  Provider.defaultLayer,
+  status,
+).pipe(Layer.provideMerge(infra))
+const directEnv = SessionProcessor.layer.pipe(Layer.provide(summary), Layer.provideMerge(directDeps))
+const directIt = testEffect(directEnv)
+
 const boot = Effect.fn("test.boot")(function* () {
   const processors = yield* SessionProcessor.Service
   const session = yield* Session.Service
@@ -183,6 +215,82 @@ const boot = Effect.fn("test.boot")(function* () {
 // ---------------------------------------------------------------------------
 // Tests
 // ---------------------------------------------------------------------------
+
+directIt.instance(
+  "session.processor effect tests consume explicit llm events",
+  Effect.gen(function* () {
+    const { directory: dir } = yield* TestInstance
+    const { processors, session, provider } = yield* boot()
+
+    directLLM.push(
+      { type: "start" },
+      { type: "start-step" },
+      { type: "reasoning-start", id: "reason-0" },
+      { type: "reasoning-delta", id: "reason-0", text: "think" },
+      { type: "reasoning-end", id: "reason-0" },
+      { type: "text-start", id: "text-0" },
+      { type: "text-delta", id: "text-0", text: "hello" },
+      { type: "text-end", id: "text-0" },
+      {
+        type: "finish-step",
+        finishReason: "stop",
+        usage: {
+          inputTokens: 1,
+          outputTokens: 1,
+          totalTokens: 2,
+          inputTokenDetails: {
+            noCacheTokens: undefined,
+            cacheReadTokens: undefined,
+            cacheWriteTokens: undefined,
+          },
+          outputTokenDetails: {
+            textTokens: undefined,
+            reasoningTokens: undefined,
+          },
+        },
+      },
+      { type: "finish", finishReason: "stop" },
+    )
+
+    const chat = yield* session.create({})
+    const parent = yield* user(chat.id, "hi")
+    const msg = yield* assistant(chat.id, parent.id, path.resolve(dir))
+    const mdl = yield* provider.getModel(ref.providerID, ref.modelID)
+    const handle = yield* processors.create({
+      assistantMessage: msg,
+      sessionID: chat.id,
+      model: mdl,
+    })
+
+    const value = yield* handle.process({
+      user: {
+        id: parent.id,
+        sessionID: chat.id,
+        role: "user",
+        time: parent.time,
+        agent: parent.agent,
+        model: { providerID: ref.providerID, modelID: ref.modelID },
+      } satisfies MessageV2.User,
+      sessionID: chat.id,
+      model: mdl,
+      agent: agent(),
+      system: [],
+      messages: [{ role: "user", content: "hi" }],
+      tools: {},
+    })
+
+    const parts = MessageV2.parts(msg.id)
+    const reasoning = parts.find((part): part is MessageV2.ReasoningPart => part.type === "reasoning")
+    const text = parts.find((part): part is MessageV2.TextPart => part.type === "text")
+    const finish = parts.find((part): part is MessageV2.StepFinishPart => part.type === "step-finish")
+
+    expect(value).toBe("continue")
+    expect(reasoning?.text).toBe("think")
+    expect(text?.text).toBe("hello")
+    expect(finish?.reason).toBe("stop")
+  }),
+  { git: true, config: providerCfg("http://localhost:1/v1") },
+)
 
 it.live("session.processor effect tests capture llm input cleanly", () =>
   provideTmpdirServer(
