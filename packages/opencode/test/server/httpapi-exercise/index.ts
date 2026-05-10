@@ -1260,6 +1260,47 @@ const scenarios: Scenario[] = [
     .probe({ path: "/global/upgrade", body: { target: 1 } })
     .at(() => ({ path: "/global/upgrade", body: { target: 1 } }))
     .status(400),
+
+  // ─── SDK routing-params drift coverage (replaces httpapi-query-schema-drift.test.ts) ───
+  // Each routing-aware GET endpoint runs through the real SDK client, which
+  // auto-injects `?directory=...&workspace=...`. Pre-#26581 these all 4xx'd
+  // because the typed query schemas didn't accept the SDK's injected fields.
+  // Any future endpoint added under WorkspaceRoutingMiddleware that forgets
+  // WorkspaceRoutingQueryFields will fail its `.viaSdk(...)` scenario on
+  // first run.
+  http.protected
+    .get("/session", "session.list.via_sdk")
+    .viaSdk((sdk) => sdk.session.list({ roots: true }, { throwOnError: true }))
+    .json(200, array, "status"),
+  http.protected
+    .get("/session/{sessionID}/message", "session.messages.via_sdk")
+    .at((ctx) => ({ path: route("/session/{sessionID}/message", { sessionID: "ses_via_sdk_drift" }), headers: ctx.headers() }))
+    .viaSdk((sdk) => sdk.session.messages({ sessionID: "ses_via_sdk_drift", limit: 80 }))
+    .status(404, undefined, "status"),
+  http.protected
+    .get("/find/file", "find.files.via_sdk")
+    .viaSdk((sdk) => sdk.find.files({ query: "foo" }, { throwOnError: true }))
+    .json(200, array, "status"),
+  http.protected
+    .get("/find", "find.text.via_sdk")
+    .viaSdk((sdk) => sdk.find.text({ pattern: "foo" }, { throwOnError: true }))
+    .json(200, array, "status"),
+  http.protected
+    .get("/file/content", "file.read.via_sdk")
+    .viaSdk((sdk) => sdk.file.read({ path: "foo" }, { throwOnError: true }))
+    .json(200, undefined, "status"),
+  http.protected
+    .get("/experimental/session", "experimental.session.list.via_sdk")
+    .viaSdk((sdk) => sdk.experimental.session.list({}, { throwOnError: true }))
+    .json(200, array, "status"),
+  http.protected
+    .get("/experimental/tool", "experimental.tool.list.via_sdk")
+    .viaSdk((sdk) => sdk.tool.list({ provider: "anthropic", model: "claude" }, { throwOnError: true }))
+    .json(200, array, "status"),
+  http.protected
+    .get("/vcs/diff", "vcs.diff.via_sdk")
+    .viaSdk((sdk) => sdk.vcs.diff({ mode: "git" }, { throwOnError: true }))
+    .json(200, array, "status"),
 ]
 
 const llmScenarios = new Set([
