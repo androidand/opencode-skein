@@ -558,20 +558,22 @@ test("handles file inclusion with replacement tokens", async () => {
   })
 })
 
-test("validates config schema and throws on invalid fields", async () => {
+test("config loader is tolerant: drops unknown fields, keeps the rest", async () => {
   await using tmp = await tmpdir({
     init: async (dir) => {
       await writeConfig(dir, {
         $schema: "https://opencode.ai/config.json",
-        invalid_field: "should cause error",
+        username: "kept",
+        invalid_field: "should be dropped, not crash the app",
       })
     },
   })
   await provideTestInstance({
     directory: tmp.path,
     fn: async () => {
-      // Strict schema should throw an error for invalid fields
-      await expect(load()).rejects.toThrow()
+      const config = await load()
+      expect(config.username).toBe("kept")
+      expect((config as Record<string, unknown>).invalid_field).toBeUndefined()
     },
   })
 })
@@ -1681,7 +1683,70 @@ test("permission config preserves user key order", async () => {
   })
 })
 
-test("Effect config parser preserves permission order while rejecting unknown top-level keys", () => {
+// Discord bug report (Ben Matthews, v1.14.45): a malformed `skills:` field
+// (array instead of object) made the WHOLE config fail to load, the server
+// returned 500, and the desktop app couldn't start. Per Kit:
+//   "for all of these things that we load from the user's computer, they
+//    should be kind of tolerant. ... It shouldn't break opencode."
+// The contract: drop the malformed top-level field, log a warning, keep
+// the rest of the config so the app starts.
+test("config parser is tolerant: drops malformed top-level fields, keeps the rest", () => {
+  const config = ConfigParse.effectSchema(
+    Config.Info,
+    {
+      $schema: "https://opencode.ai/config.json",
+      username: "ben",
+      // Wrong shape — schema expects { paths?, urls? }, user has an array
+      // (looks like the LOADED skills list got pasted into the config).
+      skills: [
+        { name: "scss-layout-accessibility", path: ".opencode/skills/scss-layout-accessibility.md" },
+        { name: "testing", path: ".opencode/skills/testing.md" },
+      ],
+    },
+    "test",
+  )
+
+  // Pre-fix this throws ConfigInvalidError and the user can't start opencode.
+  // Post-fix the bad field is dropped and the rest of the config loads.
+  expect(config.username).toBe("ben")
+  expect(config.skills).toBeUndefined()
+})
+
+test("config parser is tolerant: drops unrecognized top-level keys instead of throwing", () => {
+  const config = ConfigParse.effectSchema(
+    Config.Info,
+    {
+      $schema: "https://opencode.ai/config.json",
+      username: "ben",
+      // Typo or stale key — pre-fix this threw `unrecognized_keys`.
+      autoshrare: true,
+    },
+    "test",
+  )
+
+  expect(config.username).toBe("ben")
+  expect((config as Record<string, unknown>).autoshrare).toBeUndefined()
+})
+
+test("config parser is tolerant: drops multiple bad fields in one pass", () => {
+  const config = ConfigParse.effectSchema(
+    Config.Info,
+    {
+      $schema: "https://opencode.ai/config.json",
+      username: "ben",
+      skills: ["wrong shape"],
+      autoshare: 42, // wrong type — schema wants string literal | undefined
+      not_a_real_key: "ignore me",
+    },
+    "test",
+  )
+
+  expect(config.username).toBe("ben")
+  expect(config.skills).toBeUndefined()
+  expect(config.autoshare).toBeUndefined()
+})
+
+test("Effect config parser preserves permission order while dropping unknown top-level keys", () => {
   const config = ConfigParse.effectSchema(
     Config.Info,
     {
@@ -1695,13 +1760,10 @@ test("Effect config parser preserves permission order while rejecting unknown to
   )
 
   expect(Object.keys(config.permission!)).toEqual(["bash", "*", "edit"])
-  try {
-    ConfigParse.effectSchema(Config.Info, { invalid_field: true }, "test")
-    throw new Error("expected config parse to fail")
-  } catch (err) {
-    const error = err as { data?: { issues?: Array<{ code?: string; keys?: string[]; path?: string[] }> } }
-    expect(error.data?.issues?.[0]).toMatchObject({ code: "unrecognized_keys", keys: ["invalid_field"], path: [] })
-  }
+  // Tolerant parser: unknown keys are stripped (with a warning log) instead
+  // of failing the entire config load.
+  const stripped = ConfigParse.effectSchema(Config.Info, { invalid_field: true }, "test")
+  expect((stripped as Record<string, unknown>).invalid_field).toBeUndefined()
 })
 
 // MCP config merging tests
