@@ -292,9 +292,8 @@ const mapFinishReason = (reason: string | null | undefined): FinishReason => {
 
 // OpenAI Chat reports `prompt_tokens` as the total prompt (cached tokens
 // included) and `completion_tokens` as the total output (reasoning tokens
-// included). The additive `LLM.Usage` contract pulls each subtotal out at
-// the boundary so consumers never subtract — eliminating the underflow
-// class addressed by opencode#26620.
+// included). Pull each subtotal out at the boundary so the additive
+// `LLM.Usage` contract holds and consumers never subtract.
 const mapUsage = (usage: OpenAIChatEvent["usage"]): Usage | undefined => {
   if (!usage) return undefined
   const cached = usage.prompt_tokens_details?.cached_tokens

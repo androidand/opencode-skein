@@ -231,9 +231,6 @@ describe("OpenAI Chat route", () => {
           type: "request-finish",
           reason: "stop",
           usage: {
-            // Additive contract: prompt_tokens=5 includes 1 cached, so
-            // inputTokens=4 (non-cached) + cacheReadInputTokens=1.
-            // completion_tokens=2 includes 0 reasoning, so outputTokens=2.
             inputTokens: 4,
             outputTokens: 2,
             reasoningTokens: 0,

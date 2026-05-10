@@ -46,21 +46,12 @@ export class Usage extends Schema.Class<Usage>("LLM.Usage")({
 }) {}
 
 export namespace Usage {
-  type InputFields = Pick<Usage, "inputTokens" | "cacheReadInputTokens" | "cacheWriteInputTokens">
-  type OutputFields = Pick<Usage, "outputTokens" | "reasoningTokens">
-
-  /**
-   * Sum of every input-side category: non-cached input + cache reads +
-   * cache writes. Monotonic; cannot underflow under the additive contract.
-   */
-  export const totalInput = (usage: InputFields) =>
+  /** Sum of every input-side category. Monotonic under the additive contract. */
+  export const totalInput = (usage: Usage) =>
     (usage.inputTokens ?? 0) + (usage.cacheReadInputTokens ?? 0) + (usage.cacheWriteInputTokens ?? 0)
 
-  /**
-   * Sum of every output-side category: visible output + reasoning.
-   * Monotonic; cannot underflow under the additive contract.
-   */
-  export const totalOutput = (usage: OutputFields) => (usage.outputTokens ?? 0) + (usage.reasoningTokens ?? 0)
+  /** Sum of every output-side category. Monotonic under the additive contract. */
+  export const totalOutput = (usage: Usage) => (usage.outputTokens ?? 0) + (usage.reasoningTokens ?? 0)
 }
 
 export const RequestStart = Schema.Struct({

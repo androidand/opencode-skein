@@ -197,9 +197,6 @@ describe("Gemini route", () => {
       expect(response.text).toBe("Hello!")
       expect(response.reasoning).toBe("thinking")
       expect(response.usage).toMatchObject({
-        // Additive contract: promptTokenCount=5 includes 1 cached, so
-        // inputTokens=4 + cacheReadInputTokens=1. Gemini already splits
-        // candidates from thoughts, so outputTokens=2 + reasoningTokens=1.
         inputTokens: 4,
         outputTokens: 2,
         reasoningTokens: 1,

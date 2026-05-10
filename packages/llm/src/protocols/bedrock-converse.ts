@@ -370,10 +370,8 @@ const mapFinishReason = (reason: string): FinishReason => {
 // reasoning tokens for any current model.
 const mapUsage = (usage: BedrockUsageSchema | undefined): Usage | undefined => {
   if (!usage) return undefined
-  const inputTokens = ProviderShared.subtractTokens(
-    ProviderShared.subtractTokens(usage.inputTokens, usage.cacheReadInputTokens),
-    usage.cacheWriteInputTokens,
-  )
+  const cacheTotal = (usage.cacheReadInputTokens ?? 0) + (usage.cacheWriteInputTokens ?? 0)
+  const inputTokens = ProviderShared.subtractTokens(usage.inputTokens, cacheTotal)
   return new Usage({
     inputTokens,
     outputTokens: usage.outputTokens,
