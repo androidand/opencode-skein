@@ -4,6 +4,7 @@ import { Schema } from "effect"
 import { Session } from "@/session/session"
 import { SessionPrompt } from "../../src/session/prompt"
 import { SessionRevert } from "../../src/session/revert"
+import { SessionTimeline } from "../../src/session/timeline"
 import { SessionStatus } from "../../src/session/status"
 import { SessionSummary } from "../../src/session/summary"
 import { Todo } from "../../src/session/todo"
@@ -218,8 +219,8 @@ describe("Session input schemas", () => {
 describe("SessionRevert.RevertInput", () => {
   const decode = decodeUnknown(SessionRevert.RevertInput)
 
-  test("messageID is required, partID is optional", () => {
-    const withPart = { sessionID, messageID, partID }
+  test("messageID is required, partID and file policy are optional", () => {
+    const withPart = { sessionID, messageID, partID, files: "keep" as const }
     expect(decode(withPart)).toEqual(withPart)
     expect(SessionRevert.RevertInput.zod.parse(withPart)).toEqual(withPart)
 
@@ -229,6 +230,20 @@ describe("SessionRevert.RevertInput", () => {
 
     expect(() => decode({ sessionID })).toThrow()
     expect(() => SessionRevert.RevertInput.zod.parse({ sessionID })).toThrow()
+  })
+})
+
+describe("SessionTimeline.RewindInput", () => {
+  const decode = decodeUnknown(SessionTimeline.RewindInput)
+
+  test("accepts optional file policy", () => {
+    const keep = { sessionID, messageID, files: "keep" as const }
+    expect(decode(keep)).toEqual(keep)
+    expect(SessionTimeline.RewindInput.zod.parse(keep)).toEqual(keep)
+
+    const revert = { sessionID, messageID, partID, files: "revert" as const }
+    expect(decode(revert)).toEqual(revert)
+    expect(SessionTimeline.RewindInput.zod.parse(revert)).toEqual(revert)
   })
 })
 

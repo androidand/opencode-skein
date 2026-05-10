@@ -5,6 +5,7 @@ import { Effect, Layer } from "effect"
 import { Session } from "@/session/session"
 import { ModelID, ProviderID } from "../../src/provider/schema"
 import { SessionRevert } from "../../src/session/revert"
+import { SessionTimeline } from "../../src/session/timeline"
 import { MessageV2 } from "../../src/session/message-v2"
 import { Snapshot } from "../../src/snapshot"
 import * as Log from "@opencode-ai/core/util/log"
@@ -18,6 +19,7 @@ void Log.init({ print: false })
 const env = Layer.mergeAll(
   Session.defaultLayer,
   SessionRevert.defaultLayer,
+  SessionTimeline.defaultLayer,
   Snapshot.defaultLayer,
   CrossSpawnSpawner.defaultLayer,
 )
@@ -95,6 +97,51 @@ const tokens = {
   reasoning: 0,
   cache: { read: 0, write: 0 },
 }
+
+const fileTurn = Effect.fn("test.fileTurn")(function* (input: {
+  sessionID: SessionID
+  dir: string
+  file: string
+  content: string
+}) {
+  const session = yield* Session.Service
+  const snapshot = yield* Snapshot.Service
+  const userMsg = yield* user(input.sessionID)
+  yield* text(input.sessionID, userMsg.id, `${input.file}:${input.content}`)
+  const assistantMsg = yield* assistant(input.sessionID, userMsg.id, input.dir)
+  const before = yield* snapshot.track()
+  if (!before) throw new Error("expected snapshot")
+  yield* write(path.join(input.dir, input.file), input.content)
+  const after = yield* snapshot.track()
+  if (!after) throw new Error("expected snapshot")
+  const patch = yield* snapshot.patch(before)
+  yield* session.updatePart({
+    id: PartID.ascending(),
+    messageID: assistantMsg.id,
+    sessionID: input.sessionID,
+    type: "step-start",
+    snapshot: before,
+  })
+  yield* session.updatePart({
+    id: PartID.ascending(),
+    messageID: assistantMsg.id,
+    sessionID: input.sessionID,
+    type: "step-finish",
+    reason: "stop",
+    snapshot: after,
+    cost: 0,
+    tokens,
+  })
+  yield* session.updatePart({
+    id: PartID.ascending(),
+    messageID: assistantMsg.id,
+    sessionID: input.sessionID,
+    type: "patch",
+    hash: patch.hash,
+    files: patch.files,
+  })
+  return { user: userMsg, assistant: assistantMsg }
+})
 
 describe("revert + compact workflow", () => {
   it.live(
@@ -632,6 +679,60 @@ describe("revert + compact workflow", () => {
           })
           expect((yield* session.get(sid)).revert).toBeUndefined()
           expect(yield* read(path.join(dir, "a.txt"))).toBe("a3")
+        }),
+      { git: true },
+    ),
+  )
+
+  it.live(
+    "timeline rewind can keep file changes while hiding future messages",
+    provideTmpdirInstance(
+      (dir) =>
+        Effect.gen(function* () {
+          const session = yield* Session.Service
+          const timeline = yield* SessionTimeline.Service
+
+          yield* write(path.join(dir, "a.txt"), "a0")
+
+          const info = yield* session.create({})
+          const sid = info.id
+          const turn = yield* fileTurn({ sessionID: sid, dir, file: "a.txt", content: "a1" })
+
+          const rewound = yield* timeline.rewind({ sessionID: sid, messageID: turn.user.id, files: "keep" })
+          expect(rewound.revert?.messageID).toBe(turn.user.id)
+          expect(rewound.revert?.files).toBe("keep")
+          expect(yield* read(path.join(dir, "a.txt"))).toBe("a1")
+
+          yield* timeline.commitPending({ sessionID: rewound.id })
+          expect((yield* session.messages({ sessionID: sid })).map((msg) => msg.info.id)).toEqual([])
+          expect(yield* read(path.join(dir, "a.txt"))).toBe("a1")
+        }),
+      { git: true },
+    ),
+  )
+
+  it.live(
+    "timeline restore keeps files for keep-file rewinds",
+    provideTmpdirInstance(
+      (dir) =>
+        Effect.gen(function* () {
+          const session = yield* Session.Service
+          const timeline = yield* SessionTimeline.Service
+
+          yield* write(path.join(dir, "a.txt"), "a0")
+
+          const info = yield* session.create({})
+          const sid = info.id
+          const turn = yield* fileTurn({ sessionID: sid, dir, file: "a.txt", content: "a1" })
+
+          yield* timeline.rewind({ sessionID: sid, messageID: turn.user.id, files: "keep" })
+          const restored = yield* timeline.restore({ sessionID: sid })
+          expect(restored.revert).toBeUndefined()
+          expect((yield* session.messages({ sessionID: sid })).map((msg) => msg.info.id)).toEqual([
+            turn.user.id,
+            turn.assistant.id,
+          ])
+          expect(yield* read(path.join(dir, "a.txt"))).toBe("a1")
         }),
       { git: true },
     ),

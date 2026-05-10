@@ -19,8 +19,8 @@ import path from "path"
 import { Session } from "@/session/session"
 import { LLM } from "../../src/session/llm"
 import { SessionPrompt } from "../../src/session/prompt"
-import { SessionRevert } from "../../src/session/revert"
 import { SessionSummary } from "../../src/session/summary"
+import { SessionTimeline } from "../../src/session/timeline"
 import { MessageV2 } from "../../src/session/message-v2"
 import * as Log from "@opencode-ai/core/util/log"
 import { provideTmpdirServer } from "../fixture/fixture"
@@ -150,7 +150,7 @@ function makeHttp() {
     TestLLMServer.layer,
     SessionSummary.defaultLayer,
     SessionPrompt.layer.pipe(
-      Layer.provide(SessionRevert.defaultLayer),
+      Layer.provide(SessionTimeline.defaultLayer),
       Layer.provide(Image.defaultLayer),
       Layer.provide(SessionSummary.defaultLayer),
       Layer.provideMerge(run),

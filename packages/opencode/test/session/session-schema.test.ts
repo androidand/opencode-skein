@@ -63,13 +63,14 @@ describe("Session schema", () => {
       revert: {
         messageID: MessageID.ascending(),
         partID: undefined,
+        files: undefined,
         snapshot: undefined,
         diff: undefined,
       },
     }) as Record<string, unknown>
 
     expect(Object.hasOwn(encoded.summary as Record<string, unknown>, "diffs")).toBe(false)
-    for (const key of ["partID", "snapshot", "diff"]) {
+    for (const key of ["partID", "files", "snapshot", "diff"]) {
       expect(Object.hasOwn(encoded.revert as Record<string, unknown>, key)).toBe(false)
     }
   })

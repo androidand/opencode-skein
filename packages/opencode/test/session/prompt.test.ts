@@ -30,8 +30,8 @@ import { SessionSummary } from "../../src/session/summary"
 import { Instruction } from "../../src/session/instruction"
 import { SessionProcessor } from "../../src/session/processor"
 import { SessionPrompt } from "../../src/session/prompt"
-import { SessionRevert } from "../../src/session/revert"
 import { SessionRunState } from "../../src/session/run-state"
+import { SessionTimeline } from "../../src/session/timeline"
 import { MessageID, PartID, SessionID } from "../../src/session/schema"
 import { SessionStatus } from "../../src/session/status"
 import { SessionV2 } from "../../src/v2/session"
@@ -199,7 +199,7 @@ function makeHttp() {
   return Layer.mergeAll(
     TestLLMServer.layer,
     SessionPrompt.layer.pipe(
-      Layer.provide(SessionRevert.defaultLayer),
+      Layer.provide(SessionTimeline.defaultLayer),
       Layer.provide(Image.defaultLayer),
       Layer.provide(summary),
       Layer.provideMerge(run),

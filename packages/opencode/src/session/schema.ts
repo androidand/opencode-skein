@@ -33,3 +33,6 @@ export const PartID = Schema.String.check(Schema.isStartsWith("prt")).pipe(
 )
 
 export type PartID = Schema.Schema.Type<typeof PartID>
+
+export const RewindFilePolicy = Schema.Union([Schema.Literal("revert"), Schema.Literal("keep")])
+export type RewindFilePolicy = Schema.Schema.Type<typeof RewindFilePolicy>

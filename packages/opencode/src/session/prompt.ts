@@ -4,7 +4,7 @@ import * as EffectZod from "@opencode-ai/core/effect-zod"
 import { SessionID, MessageID, PartID } from "./schema"
 import { MessageV2 } from "./message-v2"
 import * as Log from "@opencode-ai/core/util/log"
-import { SessionRevert } from "./revert"
+import { SessionTimeline } from "./timeline"
 import * as Session from "./session"
 import { Agent } from "../agent/agent"
 import { Provider } from "@/provider/provider"
@@ -114,7 +114,7 @@ export const layer = Layer.effect(
     const scope = yield* Scope.Scope
     const instruction = yield* Instruction.Service
     const state = yield* SessionRunState.Service
-    const revert = yield* SessionRevert.Service
+    const timeline = yield* SessionTimeline.Service
     const summary = yield* SessionSummary.Service
     const sys = yield* SystemPrompt.Service
     const llm = yield* LLM.Service
@@ -747,9 +747,7 @@ NOTE: At any point in time through this workflow you should feel free to ask the
           const { msg, part, cwd } = yield* Effect.gen(function* () {
             const ctx = yield* InstanceState.context
             const session = yield* sessions.get(input.sessionID).pipe(Effect.orDie)
-            if (session.revert) {
-              yield* revert.cleanup(session)
-            }
+            if (session.revert) yield* timeline.commitPending({ sessionID: session.id })
             const agent = yield* agents.get(input.agent)
             if (!agent) {
               const available = (yield* agents.list()).filter((a) => !a.hidden).map((a) => a.name)
@@ -1378,7 +1376,7 @@ NOTE: At any point in time through this workflow you should feel free to ask the
       "SessionPrompt.prompt",
     )(function* (input: PromptInput) {
       const session = yield* sessions.get(input.sessionID).pipe(Effect.orDie)
-      yield* revert.cleanup(session)
+      yield* timeline.commitPending({ sessionID: session.id })
       const message = yield* createUserMessage(input)
       yield* sessions.touch(input.sessionID)
 
@@ -1792,7 +1790,7 @@ export const defaultLayer = Layer.suspend(() =>
     Layer.provide(AppFileSystem.defaultLayer),
     Layer.provide(Plugin.defaultLayer),
     Layer.provide(Session.defaultLayer),
-    Layer.provide(SessionRevert.defaultLayer),
+    Layer.provide(SessionTimeline.defaultLayer),
     Layer.provide(SessionSummary.defaultLayer),
     Layer.provide(Image.defaultLayer),
     Layer.provide(
