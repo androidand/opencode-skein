@@ -15,13 +15,17 @@ export function useEvent() {
       // Special hack for truly global events
       if (event.directory === "global") {
         handler(event.payload)
+        return
       }
 
-      if (project.workspace.current()) {
+      // Workspace-scoped events match on workspace identity. Events without a
+      // workspace label fall through to the directory check — a session with
+      // no workspaceID can be live in the same directory as the TUI even when
+      // the TUI itself is attached to a workspace (#26671).
+      if (event.workspace !== undefined) {
         if (event.workspace === project.workspace.current()) {
           handler(event.payload)
         }
-
         return
       }
 

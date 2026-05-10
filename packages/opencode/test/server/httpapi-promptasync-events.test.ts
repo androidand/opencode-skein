@@ -17,10 +17,10 @@
  * in the TUI's client-side filter.
  *
  * Test 2 (synthetic filter): replicate the TUI useEvent filter shape from
- * packages/opencode/src/cli/cmd/tui/context/event.ts and prove the filter
- * drops events when the TUI has an active workspace but the inbound event has
- * workspace=undefined — even when the directory matches. That early `return`
- * in the workspace branch is the smoking gun.
+ * packages/opencode/src/cli/cmd/tui/context/event.ts and lock in the fixed
+ * behaviour: events without a workspace label fall through to a directory
+ * comparison even when the TUI itself is attached to a workspace, so a
+ * directory-mode session driven by an external POST is forwarded correctly.
  */
 
 import { afterEach, describe, expect, test } from "bun:test"
@@ -108,9 +108,10 @@ describe("session prompt_async events (issue #26671)", () => {
     expect(event.workspace).toBeUndefined()
   })
 
-  test("TUI useEvent filter drops events when active workspace is set but event.workspace is undefined", () => {
-    // Mirrors the filter at packages/opencode/src/cli/cmd/tui/context/event.ts
-    // exactly so we can document the behaviour that #26671 is observing.
+  test("TUI useEvent filter forwards directory-scoped events even when the TUI has an active workspace", () => {
+    // Mirrors the (fixed) filter at packages/opencode/src/cli/cmd/tui/context/event.ts.
+    // If someone reverts the fix back to an early-return in the workspace
+    // branch, case (c) below catches it.
     type IncomingEvent = {
       directory: string | undefined
       workspace: string | undefined
@@ -125,7 +126,7 @@ describe("session prompt_async events (issue #26671)", () => {
       if (event.payload.type === "sync") return false
       if (event.directory === "global") return true
 
-      if (activeWorkspace) {
+      if (event.workspace !== undefined) {
         return event.workspace === activeWorkspace
       }
       return event.directory === activeDirectory
@@ -149,15 +150,24 @@ describe("session prompt_async events (issue #26671)", () => {
       }),
     ).toBe(true)
 
-    // (c) THE BUG SHAPE FOR #26671:
+    // (c) THE FIX FOR #26671:
     // TUI is in workspace mode, the inbound event has workspace=undefined
-    // (because the session has no workspaceID and the external POST didn't
-    // carry workspace context), but the directory still matches. The filter
-    // bails out in the workspace branch without ever consulting directory,
-    // so the event is dropped and the TUI never re-renders.
+    // (the session has no workspaceID and the external POST didn't carry
+    // workspace context), and the directory matches. The fixed filter
+    // recognises that an event without a workspace label is directory-
+    // scoped and consults the directory comparator, so this is forwarded.
     expect(
       tuiFilter({
         event: { directory: "/proj", workspace: undefined, payload: { type: "session.next.message.created" } },
+        activeWorkspace: "W1",
+        activeDirectory: "/proj",
+      }),
+    ).toBe(true)
+
+    // (d) Cross-workspace events stay dropped.
+    expect(
+      tuiFilter({
+        event: { directory: "/proj", workspace: "W2", payload: { type: "session.next.message.created" } },
         activeWorkspace: "W1",
         activeDirectory: "/proj",
       }),
