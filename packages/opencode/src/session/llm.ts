@@ -3,6 +3,7 @@ import * as Log from "@opencode-ai/core/util/log"
 import { Context, Effect, Layer, Record } from "effect"
 import * as Stream from "effect/Stream"
 import { streamText, wrapLanguageModel, type ModelMessage, type Tool, tool, jsonSchema } from "ai"
+import type { LLMEvent } from "@opencode-ai/llm"
 import { mergeDeep } from "remeda"
 import { GitLabWorkflowLanguageModel } from "gitlab-ai-provider"
 import { ProviderTransform } from "@/provider/transform"
@@ -24,10 +25,10 @@ import { InstallationVersion } from "@opencode-ai/core/installation/version"
 import { EffectBridge } from "@/effect/bridge"
 import * as Option from "effect/Option"
 import * as OtelTracer from "@effect/opentelemetry/Tracer"
+import { LLMAISDK } from "./llm-ai-sdk"
 
 const log = Log.create({ service: "llm" })
 export const OUTPUT_TOKEN_MAX = ProviderTransform.OUTPUT_TOKEN_MAX
-type Result = Awaited<ReturnType<typeof streamText>>
 
 // Avoid re-instantiating remeda's deep merge types in this hot LLM path; the runtime behavior is still mergeDeep.
 const mergeOptions = (target: Record<string, any>, source: Record<string, any> | undefined): Record<string, any> =>
@@ -52,10 +53,8 @@ export type StreamRequest = StreamInput & {
   abort: AbortSignal
 }
 
-export type Event = Result["fullStream"] extends AsyncIterable<infer T> ? T : never
-
 export interface Interface {
-  readonly stream: (input: StreamInput) => Stream.Stream<Event, unknown>
+  readonly stream: (input: StreamInput) => Stream.Stream<LLMEvent, unknown>
 }
 
 export class Service extends Context.Service<Service, Interface>()("@opencode/LLM") {}
@@ -427,7 +426,11 @@ const live: Layer.Layer<
 
             const result = yield* run({ ...input, abort: ctrl.signal })
 
-            return Stream.fromAsyncIterable(result.fullStream, (e) => (e instanceof Error ? e : new Error(String(e))))
+            const state = LLMAISDK.adapterState()
+            return Stream.fromAsyncIterable(result.fullStream, (e) => (e instanceof Error ? e : new Error(String(e)))).pipe(
+              Stream.mapEffect((event) => LLMAISDK.toLLMEvents(state, event)),
+              Stream.flatMap((events) => Stream.fromIterable(events)),
+            )
           }),
         ),
       )
