@@ -582,6 +582,18 @@ describe("session.llm.stream", () => {
         },
       },
       {
+        type: "response.output_item.added",
+        output_index: 0,
+        item: { type: "message", id: "item-1", status: "in_progress", role: "assistant", content: [] },
+      },
+      {
+        type: "response.content_part.added",
+        item_id: "item-1",
+        output_index: 0,
+        content_index: 0,
+        part: { type: "output_text", text: "", annotations: [] },
+      },
+      {
         type: "response.output_text.delta",
         item_id: "item-1",
         delta: "Hello",
@@ -693,6 +705,18 @@ describe("session.llm.stream", () => {
           model: model.id,
           service_tier: null,
         },
+      },
+      {
+        type: "response.output_item.added",
+        output_index: 0,
+        item: { type: "message", id: "item-data-url", status: "in_progress", role: "assistant", content: [] },
+      },
+      {
+        type: "response.content_part.added",
+        item_id: "item-data-url",
+        output_index: 0,
+        content_index: 0,
+        part: { type: "output_text", text: "", annotations: [] },
       },
       {
         type: "response.output_text.delta",
