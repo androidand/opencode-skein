@@ -1569,6 +1569,9 @@ function TextPart(props: { last: boolean; part: TextPart; message: AssistantMess
   const configureMarkdown = (node: MarkdownRenderable | undefined) => {
     if (!node) return
     const renderNode: NonNullable<MarkdownOptions["renderNode"]> = (token, context) => {
+      const content = text()
+      const firstBlock = content.startsWith(token.raw.trimStart())
+
       if (token.type === "hr") {
         return new BoxRenderable(node.ctx, {
           width: "100%",
@@ -1579,7 +1582,16 @@ function TextPart(props: { last: boolean; part: TextPart; message: AssistantMess
         })
       }
 
-      const needsCodeTopGap = token.type === "code" && !text().startsWith(token.raw.trimStart())
+      if (token.type === "blockquote") {
+        token.raw = token.raw.replace(/^([ \t]{0,3})>[ \t]?/gm, "$1│ ")
+        const renderable = context.defaultRender()
+        if (!firstBlock && renderable) {
+          renderable.marginTop = typeof renderable.marginTop === "number" ? Math.max(renderable.marginTop, 1) : 1
+        }
+        return renderable
+      }
+
+      const needsCodeTopGap = token.type === "code" && !firstBlock
       if (token.type === "code" && token.lang?.trim().toLowerCase() === "diff") {
         const renderable = new TextRenderable(node.ctx, {
           content: new StyledText(colorDiffChunks(token.text)),
@@ -1591,6 +1603,9 @@ function TextPart(props: { last: boolean; part: TextPart; message: AssistantMess
       }
 
       const renderable = context.defaultRender()
+      if (token.type === "heading" && token.depth === 1 && !firstBlock && renderable) {
+        renderable.marginTop = typeof renderable.marginTop === "number" ? Math.max(renderable.marginTop, 2) : 2
+      }
       if (needsCodeTopGap && renderable) {
         renderable.marginTop = typeof renderable.marginTop === "number" ? Math.max(renderable.marginTop, 1) : 1
       }

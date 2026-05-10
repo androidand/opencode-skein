@@ -1177,6 +1177,7 @@ function getSyntaxRules(theme: Theme) {
       scope: ["markup.strikethrough"],
       style: {
         foreground: theme.textMuted,
+        strikethrough: true,
       },
     },
     {
