@@ -1128,6 +1128,12 @@ export function MessageTimeline(props: {
     }
   }
 
+  function TimelineRowView(props: { rowKey: string }) {
+    const row = createMemo(() => timelineRowByKey().get(props.rowKey))
+
+    return <Show when={row()} keyed>{(item) => renderTimelineRow(item)}</Show>
+  }
+
   return (
     <Show
       when={!props.mobileChanges}
@@ -1524,11 +1530,7 @@ export function MessageTimeline(props: {
                       virtualizer = handle
                     }}
                   >
-                    {(key) => {
-                      const row = timelineRowByKey().get(key)
-                      if (!row) return null
-                      return renderTimelineRow(row)
-                    }}
+                    {(key) => <TimelineRowView rowKey={key} />}
                   </Virtualizer>
                 )}
               </Show>
