@@ -1,4 +1,4 @@
-import { createEffect, createMemo, createSignal, For, Index, on, onCleanup, Show, type JSX } from "solid-js"
+import { createEffect, createMemo, createSignal, For, Index, on, onCleanup, Show, mapArray, type JSX } from "solid-js"
 import { createStore, produce } from "solid-js/store"
 import { Dynamic } from "solid-js/web"
 import { useNavigate } from "@solidjs/router"
@@ -512,100 +512,106 @@ export function MessageTimeline(props: {
   })
   const showHeader = createMemo(() => !!(titleValue() || parentID()))
 
-  const timelineRows = createMemo(() => {
-    const rows: TimelineRow[] = []
-    const status = sessionStatus()
-    const active = activeMessageID()
-    const showReasoning = settings.general.showReasoningSummaries()
+  const messageRowMemos = createMemo(
+    mapArray(
+      () => props.userMessages,
+      (userMessage, indexAccessor) => {
+        return createMemo(() => {
+          const rows: TimelineRow[] = []
+          const status = sessionStatus()
+          const active = activeMessageID()
+          const showReasoning = settings.general.showReasoningSummaries()
 
-    // TODO(session-timeline): replace this loaded-message flattening with core cursor-paged timeline parts once available.
-    for (const userMessage of props.userMessages) {
-      const userParts = sync.data.part[userMessage.id] ?? emptyParts
-      const comments = messageComments(userParts)
-      const assistantMessages = assistantMessagesByParent().get(userMessage.id) ?? emptyAssistantMessages
-      const compaction = userParts.find((part) => part.type === "compaction")
-      const interrupted = assistantMessages.some((message) => message.error?.name === "MessageAbortedError")
-      const error = assistantMessages.find((message) => message.error?.name !== "MessageAbortedError")?.error
-      const workingTurn = status.type !== "idle" && active === userMessage.id
-      const assistantPartRefs = assistantMessages.flatMap((message) =>
-        (sync.data.part[message.id] ?? emptyParts)
-          .filter((part) => renderable(part, showReasoning))
-          .map((part) => ({ messageID: message.id, part })),
-      )
-      const assistantGroups = groupParts(assistantPartRefs)
-      const diffs = (userMessage.summary?.diffs ?? [])
-        .reduceRight<SummaryDiff[]>((result, diff) => {
-          if (!summaryDiff(diff)) return result
-          if (result.some((item) => item.file === diff.file)) return result
-          result.push(diff)
-          return result
-        }, [])
-        .reverse()
-      const heading = assistantMessages
-        .flatMap((message) => sync.data.part[message.id] ?? emptyParts)
-        .map((part) => (part.type === "reasoning" && part.text ? reasoningHeading(part.text) : undefined))
-        .find((value): value is string => !!value)
+          const userParts = sync.data.part[userMessage.id] ?? emptyParts
+          const comments = messageComments(userParts)
+          const assistantMessages = assistantMessagesByParent().get(userMessage.id) ?? emptyAssistantMessages
+          const compaction = userParts.find((part) => part.type === "compaction")
+          const interrupted = assistantMessages.some((message) => message.error?.name === "MessageAbortedError")
+          const error = assistantMessages.find((message) => message.error?.name !== "MessageAbortedError")?.error
+          const workingTurn = status.type !== "idle" && active === userMessage.id
+          const assistantPartRefs = assistantMessages.flatMap((message) =>
+            (sync.data.part[message.id] ?? emptyParts)
+              .filter((part) => renderable(part, showReasoning))
+              .map((part) => ({ messageID: message.id, part })),
+          )
+          const assistantGroups = groupParts(assistantPartRefs)
+          const diffs = (userMessage.summary?.diffs ?? [])
+            .reduceRight<SummaryDiff[]>((result, diff) => {
+              if (!summaryDiff(diff)) return result
+              if (result.some((item) => item.file === diff.file)) return result
+              result.push(diff)
+              return result
+            }, [])
+            .reverse()
+          const heading = assistantMessages
+            .flatMap((message) => sync.data.part[message.id] ?? emptyParts)
+            .map((part) => (part.type === "reasoning" && part.text ? reasoningHeading(part.text) : undefined))
+            .find((value): value is string => !!value)
 
-      const previousUserMessage = rows.length > 0
-      if (comments.length > 0)
-        rows.push({
-          key: `comment-strip:${userMessage.id}`,
-          type: "comment-strip",
-          userMessageID: userMessage.id,
-          previousUserMessage,
+          const previousUserMessage = indexAccessor() > 0
+          if (comments.length > 0)
+            rows.push({
+              key: `comment-strip:${userMessage.id}`,
+              type: "comment-strip",
+              userMessageID: userMessage.id,
+              previousUserMessage,
+            })
+
+          rows.push({
+            key: `user-message:${userMessage.id}`,
+            type: "user-message",
+            userMessageID: userMessage.id,
+            anchor: comments.length === 0,
+            previousUserMessage: comments.length === 0 && previousUserMessage,
+          })
+
+          if (compaction || interrupted) {
+            rows.push({
+              key: `turn-divider:${userMessage.id}:${compaction ? "compaction" : "interrupted"}`,
+              type: "turn-divider",
+              userMessageID: userMessage.id,
+              label: compaction ? "compaction" : "interrupted",
+            })
+          }
+
+          assistantGroups.forEach((group, index) =>
+            rows.push({
+              key: `assistant-part:${userMessage.id}:${group.key}`,
+              type: "assistant-part",
+              userMessageID: userMessage.id,
+              group,
+              previousAssistantPart: index > 0,
+              lastAssistantPart: index === assistantGroups.length - 1,
+            }),
+          )
+
+          if (workingTurn && !error && status.type !== "retry" && (showReasoning ? assistantPartRefs.length === 0 : true)) {
+            rows.push({ key: `thinking:${userMessage.id}`, type: "thinking", userMessageID: userMessage.id, reasoningHeading: heading })
+          }
+
+          if (workingTurn && status.type === "retry") rows.push({ key: `retry:${userMessage.id}`, type: "retry", userMessageID: userMessage.id })
+
+          if (diffs.length > 0 && !workingTurn) {
+            rows.push({ key: `diff-summary:${userMessage.id}`, type: "diff-summary", userMessageID: userMessage.id, diffs })
+          }
+
+          if (error) {
+            const data = error.data?.message
+            rows.push({
+              key: `error:${userMessage.id}`,
+              type: "error",
+              userMessageID: userMessage.id,
+              text: unwrapErrorMessage(typeof data === "string" ? data : data === undefined || data === null ? "" : String(data)),
+            })
+          }
+
+          return rows
         })
-
-      rows.push({
-        key: `user-message:${userMessage.id}`,
-        type: "user-message",
-        userMessageID: userMessage.id,
-        anchor: comments.length === 0,
-        previousUserMessage: comments.length === 0 && previousUserMessage,
-      })
-
-      if (compaction || interrupted) {
-        rows.push({
-          key: `turn-divider:${userMessage.id}:${compaction ? "compaction" : "interrupted"}`,
-          type: "turn-divider",
-          userMessageID: userMessage.id,
-          label: compaction ? "compaction" : "interrupted",
-        })
       }
+    )
+  )
 
-      assistantGroups.forEach((group, index) =>
-        rows.push({
-          key: `assistant-part:${userMessage.id}:${group.key}`,
-          type: "assistant-part",
-          userMessageID: userMessage.id,
-          group,
-          previousAssistantPart: index > 0,
-          lastAssistantPart: index === assistantGroups.length - 1,
-        }),
-      )
-
-      if (workingTurn && !error && status.type !== "retry" && (showReasoning ? assistantPartRefs.length === 0 : true)) {
-        rows.push({ key: `thinking:${userMessage.id}`, type: "thinking", userMessageID: userMessage.id, reasoningHeading: heading })
-      }
-
-      if (workingTurn && status.type === "retry") rows.push({ key: `retry:${userMessage.id}`, type: "retry", userMessageID: userMessage.id })
-
-      if (diffs.length > 0 && !workingTurn) {
-        rows.push({ key: `diff-summary:${userMessage.id}`, type: "diff-summary", userMessageID: userMessage.id, diffs })
-      }
-
-      if (error) {
-        const data = error.data?.message
-        rows.push({
-          key: `error:${userMessage.id}`,
-          type: "error",
-          userMessageID: userMessage.id,
-          text: unwrapErrorMessage(typeof data === "string" ? data : data === undefined || data === null ? "" : String(data)),
-        })
-      }
-    }
-
-    return rows
-  })
+  const timelineRows = createMemo(() => messageRowMemos().flatMap((memo) => memo()))
   const timelineRowKeys = createMemo(() => timelineRows().map((row) => row.key), [] as string[], { equals: sameKeys })
   const timelineRowByKey = createMemo(() => new Map(timelineRows().map((row) => [row.key, row] as const)))
   const messageRowIndex = createMemo(() => {
