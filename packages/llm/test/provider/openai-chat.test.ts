@@ -231,10 +231,11 @@ describe("OpenAI Chat route", () => {
           type: "request-finish",
           reason: "stop",
           usage: new Usage({
-            inputTokens: 4,
+            inputTokens: 5,
             outputTokens: 2,
-            reasoningTokens: 0,
+            nonCachedInputTokens: 4,
             cacheReadInputTokens: 1,
+            reasoningTokens: 0,
             totalTokens: 7,
             native: {
               prompt_tokens: 5,

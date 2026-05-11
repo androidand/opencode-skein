@@ -276,22 +276,22 @@ const fromRequest = Effect.fn("OpenAIResponses.fromRequest")(function* (request:
 // =============================================================================
 // Stream Parsing
 // =============================================================================
-// OpenAI Responses reports `input_tokens` as the total prompt (cached
-// included) and `output_tokens` as the total output (reasoning included).
-// The additive `LLM.Usage` contract pulls each subtotal out at the boundary
-// so consumers never subtract.
+// OpenAI Responses reports `input_tokens` (inclusive total) with a
+// `cached_tokens` subset, and `output_tokens` (inclusive total) with a
+// `reasoning_tokens` subset. Pass the totals through and derive the
+// non-cached breakdown.
 const mapUsage = (usage: OpenAIResponsesUsage | null | undefined) => {
   if (!usage) return undefined
   const cached = usage.input_tokens_details?.cached_tokens
   const reasoning = usage.output_tokens_details?.reasoning_tokens
-  const inputTokens = ProviderShared.subtractTokens(usage.input_tokens, cached)
-  const outputTokens = ProviderShared.subtractTokens(usage.output_tokens, reasoning)
+  const nonCached = ProviderShared.subtractTokens(usage.input_tokens, cached)
   return new Usage({
-    inputTokens,
-    outputTokens,
-    reasoningTokens: reasoning,
+    inputTokens: usage.input_tokens,
+    outputTokens: usage.output_tokens,
+    nonCachedInputTokens: nonCached,
     cacheReadInputTokens: cached,
-    totalTokens: ProviderShared.totalTokens(inputTokens, outputTokens, usage.total_tokens),
+    reasoningTokens: reasoning,
+    totalTokens: ProviderShared.totalTokens(usage.input_tokens, usage.output_tokens, usage.total_tokens),
     native: usage,
   })
 }

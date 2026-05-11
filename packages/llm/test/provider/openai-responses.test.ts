@@ -343,10 +343,11 @@ describe("OpenAI Responses route", () => {
           reason: "stop",
           providerMetadata: { openai: { responseId: "resp_1", serviceTier: "default" } },
           usage: new Usage({
-            inputTokens: 4,
+            inputTokens: 5,
             outputTokens: 2,
-            reasoningTokens: 0,
+            nonCachedInputTokens: 4,
             cacheReadInputTokens: 1,
+            reasoningTokens: 0,
             totalTokens: 7,
             native: {
               input_tokens: 5,
@@ -411,7 +412,13 @@ describe("OpenAI Responses route", () => {
         {
           type: "request-finish",
           reason: "tool-calls",
-          usage: new Usage({ inputTokens: 5, outputTokens: 1, totalTokens: 6, native: { input_tokens: 5, output_tokens: 1 } }),
+          usage: new Usage({
+            inputTokens: 5,
+            outputTokens: 1,
+            nonCachedInputTokens: 5,
+            totalTokens: 6,
+            native: { input_tokens: 5, output_tokens: 1 },
+          }),
         },
       ])
     }),

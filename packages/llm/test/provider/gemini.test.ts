@@ -197,10 +197,11 @@ describe("Gemini route", () => {
       expect(response.text).toBe("Hello!")
       expect(response.reasoning).toBe("thinking")
       expect(response.usage).toMatchObject({
-        inputTokens: 4,
-        outputTokens: 2,
-        reasoningTokens: 1,
+        inputTokens: 5,
+        outputTokens: 3,
+        nonCachedInputTokens: 4,
         cacheReadInputTokens: 1,
+        reasoningTokens: 1,
         totalTokens: 7,
       })
       expect(response.events).toEqual([
@@ -211,10 +212,11 @@ describe("Gemini route", () => {
           type: "request-finish",
           reason: "stop",
           usage: new Usage({
-            inputTokens: 4,
-            outputTokens: 2,
-            reasoningTokens: 1,
+            inputTokens: 5,
+            outputTokens: 3,
+            nonCachedInputTokens: 4,
             cacheReadInputTokens: 1,
+            reasoningTokens: 1,
             totalTokens: 7,
             native: {
               promptTokenCount: 5,
@@ -260,6 +262,7 @@ describe("Gemini route", () => {
           usage: new Usage({
             inputTokens: 5,
             outputTokens: 1,
+            nonCachedInputTokens: 5,
             totalTokens: 6,
             native: { promptTokenCount: 5, candidatesTokenCount: 1 },
           }),

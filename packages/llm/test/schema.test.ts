@@ -50,7 +50,7 @@ describe("llm schema", () => {
   })
 })
 
-describe("LLM.Usage additive contract", () => {
+describe("LLM.Usage", () => {
   test("subtractTokens clamps non-sensical breakdowns to zero", () => {
     // Defense against a provider reporting cached_tokens > prompt_tokens or
     // reasoning_tokens > completion_tokens — the negative would otherwise
@@ -62,15 +62,17 @@ describe("LLM.Usage additive contract", () => {
     expect(ProviderShared.subtractTokens(undefined, undefined)).toBeUndefined()
   })
 
-  test("totalInputTokens sums every input-side category", () => {
-    expect(new Usage({ inputTokens: 10, cacheReadInputTokens: 3, cacheWriteInputTokens: 2 }).totalInputTokens).toBe(15)
-    expect(new Usage({ inputTokens: 10 }).totalInputTokens).toBe(10)
-    expect(new Usage({}).totalInputTokens).toBe(0)
+  test("sumTokens returns undefined only when every input is undefined", () => {
+    expect(ProviderShared.sumTokens(1, 2, 3)).toBe(6)
+    expect(ProviderShared.sumTokens(1, undefined, 3)).toBe(4)
+    expect(ProviderShared.sumTokens(undefined, undefined, undefined)).toBeUndefined()
+    expect(ProviderShared.sumTokens()).toBeUndefined()
   })
 
-  test("totalOutputTokens sums every output-side category", () => {
-    expect(new Usage({ outputTokens: 7, reasoningTokens: 4 }).totalOutputTokens).toBe(11)
-    expect(new Usage({ outputTokens: 7 }).totalOutputTokens).toBe(7)
-    expect(new Usage({}).totalOutputTokens).toBe(0)
+  test("visibleOutputTokens clamps reasoning > output to zero", () => {
+    expect(new Usage({ outputTokens: 10, reasoningTokens: 4 }).visibleOutputTokens).toBe(6)
+    expect(new Usage({ outputTokens: 10 }).visibleOutputTokens).toBe(10)
+    expect(new Usage({ outputTokens: 4, reasoningTokens: 10 }).visibleOutputTokens).toBe(0)
+    expect(new Usage({}).visibleOutputTokens).toBe(0)
   })
 })

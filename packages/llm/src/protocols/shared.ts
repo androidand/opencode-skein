@@ -63,11 +63,9 @@ export const totalTokens = (
 /**
  * Subtract `subtrahend` from `total`, clamping to zero if the provider
  * reports a non-sensical breakdown (e.g. `cached_tokens > prompt_tokens`).
- * Used by protocol mappers to enforce the additive `LLM.Usage` contract:
- * each provider's "inclusive" subtotals (cached, reasoning) are pulled out
- * of the parent count at the boundary so downstream consumers never have to
- * subtract — eliminating the underflow class of bug where a clamped
- * difference would silently store the wrong value.
+ * Used by protocol mappers when deriving a non-overlapping breakdown field
+ * from a provider's inclusive total — `nonCachedInputTokens` from
+ * `inputTokens - cacheReadInputTokens - cacheWriteInputTokens`.
  *
  * If `total` is `undefined`, returns `undefined` (we don't fabricate
  * counts). If `subtrahend` is `undefined`, returns `total` unchanged. The
@@ -80,6 +78,18 @@ export const subtractTokens = (
   if (total === undefined) return undefined
   if (subtrahend === undefined) return total
   return Math.max(0, total - subtrahend)
+}
+
+/**
+ * Sum a list of optional token counts, returning `undefined` only when
+ * every value is `undefined` (so we don't fabricate a `0`). Used by
+ * protocol mappers to derive the inclusive `inputTokens` total from a
+ * provider that natively reports a non-overlapping breakdown
+ * (e.g. Anthropic, whose `input_tokens` is already non-cached only).
+ */
+export const sumTokens = (...values: ReadonlyArray<number | undefined>): number | undefined => {
+  if (values.every((value) => value === undefined)) return undefined
+  return values.reduce<number>((acc, value) => acc + (value ?? 0), 0)
 }
 
 export const eventError = (route: string, message: string, raw?: string) =>
