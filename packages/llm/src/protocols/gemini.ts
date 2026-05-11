@@ -304,7 +304,7 @@ const mapUsage = (usage: GeminiUsage | undefined) => {
     cacheReadInputTokens: cached,
     reasoningTokens: usage.thoughtsTokenCount,
     totalTokens: ProviderShared.totalTokens(usage.promptTokenCount, outputTokens, usage.totalTokenCount),
-    native: usage,
+    providerMetadata: { google: usage },
   })
 }
 

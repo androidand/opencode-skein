@@ -237,12 +237,14 @@ describe("OpenAI Chat route", () => {
             cacheReadInputTokens: 1,
             reasoningTokens: 0,
             totalTokens: 7,
-            native: {
-              prompt_tokens: 5,
-              completion_tokens: 2,
-              total_tokens: 7,
-              prompt_tokens_details: { cached_tokens: 1 },
-              completion_tokens_details: { reasoning_tokens: 0 },
+            providerMetadata: {
+              openai: {
+                prompt_tokens: 5,
+                completion_tokens: 2,
+                total_tokens: 7,
+                prompt_tokens_details: { cached_tokens: 1 },
+                completion_tokens_details: { reasoning_tokens: 0 },
+              },
             },
           }),
         },

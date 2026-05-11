@@ -42,7 +42,10 @@ import { ToolResultValue } from "./messages"
  *   `reasoningTokens` is `undefined` and `outputTokens` carries the
  *   combined total — a documented limitation of the Anthropic API.
  *
- * `native` always carries the provider's raw usage payload for debugging.
+ * `providerMetadata` always carries the provider's raw usage payload —
+ * keyed by provider name (`{ openai: ... }`, `{ anthropic: ... }`, etc.)
+ * — for fields we don't normalize and for billing-level audit trails.
+ * Matches the same escape-hatch field on `LLMEvent`.
  */
 export class Usage extends Schema.Class<Usage>("LLM.Usage")({
   inputTokens: Schema.optional(Schema.Number),
@@ -52,7 +55,7 @@ export class Usage extends Schema.Class<Usage>("LLM.Usage")({
   cacheWriteInputTokens: Schema.optional(Schema.Number),
   reasoningTokens: Schema.optional(Schema.Number),
   totalTokens: Schema.optional(Schema.Number),
-  native: Schema.optional(Schema.Record(Schema.String, Schema.Unknown)),
+  providerMetadata: Schema.optional(ProviderMetadata),
 }) {
   /**
    * Visible output tokens — `outputTokens` minus `reasoningTokens`, clamped

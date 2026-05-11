@@ -292,7 +292,7 @@ const mapUsage = (usage: OpenAIResponsesUsage | null | undefined) => {
     cacheReadInputTokens: cached,
     reasoningTokens: reasoning,
     totalTokens: ProviderShared.totalTokens(usage.input_tokens, usage.output_tokens, usage.total_tokens),
-    native: usage,
+    providerMetadata: { openai: usage },
   })
 }
 

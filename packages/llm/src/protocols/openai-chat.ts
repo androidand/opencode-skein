@@ -307,7 +307,7 @@ const mapUsage = (usage: OpenAIChatEvent["usage"]): Usage | undefined => {
     cacheReadInputTokens: cached,
     reasoningTokens: reasoning,
     totalTokens: ProviderShared.totalTokens(usage.prompt_tokens, usage.completion_tokens, usage.total_tokens),
-    native: usage,
+    providerMetadata: { openai: usage },
   })
 }
 

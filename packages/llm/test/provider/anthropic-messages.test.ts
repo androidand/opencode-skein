@@ -158,7 +158,7 @@ describe("Anthropic Messages route", () => {
             outputTokens: 1,
             nonCachedInputTokens: 5,
             totalTokens: 6,
-            native: { input_tokens: 5, output_tokens: 1 },
+            providerMetadata: { anthropic: { input_tokens: 5, output_tokens: 1 } },
           }),
         },
       ])

@@ -384,7 +384,7 @@ const mapUsage = (usage: AnthropicUsage | undefined): Usage | undefined => {
     cacheReadInputTokens: cacheRead,
     cacheWriteInputTokens: cacheWrite,
     totalTokens: ProviderShared.totalTokens(inputTokens, usage.output_tokens, undefined),
-    native: usage,
+    providerMetadata: { anthropic: usage },
   })
 }
 
@@ -408,7 +408,12 @@ const mergeUsage = (left: Usage | undefined, right: Usage | undefined) => {
     cacheReadInputTokens,
     cacheWriteInputTokens,
     totalTokens: ProviderShared.totalTokens(inputTokens, outputTokens, undefined),
-    native: { ...left.native, ...right.native },
+    providerMetadata: {
+      anthropic: {
+        ...(left.providerMetadata?.["anthropic"] ?? {}),
+        ...(right.providerMetadata?.["anthropic"] ?? {}),
+      },
+    },
   })
 }
 

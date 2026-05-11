@@ -218,12 +218,14 @@ describe("Gemini route", () => {
             cacheReadInputTokens: 1,
             reasoningTokens: 1,
             totalTokens: 7,
-            native: {
-              promptTokenCount: 5,
-              candidatesTokenCount: 2,
-              totalTokenCount: 7,
-              thoughtsTokenCount: 1,
-              cachedContentTokenCount: 1,
+            providerMetadata: {
+              google: {
+                promptTokenCount: 5,
+                candidatesTokenCount: 2,
+                totalTokenCount: 7,
+                thoughtsTokenCount: 1,
+                cachedContentTokenCount: 1,
+              },
             },
           }),
         },
@@ -264,7 +266,7 @@ describe("Gemini route", () => {
             outputTokens: 1,
             nonCachedInputTokens: 5,
             totalTokens: 6,
-            native: { promptTokenCount: 5, candidatesTokenCount: 1 },
+            providerMetadata: { google: { promptTokenCount: 5, candidatesTokenCount: 1 } },
           }),
         },
       ])

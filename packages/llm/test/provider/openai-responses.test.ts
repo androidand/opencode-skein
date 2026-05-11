@@ -349,12 +349,14 @@ describe("OpenAI Responses route", () => {
             cacheReadInputTokens: 1,
             reasoningTokens: 0,
             totalTokens: 7,
-            native: {
-              input_tokens: 5,
-              output_tokens: 2,
-              total_tokens: 7,
-              input_tokens_details: { cached_tokens: 1 },
-              output_tokens_details: { reasoning_tokens: 0 },
+            providerMetadata: {
+              openai: {
+                input_tokens: 5,
+                output_tokens: 2,
+                total_tokens: 7,
+                input_tokens_details: { cached_tokens: 1 },
+                output_tokens_details: { reasoning_tokens: 0 },
+              },
             },
           }),
         },
@@ -417,7 +419,7 @@ describe("OpenAI Responses route", () => {
             outputTokens: 1,
             nonCachedInputTokens: 5,
             totalTokens: 6,
-            native: { input_tokens: 5, output_tokens: 1 },
+            providerMetadata: { openai: { input_tokens: 5, output_tokens: 1 } },
           }),
         },
       ])

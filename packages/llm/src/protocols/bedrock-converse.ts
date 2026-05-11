@@ -378,7 +378,7 @@ const mapUsage = (usage: BedrockUsageSchema | undefined): Usage | undefined => {
     cacheReadInputTokens: usage.cacheReadInputTokens,
     cacheWriteInputTokens: usage.cacheWriteInputTokens,
     totalTokens: ProviderShared.totalTokens(usage.inputTokens, usage.outputTokens, usage.totalTokens),
-    native: usage,
+    providerMetadata: { bedrock: usage },
   })
 }
 
