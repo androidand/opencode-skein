@@ -89,9 +89,10 @@ export const experimentalHandlers = HttpApiBuilder.group(InstanceHttpApi, "exper
       return yield* registry.ids()
     })
 
-    const worktree = Effect.fn("ExperimentalHttpApi.worktree")(function* () {
-      return yield* worktreeSvc.list().pipe(Effect.map((items) => items.map((item) => item.directory)))
-    })
+    const worktree = Effect.fn("ExperimentalHttpApi.worktree")(
+      () => worktreeSvc.list(),
+      Effect.map((items) => items.map((item) => item.directory)),
+    )
 
     const worktreeCreate = Effect.fn("ExperimentalHttpApi.worktreeCreate")(function* (ctx: {
       payload: Worktree.CreateInput | undefined

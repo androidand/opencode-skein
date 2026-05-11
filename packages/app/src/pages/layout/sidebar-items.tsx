@@ -15,7 +15,7 @@ import { usePermission } from "@/context/permission"
 import { messageAgentColor } from "@/utils/agent"
 import { sessionTitle } from "@/utils/session-title"
 import { sessionPermissionRequest } from "../session/composer/session-request-tree"
-import { childSessionOnPath, hasProjectPermissions } from "./helpers"
+import { childSessionOnPath, hasProjectPermissions, projectDirectories } from "./helpers"
 
 const OPENCODE_PROJECT_ID = "4b0ea68d7af9a6031a7ffda7ad66e0cb83315750"
 
@@ -35,7 +35,7 @@ export const ProjectIcon = (props: {
   const globalSync = useGlobalSync()
   const notification = useNotification()
   const permission = usePermission()
-  const dirs = createMemo(() => [props.project.worktree, ...(props.project.worktrees ?? [])])
+  const dirs = createMemo(() => projectDirectories(props.project))
   const unseenCount = createMemo(() =>
     dirs().reduce((total, directory) => total + notification.project.unseenCount(directory), 0),
   )

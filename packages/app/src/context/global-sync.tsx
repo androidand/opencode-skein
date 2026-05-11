@@ -32,6 +32,7 @@ import { formatServerError } from "@/utils/server-errors"
 import { queryOptions, useMutation, useQueries, useQuery, useQueryClient } from "@tanstack/solid-query"
 import { createRefreshQueue } from "./global-sync/queue"
 import { directoryKey } from "./global-sync/utils"
+import { pathKey } from "@/utils/path-key"
 
 type GlobalStore = {
   ready: boolean
@@ -46,10 +47,6 @@ type GlobalStore = {
   config: Config
   reload: undefined | "pending" | "complete"
 }
-
-const isProjectList = (input: unknown): input is ProjectInfo[] => Array.isArray(input)
-const isProjectUpdate = (input: unknown): input is (draft: ProjectInfo[]) => ProjectInfo[] =>
-  typeof input === "function"
 
 export const loadSessionsQueryKey = (directory: string) => [directory, "loadSessions"] as const
 
@@ -125,18 +122,6 @@ function createGlobalSync() {
     if (eventTimer !== undefined) clearTimeout(eventTimer)
   })
 
-  const setProjects = (next: ProjectInfo[] | ((draft: ProjectInfo[]) => ProjectInfo[])) => {
-    setGlobalStore("project", next)
-  }
-
-  const setBootStore = ((...input: unknown[]) => {
-    if (input[0] === "project" && isProjectList(input[1])) {
-      setProjects(input[1])
-      return input[1]
-    }
-    return (setGlobalStore as (...args: unknown[]) => unknown)(...input)
-  }) as typeof setGlobalStore
-
   const bootstrap = useQuery(() => ({
     queryKey: ["bootstrap"],
     queryFn: async () => {
@@ -145,7 +130,7 @@ function createGlobalSync() {
         requestFailedTitle: language.t("common.requestFailed"),
         translate: language.t,
         formatMoreCount: (count) => language.t("common.moreCountSuffix", { count }),
-        setGlobalStore: setBootStore,
+        setGlobalStore,
         queryClient,
       })
       bootedAt = Date.now()
@@ -153,13 +138,31 @@ function createGlobalSync() {
     },
   }))
 
-  const set = ((...input: unknown[]) => {
-    if (input[0] === "project" && (isProjectList(input[1]) || isProjectUpdate(input[1]))) {
-      setProjects(input[1])
-      return input[1]
-    }
-    return (setGlobalStore as (...args: unknown[]) => unknown)(...input)
-  }) as typeof setGlobalStore
+  const set = setGlobalStore
+
+  const addProjectWorktree = (projectWorktree: string, directory: string) => {
+    setGlobalStore(
+      "project",
+      produce((draft) => {
+        const project = draft.find((item) => item.worktree === projectWorktree)
+        if (!project) return
+        const key = pathKey(directory)
+        project.worktrees = [directory, ...(project.worktrees ?? []).filter((item) => pathKey(item) !== key)]
+      }),
+    )
+  }
+
+  const removeProjectWorktree = (projectWorktree: string, directory: string) => {
+    setGlobalStore(
+      "project",
+      produce((draft) => {
+        const project = draft.find((item) => item.worktree === projectWorktree)
+        if (!project) return
+        const key = pathKey(directory)
+        project.worktrees = (project.worktrees ?? []).filter((item) => pathKey(item) !== key)
+      }),
+    )
+  }
 
   const setSessionTodo = (sessionID: string, todos: Todo[] | undefined) => {
     if (!sessionID) return
@@ -347,7 +350,7 @@ function createGlobalSync() {
           if (recent) return
           bootstrap.refetch()
         },
-        setGlobalProject: setProjects,
+        setGlobalProject: (next) => setGlobalStore("project", next),
       })
       if (event.type === "server.connected" || event.type === "global.disposed") {
         if (recent) return
@@ -411,6 +414,8 @@ function createGlobalSync() {
     icon(directory: string, value: string | undefined) {
       children.projectIcon(directory, value)
     },
+    addWorktree: addProjectWorktree,
+    removeWorktree: removeProjectWorktree,
   }
 
   const updateConfigMutation = useMutation(() => ({

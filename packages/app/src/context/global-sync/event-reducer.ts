@@ -4,6 +4,7 @@ import type {
   Message,
   Part,
   PermissionRequest,
+  Project,
   QuestionRequest,
   Session,
   SessionStatus,
@@ -29,7 +30,7 @@ export function applyGlobalEvent(input: {
   }
 
   if (input.event.type !== "project.updated") return
-  const properties = input.event.properties as ProjectInfo
+  const properties = input.event.properties as Project
   const result = Binary.search(input.project, properties.id, (s) => s.id)
   if (result.found) {
     input.setGlobalProject(
@@ -41,7 +42,7 @@ export function applyGlobalEvent(input: {
   }
   input.setGlobalProject(
     produce((draft) => {
-      draft.splice(result.index, 0, properties)
+      draft.splice(result.index, 0, { ...properties, worktrees: [] })
     }),
   )
 }

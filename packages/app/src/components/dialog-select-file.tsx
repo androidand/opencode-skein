@@ -16,6 +16,7 @@ import { useFile } from "@/context/file"
 import { useLanguage } from "@/context/language"
 import { useSessionLayout } from "@/pages/session/session-layout"
 import { createSessionTabs } from "@/pages/session/helpers"
+import { projectDirectories } from "@/pages/layout/helpers"
 import { decode64 } from "@/utils/base64"
 import { getRelativeTime } from "@/utils/time"
 
@@ -287,7 +288,7 @@ export function DialogSelectFile(props: { mode?: DialogSelectFileMode; onOpenFil
     const current = project()
     if (!current) return directory ? [directory] : []
 
-    const dirs = [current.worktree, ...(current.worktrees ?? [])]
+    const dirs = projectDirectories(current)
     if (directory && !dirs.includes(directory)) return [...dirs, directory]
     return dirs
   })

@@ -315,7 +315,7 @@ export const layer: Layer.Layer<
           if (line.startsWith("branch ")) {
             current.branch = line.slice("branch ".length).trim()
           }
-          if (line === "prunable") {
+          if (line === "prunable" || line.startsWith("prunable ")) {
             current.prunable = true
           }
           return acc
@@ -347,19 +347,22 @@ export const layer: Layer.Layer<
 
       const primary = yield* canonical(ctx.worktree)
       const primaryName = pathSvc.basename(primary).toLowerCase()
-      return yield* Effect.forEach(parseWorktreeList(result.text), (entry) =>
-        Effect.gen(function* () {
-          if (entry.prunable) return undefined
-          if (!entry.path) return undefined
-          const directory = yield* canonical(entry.path)
-          if (directory === primary) return undefined
-          const name = pathSvc.basename(directory).toLowerCase()
-          return {
-            name: name === primaryName ? pathSvc.basename(pathSvc.dirname(directory)) : name,
-            directory,
-            ...(entry.branch ? { branch: entry.branch.replace(/^refs\/heads\//, "") } : {}),
-          }
-        }),
+      return yield* Effect.forEach(
+        parseWorktreeList(result.text),
+        (entry) =>
+          Effect.gen(function* () {
+            if (entry.prunable) return undefined
+            if (!entry.path) return undefined
+            const directory = yield* canonical(entry.path)
+            if (directory === primary) return undefined
+            const name = pathSvc.basename(directory).toLowerCase()
+            return {
+              name: name === primaryName ? pathSvc.basename(pathSvc.dirname(directory)) : name,
+              directory,
+              ...(entry.branch ? { branch: entry.branch.replace(/^refs\/heads\//, "") } : {}),
+            }
+          }),
+        { concurrency: "unbounded" },
       ).pipe(Effect.map((items) => items.filter((item) => item !== undefined)))
     })
 

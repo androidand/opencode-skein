@@ -55,6 +55,11 @@ export const childSessionOnPath = (sessions: Session[] | undefined, rootID: stri
 export const displayName = (project: { name?: string; worktree: string }) =>
   project.name || getFilename(project.worktree)
 
+export const projectDirectories = (project: { worktree: string; worktrees?: string[] }) => [
+  project.worktree,
+  ...(project.worktrees ?? []),
+]
+
 export const errorMessage = (err: unknown, fallback: string) => {
   if (err && typeof err === "object" && "data" in err) {
     const data = (err as { data?: { message?: string } }).data

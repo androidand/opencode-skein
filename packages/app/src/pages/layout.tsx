@@ -70,6 +70,7 @@ import {
   effectiveWorkspaceOrder,
   errorMessage,
   latestRootSession,
+  projectDirectories,
   sortedRootSessions,
 } from "./layout/helpers"
 import {
@@ -1274,9 +1275,7 @@ export default function Layout(props: ParentProps) {
     const root = projectRoot(directory)
     server.projects.touch(root)
     const project = layout.projects.list().find((item) => item.worktree === root)
-    let dirs = project
-      ? effectiveWorkspaceOrder(root, [root, ...(project.worktrees ?? [])], store.workspaceOrder[root])
-      : [root]
+    let dirs = project ? effectiveWorkspaceOrder(root, projectDirectories(project), store.workspaceOrder[root]) : [root]
     const canOpen = (value: string | undefined) => {
       if (!value) return false
       return dirs.some((item) => pathKey(item) === pathKey(value))
@@ -1509,14 +1508,7 @@ export default function Layout(props: ParentProps) {
       clearLastProjectSession(root)
     }
 
-    globalSync.set(
-      "project",
-      produce((draft) => {
-        const project = draft.find((item) => item.worktree === root)
-        if (!project) return
-        project.worktrees = (project.worktrees ?? []).filter((worktree) => worktree !== directory)
-      }),
-    )
+    globalSync.project.removeWorktree(root, directory)
     setStore("workspaceOrder", root, (order) => (order ?? []).filter((workspace) => workspace !== directory))
 
     layout.projects.close(directory)
@@ -1528,7 +1520,7 @@ export default function Layout(props: ParentProps) {
     const nextKey = pathKey(nextCurrent)
     const project = layout.projects.list().find((item) => item.worktree === root)
     const dirs = project
-      ? effectiveWorkspaceOrder(root, [root, ...(project.worktrees ?? [])], store.workspaceOrder[root])
+      ? effectiveWorkspaceOrder(root, projectDirectories(project), store.workspaceOrder[root])
       : [root]
     const valid = dirs.some((item) => pathKey(item) === nextKey)
 
@@ -1862,7 +1854,7 @@ export default function Layout(props: ParentProps) {
   function workspaceIds(project: LocalProject | undefined) {
     if (!project) return []
     const local = project.worktree
-    const dirs = [local, ...(project.worktrees ?? [])]
+    const dirs = projectDirectories(project)
     const active = currentProject()
     const directory = pathKey(active?.worktree ?? "") === pathKey(project.worktree) ? currentDir() : undefined
     const extra =
@@ -1954,14 +1946,7 @@ export default function Layout(props: ParentProps) {
       })
       return [created.directory, ...next]
     })
-    globalSync.set(
-      "project",
-      produce((draft) => {
-        const item = draft.find((item) => item.worktree === project.worktree)
-        if (!item) return
-        item.worktrees = [created.directory, ...(item.worktrees ?? []).filter((worktree) => pathKey(worktree) !== key)]
-      }),
-    )
+    globalSync.project.addWorktree(project.worktree, created.directory)
 
     globalSync.child(created.directory)
     navigateWithSidebarReset(`/${base64Encode(created.directory)}/session`)

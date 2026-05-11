@@ -10,6 +10,7 @@ import { useGlobalSDK } from "@/context/global-sdk"
 import { useGlobalSync } from "@/context/global-sync"
 import { useLayout } from "@/context/layout"
 import { useLanguage } from "@/context/language"
+import { projectDirectories } from "@/pages/layout/helpers"
 
 interface DialogSelectDirectoryProps {
   title?: string
@@ -284,7 +285,7 @@ export function DialogSelectDirectory(props: DialogSelectDirectoryProps) {
 
     for (const project of projects) {
       let at = 0
-      const dirs = [project.worktree, ...(project.worktrees ?? [])]
+      const dirs = projectDirectories(project)
       for (const directory of dirs) {
         const sessions = sync.child(directory, { bootstrap: false })[0].session
         for (const session of sessions) {
