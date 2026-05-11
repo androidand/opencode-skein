@@ -199,13 +199,28 @@ describe("session.llm-native.request", () => {
   })
 
   test("selects native routes from existing provider packages", () => {
-    expect(LLMNative.model({ ...baseModel, api: { ...baseModel.api, npm: "@ai-sdk/anthropic" } }).route).toBe(
-      "anthropic-messages",
-    )
-    expect(LLMNative.model({ ...baseModel, api: { ...baseModel.api, npm: "@ai-sdk/google" } }).route).toBe("gemini")
-    expect(LLMNative.model({ ...baseModel, api: { ...baseModel.api, npm: "@ai-sdk/openai-compatible" } }).route).toBe(
-      "openai-compatible-chat",
-    )
+    expect(
+      LLMNative.model({ ...baseModel, api: { ...baseModel.api, url: "", npm: "@ai-sdk/anthropic" } }),
+    ).toMatchObject({
+      route: "anthropic-messages",
+      baseURL: "https://api.anthropic.com/v1",
+    })
+    expect(LLMNative.model({ ...baseModel, api: { ...baseModel.api, url: "", npm: "@ai-sdk/google" } })).toMatchObject({
+      route: "gemini",
+      baseURL: "https://generativelanguage.googleapis.com/v1beta",
+    })
+    expect(
+      LLMNative.model({ ...baseModel, api: { ...baseModel.api, npm: "@ai-sdk/openai-compatible" } }),
+    ).toMatchObject({
+      route: "openai-compatible-chat",
+      baseURL: "https://api.openai.com/v1",
+    })
+    expect(
+      LLMNative.model({ ...baseModel, api: { ...baseModel.api, url: "", npm: "@openrouter/ai-sdk-provider" } }),
+    ).toMatchObject({
+      route: "openrouter",
+      baseURL: "https://openrouter.ai/api/v1",
+    })
   })
 
   test("fails fast for unsupported provider packages", () => {

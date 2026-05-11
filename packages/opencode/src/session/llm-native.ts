@@ -27,6 +27,7 @@ const DEFAULT_BASE_URL: Record<string, string> = {
   "@ai-sdk/anthropic": "https://api.anthropic.com/v1",
   "@ai-sdk/google": "https://generativelanguage.googleapis.com/v1beta",
   "@ai-sdk/amazon-bedrock": "https://bedrock-runtime.us-east-1.amazonaws.com",
+  "@openrouter/ai-sdk-provider": "https://openrouter.ai/api/v1",
 }
 
 const ROUTE: Record<string, string> = {
@@ -36,7 +37,7 @@ const ROUTE: Record<string, string> = {
   "@ai-sdk/google": "gemini",
   "@ai-sdk/amazon-bedrock": "bedrock-converse",
   "@ai-sdk/openai-compatible": "openai-compatible-chat",
-  "@openrouter/ai-sdk-provider": "openai-compatible-chat",
+  "@openrouter/ai-sdk-provider": "openrouter",
 }
 
 const isRecord = (value: unknown): value is Record<string, unknown> =>
