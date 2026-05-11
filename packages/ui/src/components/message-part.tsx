@@ -485,12 +485,12 @@ function same<T>(a: readonly T[] | undefined, b: readonly T[] | undefined) {
   return a.every((x, i) => x === b[i])
 }
 
-type PartRef = {
+export type PartRef = {
   messageID: string
   partID: string
 }
 
-type PartGroup =
+export type PartGroup =
   | {
       key: string
       type: "part"
@@ -519,14 +519,14 @@ function sameGroup(a: PartGroup, b: PartGroup) {
   return a.refs.every((ref, i) => sameRef(ref, b.refs[i]!))
 }
 
-function sameGroups(a: readonly PartGroup[] | undefined, b: readonly PartGroup[] | undefined) {
+export function sameGroups(a: readonly PartGroup[] | undefined, b: readonly PartGroup[] | undefined) {
   if (a === b) return true
   if (!a || !b) return false
   if (a.length !== b.length) return false
   return a.every((item, i) => sameGroup(item, b[i]!))
 }
 
-function groupParts(parts: { messageID: string; part: PartType }[]) {
+export function groupParts(parts: { messageID: string; part: PartType }[]) {
   const result: PartGroup[] = []
   let start = -1
 
@@ -574,7 +574,7 @@ function index<T extends { id: string }>(items: readonly T[]) {
   return new Map(items.map((item) => [item.id, item] as const))
 }
 
-function renderable(part: PartType, showReasoningSummaries = true) {
+export function renderable(part: PartType, showReasoningSummaries = true) {
   if (part.type === "tool") {
     if (HIDDEN_TOOLS.has(part.tool)) return false
     if (part.tool === "question") return part.state.status !== "pending" && part.state.status !== "running"
@@ -590,7 +590,7 @@ function toolDefaultOpen(tool: string, shell = false, edit = false) {
   if (tool === "edit" || tool === "write" || tool === "apply_patch") return edit
 }
 
-function partDefaultOpen(part: PartType, shell = false, edit = false) {
+export function partDefaultOpen(part: PartType, shell = false, edit = false) {
   if (part.type !== "tool") return
   return toolDefaultOpen(part.tool, shell, edit)
 }
@@ -903,7 +903,7 @@ export function AssistantMessageDisplay(props: {
   )
 }
 
-function ContextToolGroup(props: { parts: ToolPart[]; busy?: boolean }) {
+export function ContextToolGroup(props: { parts: ToolPart[]; busy?: boolean }) {
   const i18n = useI18n()
   const [open, setOpen] = createSignal(false)
   const pending = createMemo(
@@ -913,7 +913,13 @@ function ContextToolGroup(props: { parts: ToolPart[]; busy?: boolean }) {
   const summary = createMemo(() => contextToolSummary(props.parts))
 
   return (
-    <Collapsible open={open()} onOpenChange={setOpen} variant="ghost" class="tool-collapsible">
+    <Collapsible
+      open={open()}
+      onOpenChange={setOpen}
+      variant="ghost"
+      class="tool-collapsible"
+      data-timeline-part-ids={props.parts.map((part) => part.id).join(",")}
+    >
       <Collapsible.Trigger>
         <div data-component="context-tool-group-trigger">
           <span
@@ -1076,7 +1082,7 @@ export function UserMessageDisplay(props: { message: UserMessage; parts: PartTyp
   }
 
   return (
-    <div data-component="user-message">
+    <div data-component="user-message" data-timeline-part-id={textPart()?.id}>
       <Show when={attachments().length > 0}>
         <div data-slot="user-message-attachments">
           <For each={attachments()}>
@@ -1343,7 +1349,7 @@ PART_MAPPING["tool"] = function ToolPartDisplay(props) {
 
   return (
     <Show when={!hideQuestion()}>
-      <div data-component="tool-part-wrapper">
+      <div data-component="tool-part-wrapper" data-timeline-part-id={part().id}>
         <Switch>
           <Match when={part().state.status === "error" && (part().state as any).error}>
             {(error) => {
@@ -1486,7 +1492,7 @@ PART_MAPPING["text"] = function TextPartDisplay(props) {
 
   return (
     <Show when={text()}>
-      <div data-component="text-part">
+      <div data-component="text-part" data-timeline-part-id={part().id}>
         <div data-slot="text-part-body">
           <Show when={streaming()} fallback={<Markdown text={text()} cacheKey={part().id} streaming={false} />}>
             <PacedMarkdown text={text()} cacheKey={part().id} streaming={streaming()} />
@@ -1529,7 +1535,7 @@ PART_MAPPING["reasoning"] = function ReasoningPartDisplay(props) {
 
   return (
     <Show when={text()}>
-      <div data-component="reasoning-part">
+      <div data-component="reasoning-part" data-timeline-part-id={part().id}>
         <Show when={streaming()} fallback={<Markdown text={text()} cacheKey={part().id} streaming={false} />}>
           <PacedMarkdown text={text()} cacheKey={part().id} streaming={streaming()} />
         </Show>
