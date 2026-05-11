@@ -3,7 +3,6 @@ import type {
   OpencodeClient,
   Path,
   PermissionRequest,
-  Project,
   ProviderAuthResponse,
   ProviderListResponse,
   QuestionRequest,
@@ -15,7 +14,7 @@ import { getFilename } from "@opencode-ai/core/util/path"
 import { retry } from "@opencode-ai/core/util/retry"
 import { batch } from "solid-js"
 import { reconcile, type SetStoreFunction, type Store } from "solid-js/store"
-import type { State, VcsCache } from "./types"
+import type { ProjectInfo, State, VcsCache } from "./types"
 import { cmp, normalizeAgentList, normalizeProviderList } from "./utils"
 import { formatServerError } from "@/utils/server-errors"
 import { QueryClient, queryOptions } from "@tanstack/solid-query"
@@ -24,7 +23,7 @@ import { loadMcpQuery } from "../global-sync"
 type GlobalStore = {
   ready: boolean
   path: Path
-  project: Project[]
+  project: ProjectInfo[]
   session_todo: {
     [sessionID: string]: Todo[]
   }
@@ -94,12 +93,21 @@ export const loadProjectsQuery = (sdk: OpencodeClient) =>
     queryKey: ["project"],
     queryFn: () =>
       retry(() =>
-        sdk.project.list().then((x) => {
-          return (x.data ?? [])
-            .filter((p) => !!p?.id)
-            .filter((p) => !!p.worktree && !p.worktree.includes("opencode-test"))
-            .slice()
-            .sort((a, b) => cmp(a.id, b.id))
+        sdk.project.list().then(async (x) => {
+          return Promise.all(
+            (x.data ?? [])
+              .filter((p) => !!p?.id)
+              .filter((p) => !!p.worktree && !p.worktree.includes("opencode-test"))
+              .slice()
+              .sort((a, b) => cmp(a.id, b.id))
+              .map(async (project) => ({
+                ...project,
+                worktrees: await sdk.worktree
+                  .list({ directory: project.worktree })
+                  .then((x) => x.data ?? [])
+                  .catch(() => []),
+              })),
+          )
         }),
       ),
   })
@@ -140,8 +148,8 @@ function groupBySession<T extends { id: string; sessionID: string }>(input: T[])
   }, {})
 }
 
-function projectID(directory: string, projects: Project[]) {
-  return projects.find((project) => project.worktree === directory || project.sandboxes?.includes(directory))?.id
+function projectID(directory: string, projects: ProjectInfo[]) {
+  return projects.find((project) => project.worktree === directory || project.worktrees?.includes(directory))?.id
 }
 
 function mergeSession(setStore: SetStoreFunction<State>, session: Session) {
@@ -207,7 +215,7 @@ export async function bootstrapDirectory(input: {
   global: {
     config: Config
     path: Path
-    project: Project[]
+    project: ProjectInfo[]
     provider: ProviderListResponse
   }
   queryClient: QueryClient

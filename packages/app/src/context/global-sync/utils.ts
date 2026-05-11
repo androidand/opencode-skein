@@ -1,4 +1,5 @@
-import type { Agent, Project, ProviderListResponse } from "@opencode-ai/sdk/v2/client"
+import type { Agent, ProviderListResponse } from "@opencode-ai/sdk/v2/client"
+import type { ProjectInfo } from "./types"
 export { pathKey as directoryKey, type PathKey as DirectoryKey } from "@/utils/path-key"
 
 export const cmp = (a: string, b: string) => (a < b ? -1 : a > b ? 1 : 0)
@@ -27,7 +28,7 @@ export function normalizeProviderList(input: ProviderListResponse): ProviderList
   }
 }
 
-export function sanitizeProject(project: Project) {
+export function sanitizeProject(project: ProjectInfo) {
   if (!project.icon?.url && !project.icon?.override) return project
   return {
     ...project,

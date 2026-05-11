@@ -173,7 +173,6 @@ export async function run(db: SQLiteBunDatabase<any, any> | NodeSQLiteDatabase<a
         time_created: data.time?.created ?? now,
         time_updated: data.time?.updated ?? now,
         time_initialized: data.time?.initialized,
-        sandboxes: data.sandboxes ?? [],
         commands: data.commands,
       })
     }

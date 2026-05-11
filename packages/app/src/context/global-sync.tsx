@@ -2,7 +2,6 @@ import type {
   Config,
   OpencodeClient,
   Path,
-  Project,
   ProviderAuthResponse,
   ProviderListResponse,
   Todo,
@@ -27,7 +26,7 @@ import { applyDirectoryEvent, applyGlobalEvent, cleanupDroppedSessionCaches } fr
 import { clearSessionPrefetchDirectory } from "./global-sync/session-prefetch"
 import { estimateRootSessionTotal, loadRootSessionsWithFallback } from "./global-sync/session-load"
 import { trimSessions } from "./global-sync/session-trim"
-import type { ProjectMeta } from "./global-sync/types"
+import type { ProjectInfo, ProjectMeta } from "./global-sync/types"
 import { SESSION_RECENT_LIMIT } from "./global-sync/types"
 import { formatServerError } from "@/utils/server-errors"
 import { queryOptions, useMutation, useQueries, useQuery, useQueryClient } from "@tanstack/solid-query"
@@ -38,7 +37,7 @@ type GlobalStore = {
   ready: boolean
   error?: InitError
   path: Path
-  project: Project[]
+  project: ProjectInfo[]
   session_todo: {
     [sessionID: string]: Todo[]
   }
@@ -47,6 +46,10 @@ type GlobalStore = {
   config: Config
   reload: undefined | "pending" | "complete"
 }
+
+const isProjectList = (input: unknown): input is ProjectInfo[] => Array.isArray(input)
+const isProjectUpdate = (input: unknown): input is (draft: ProjectInfo[]) => ProjectInfo[] =>
+  typeof input === "function"
 
 export const loadSessionsQueryKey = (directory: string) => [directory, "loadSessions"] as const
 
@@ -122,13 +125,13 @@ function createGlobalSync() {
     if (eventTimer !== undefined) clearTimeout(eventTimer)
   })
 
-  const setProjects = (next: Project[] | ((draft: Project[]) => Project[])) => {
+  const setProjects = (next: ProjectInfo[] | ((draft: ProjectInfo[]) => ProjectInfo[])) => {
     setGlobalStore("project", next)
   }
 
   const setBootStore = ((...input: unknown[]) => {
-    if (input[0] === "project" && Array.isArray(input[1])) {
-      setProjects(input[1] as Project[])
+    if (input[0] === "project" && isProjectList(input[1])) {
+      setProjects(input[1])
       return input[1]
     }
     return (setGlobalStore as (...args: unknown[]) => unknown)(...input)
@@ -151,8 +154,8 @@ function createGlobalSync() {
   }))
 
   const set = ((...input: unknown[]) => {
-    if (input[0] === "project" && (Array.isArray(input[1]) || typeof input[1] === "function")) {
-      setProjects(input[1] as Project[] | ((draft: Project[]) => Project[]))
+    if (input[0] === "project" && (isProjectList(input[1]) || isProjectUpdate(input[1]))) {
+      setProjects(input[1])
       return input[1]
     }
     return (setGlobalStore as (...args: unknown[]) => unknown)(...input)

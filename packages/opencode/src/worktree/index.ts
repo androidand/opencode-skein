@@ -158,12 +158,7 @@ type GitResult = { code: number; text: string; stderr: string }
 export const layer: Layer.Layer<
   Service,
   never,
-  | AppFileSystem.Service
-  | Path.Path
-  | ChildProcessSpawner.ChildProcessSpawner
-  | Git.Service
-  | Project.Service
-  | InstanceStore.Service
+  AppFileSystem.Service | Path.Path | ChildProcessSpawner.ChildProcessSpawner | Git.Service | InstanceStore.Service
 > = Layer.effect(
   Service,
   Effect.gen(function* () {
@@ -172,7 +167,6 @@ export const layer: Layer.Layer<
     const pathSvc = yield* Path.Path
     const spawner = yield* ChildProcessSpawner.ChildProcessSpawner
     const gitSvc = yield* Git.Service
-    const project = yield* Project.Service
     const store = yield* InstanceStore.Service
 
     const git = Effect.fnUntraced(
@@ -233,8 +227,6 @@ export const layer: Layer.Layer<
       if (created.code !== 0) {
         throw new CreateFailedError({ message: created.stderr || created.text || "Failed to create git worktree" })
       }
-
-      yield* project.addSandbox(ctx.project.id, info.directory).pipe(Effect.catch(() => Effect.void))
     })
 
     const boot = Effect.fnUntraced(function* (info: Info, startCommand?: string) {
@@ -312,7 +304,7 @@ export const layer: Layer.Layer<
       return text
         .split("\n")
         .map((line) => line.trim())
-        .reduce<{ path?: string; branch?: string }[]>((acc, line) => {
+        .reduce<{ path?: string; branch?: string; prunable?: boolean }[]>((acc, line) => {
           if (!line) return acc
           if (line.startsWith("worktree ")) {
             acc.push({ path: line.slice("worktree ".length).trim() })
@@ -322,6 +314,9 @@ export const layer: Layer.Layer<
           if (!current) return acc
           if (line.startsWith("branch ")) {
             current.branch = line.slice("branch ".length).trim()
+          }
+          if (line === "prunable") {
+            current.prunable = true
           }
           return acc
         }, [])
@@ -354,6 +349,7 @@ export const layer: Layer.Layer<
       const primaryName = pathSvc.basename(primary).toLowerCase()
       return yield* Effect.forEach(parseWorktreeList(result.text), (entry) =>
         Effect.gen(function* () {
+          if (entry.prunable) return undefined
           if (!entry.path) return undefined
           const directory = yield* canonical(entry.path)
           if (directory === primary) return undefined
@@ -612,7 +608,6 @@ export const layer: Layer.Layer<
 export const appLayer = layer.pipe(
   Layer.provide(Git.defaultLayer),
   Layer.provide(CrossSpawnSpawner.defaultLayer),
-  Layer.provide(Project.defaultLayer),
   Layer.provide(AppFileSystem.defaultLayer),
   Layer.provide(NodePath.layer),
 )

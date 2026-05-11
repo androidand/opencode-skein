@@ -280,14 +280,14 @@ export function DialogSelectFile(props: { mode?: DialogSelectFileMode; onOpenFil
   const project = createMemo(() => {
     const directory = projectDirectory()
     if (!directory) return
-    return layout.projects.list().find((p) => p.worktree === directory || p.sandboxes?.includes(directory))
+    return layout.projects.list().find((p) => p.worktree === directory || p.worktrees?.includes(directory))
   })
   const workspaces = createMemo(() => {
     const directory = projectDirectory()
     const current = project()
     if (!current) return directory ? [directory] : []
 
-    const dirs = [current.worktree, ...(current.sandboxes ?? [])]
+    const dirs = [current.worktree, ...(current.worktrees ?? [])]
     if (directory && !dirs.includes(directory)) return [...dirs, directory]
     return dirs
   })

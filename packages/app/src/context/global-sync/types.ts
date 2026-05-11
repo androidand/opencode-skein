@@ -8,6 +8,7 @@ import type {
   Part,
   Path,
   PermissionRequest,
+  Project,
   ProviderListResponse,
   QuestionRequest,
   Session,
@@ -28,6 +29,10 @@ export type ProjectMeta = {
   commands?: {
     start?: string
   }
+}
+
+export type ProjectInfo = Project & {
+  worktrees?: string[]
 }
 
 export type State = {

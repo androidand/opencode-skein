@@ -55,7 +55,6 @@ function ensureGlobal() {
         worktree: "/",
         time_created: Date.now(),
         time_updated: Date.now(),
-        sandboxes: [],
       })
       .onConflictDoNothing()
       .run(),

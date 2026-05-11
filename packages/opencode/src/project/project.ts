@@ -51,7 +51,6 @@ export const Info = Schema.Struct({
   icon: optionalOmitUndefined(ProjectIcon),
   commands: optionalOmitUndefined(ProjectCommands),
   time: ProjectTime,
-  sandboxes: Schema.Array(Schema.String),
 })
   .annotate({ identifier: "Project" })
   .pipe(withStatics((s) => ({ zod: zod(s) })))
@@ -83,7 +82,6 @@ export function fromRow(row: Row): Info {
       updated: row.time_updated,
       initialized: row.time_initialized ?? undefined,
     },
-    sandboxes: row.sandboxes,
     commands: row.commands ?? undefined,
   }
 }
@@ -123,9 +121,6 @@ export interface Interface {
   readonly update: (input: UpdateInput) => Effect.Effect<Info>
   readonly initGit: (input: { directory: string; project: Info }) => Effect.Effect<Info>
   readonly setInitialized: (id: ProjectID) => Effect.Effect<void>
-  readonly sandboxes: (id: ProjectID) => Effect.Effect<string[]>
-  readonly addSandbox: (id: ProjectID, directory: string) => Effect.Effect<void>
-  readonly removeSandbox: (id: ProjectID, directory: string) => Effect.Effect<void>
 }
 
 export class Service extends Context.Service<Service, Interface>()("@opencode/Project") {}
@@ -283,7 +278,6 @@ export const layer: Layer.Layer<
             id: data.id,
             worktree: data.worktree,
             vcs: data.vcs,
-            sandboxes: [] as string[],
             time: { created: Date.now(), updated: Date.now() },
           }
 
@@ -295,17 +289,6 @@ export const layer: Layer.Layer<
         vcs: data.vcs,
         time: { ...existing.time, updated: Date.now() },
       }
-      if (data.sandbox !== result.worktree && !result.sandboxes.includes(data.sandbox))
-        result.sandboxes.push(data.sandbox)
-      result.sandboxes = yield* Effect.forEach(
-        result.sandboxes,
-        (s) =>
-          fs.exists(s).pipe(
-            Effect.orDie,
-            Effect.map((exists) => (exists ? s : undefined)),
-          ),
-        { concurrency: "unbounded" },
-      ).pipe(Effect.map((arr) => arr.filter((x): x is string => x !== undefined)))
 
       yield* db((d) =>
         d
@@ -321,7 +304,6 @@ export const layer: Layer.Layer<
             time_created: result.time.created,
             time_updated: result.time.updated,
             time_initialized: result.time.initialized,
-            sandboxes: result.sandboxes,
             commands: result.commands,
           })
           .onConflictDoUpdate({
@@ -335,7 +317,6 @@ export const layer: Layer.Layer<
               icon_color: result.icon?.color,
               time_updated: result.time.updated,
               time_initialized: result.time.initialized,
-              sandboxes: result.sandboxes,
               commands: result.commands,
             },
           })
@@ -441,54 +422,6 @@ export const layer: Layer.Layer<
       yield* InstanceState.get(initState)
     })
 
-    const sandboxes = Effect.fn("Project.sandboxes")(function* (id: ProjectID) {
-      const row = yield* db((d) => d.select().from(ProjectTable).where(eq(ProjectTable.id, id)).get())
-      if (!row) return []
-      const data = fromRow(row)
-      return yield* Effect.forEach(
-        data.sandboxes,
-        (dir) =>
-          fs.isDir(dir).pipe(
-            Effect.orDie,
-            Effect.map((ok) => (ok ? dir : undefined)),
-          ),
-        { concurrency: "unbounded" },
-      ).pipe(Effect.map((arr) => arr.filter((x): x is string => x !== undefined)))
-    })
-
-    const addSandbox = Effect.fn("Project.addSandbox")(function* (id: ProjectID, directory: string) {
-      const row = yield* db((d) => d.select().from(ProjectTable).where(eq(ProjectTable.id, id)).get())
-      if (!row) throw new Error(`Project not found: ${id}`)
-      const sboxes = [...row.sandboxes]
-      if (!sboxes.includes(directory)) sboxes.push(directory)
-      const result = yield* db((d) =>
-        d
-          .update(ProjectTable)
-          .set({ sandboxes: sboxes, time_updated: Date.now() })
-          .where(eq(ProjectTable.id, id))
-          .returning()
-          .get(),
-      )
-      if (!result) throw new Error(`Project not found: ${id}`)
-      yield* emitUpdated(fromRow(result))
-    })
-
-    const removeSandbox = Effect.fn("Project.removeSandbox")(function* (id: ProjectID, directory: string) {
-      const row = yield* db((d) => d.select().from(ProjectTable).where(eq(ProjectTable.id, id)).get())
-      if (!row) throw new Error(`Project not found: ${id}`)
-      const sboxes = row.sandboxes.filter((s) => s !== directory)
-      const result = yield* db((d) =>
-        d
-          .update(ProjectTable)
-          .set({ sandboxes: sboxes, time_updated: Date.now() })
-          .where(eq(ProjectTable.id, id))
-          .returning()
-          .get(),
-      )
-      if (!result) throw new Error(`Project not found: ${id}`)
-      yield* emitUpdated(fromRow(result))
-    })
-
     return Service.of({
       init,
       fromDirectory,
@@ -498,9 +431,6 @@ export const layer: Layer.Layer<
       update,
       initGit,
       setInitialized,
-      sandboxes,
-      addSandbox,
-      removeSandbox,
     })
   }),
 )

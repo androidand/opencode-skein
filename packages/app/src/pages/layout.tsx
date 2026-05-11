@@ -560,8 +560,8 @@ export default function Layout(props: ParentProps) {
 
     const projects = layout.projects.list()
 
-    const sandbox = projects.find((p) => p.sandboxes?.some((item) => pathKey(item) === key))
-    if (sandbox) return sandbox
+    const worktree = projects.find((p) => p.worktrees?.some((item) => pathKey(item) === key))
+    if (worktree) return worktree
 
     const direct = projects.find((p) => pathKey(p.worktree) === key)
     if (direct) return direct
@@ -646,7 +646,7 @@ export default function Layout(props: ParentProps) {
       if (!expanded) continue
       const key = pathKey(directory)
       const project = projects.find(
-        (item) => pathKey(item.worktree) === key || item.sandboxes?.some((sandbox) => pathKey(sandbox) === key),
+        (item) => pathKey(item.worktree) === key || item.worktrees?.some((worktree) => pathKey(worktree) === key),
       )
       if (!project) continue
       if (project.vcs === "git" && layout.sidebar.workspaces(project.worktree)()) continue
@@ -1223,7 +1223,7 @@ export default function Layout(props: ParentProps) {
     const key = pathKey(directory)
     const project = layout.projects
       .list()
-      .find((item) => pathKey(item.worktree) === key || item.sandboxes?.some((sandbox) => pathKey(sandbox) === key))
+      .find((item) => pathKey(item.worktree) === key || item.worktrees?.some((worktree) => pathKey(worktree) === key))
     if (project) return project.worktree
 
     const known = Object.entries(store.workspaceOrder).find(
@@ -1275,7 +1275,7 @@ export default function Layout(props: ParentProps) {
     server.projects.touch(root)
     const project = layout.projects.list().find((item) => item.worktree === root)
     let dirs = project
-      ? effectiveWorkspaceOrder(root, [root, ...(project.sandboxes ?? [])], store.workspaceOrder[root])
+      ? effectiveWorkspaceOrder(root, [root, ...(project.worktrees ?? [])], store.workspaceOrder[root])
       : [root]
     const canOpen = (value: string | undefined) => {
       if (!value) return false
@@ -1514,7 +1514,7 @@ export default function Layout(props: ParentProps) {
       produce((draft) => {
         const project = draft.find((item) => item.worktree === root)
         if (!project) return
-        project.sandboxes = (project.sandboxes ?? []).filter((sandbox) => sandbox !== directory)
+        project.worktrees = (project.worktrees ?? []).filter((worktree) => worktree !== directory)
       }),
     )
     setStore("workspaceOrder", root, (order) => (order ?? []).filter((workspace) => workspace !== directory))
@@ -1528,7 +1528,7 @@ export default function Layout(props: ParentProps) {
     const nextKey = pathKey(nextCurrent)
     const project = layout.projects.list().find((item) => item.worktree === root)
     const dirs = project
-      ? effectiveWorkspaceOrder(root, [root, ...(project.sandboxes ?? [])], store.workspaceOrder[root])
+      ? effectiveWorkspaceOrder(root, [root, ...(project.worktrees ?? [])], store.workspaceOrder[root])
       : [root]
     const valid = dirs.some((item) => pathKey(item) === nextKey)
 
@@ -1862,7 +1862,7 @@ export default function Layout(props: ParentProps) {
   function workspaceIds(project: LocalProject | undefined) {
     if (!project) return []
     const local = project.worktree
-    const dirs = [local, ...(project.sandboxes ?? [])]
+    const dirs = [local, ...(project.worktrees ?? [])]
     const active = currentProject()
     const directory = pathKey(active?.worktree ?? "") === pathKey(project.worktree) ? currentDir() : undefined
     const extra =
@@ -1954,6 +1954,14 @@ export default function Layout(props: ParentProps) {
       })
       return [created.directory, ...next]
     })
+    globalSync.set(
+      "project",
+      produce((draft) => {
+        const item = draft.find((item) => item.worktree === project.worktree)
+        if (!item) return
+        item.worktrees = [created.directory, ...(item.worktrees ?? []).filter((worktree) => pathKey(worktree) !== key)]
+      }),
+    )
 
     globalSync.child(created.directory)
     navigateWithSidebarReset(`/${base64Encode(created.directory)}/session`)

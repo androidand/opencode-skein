@@ -6,8 +6,8 @@ import { useGlobalSync } from "./global-sync"
 import { useGlobalSDK } from "./global-sdk"
 import { useServer } from "./server"
 import { usePlatform } from "./platform"
-import { Project } from "@opencode-ai/sdk/v2"
 import { Persist, persisted, removePersisted } from "@/utils/persist"
+import type { ProjectInfo } from "./global-sync/types"
 import { decode64 } from "@/utils/base64"
 import { same } from "@/utils/same"
 import { createScrollPersistence, type SessionScroll } from "./layout-scroll"
@@ -51,7 +51,7 @@ type TabHandoff = {
   at: number
 }
 
-export type LocalProject = Partial<Project> & { worktree: string; expanded: boolean }
+export type LocalProject = Partial<ProjectInfo> & { worktree: string; expanded: boolean }
 
 export type ReviewDiffStyle = "unified" | "split"
 
@@ -404,9 +404,8 @@ export const { use: useLayout, provider: LayoutProvider } = createSimpleContext(
     const roots = createMemo(() => {
       const map = new Map<string, string>()
       for (const project of globalSync.data.project) {
-        const sandboxes = project.sandboxes ?? []
-        for (const sandbox of sandboxes) {
-          map.set(sandbox, project.worktree)
+        for (const worktree of project.worktrees ?? []) {
+          map.set(worktree, project.worktree)
         }
       }
       return map

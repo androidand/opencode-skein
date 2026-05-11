@@ -219,7 +219,7 @@ describe("Worktree", () => {
             expect(list).toContainEqual({
               name: path.basename(parent),
               branch,
-              directory: directory.toLowerCase(),
+              directory: process.platform === "win32" ? directory.toLowerCase() : directory,
             })
 
             yield* svc.remove({ directory: target })

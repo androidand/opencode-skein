@@ -57,12 +57,11 @@ describe("experimental HttpApi", () => {
     })
 
     const headers = { "x-opencode-directory": tmp.path }
-    const [consoleState, consoleOrgs, toolList, toolIDs, worktrees, resources] = await Promise.all([
+    const [consoleState, consoleOrgs, toolList, toolIDs, resources] = await Promise.all([
       app().request(ExperimentalPaths.console, { headers }),
       app().request(ExperimentalPaths.consoleOrgs, { headers }),
       app().request(`${ExperimentalPaths.tool}?provider=opencode&model=gpt-5`, { headers }),
       app().request(ExperimentalPaths.toolIDs, { headers }),
-      app().request(ExperimentalPaths.worktree, { headers }),
       app().request(ExperimentalPaths.resource, { headers }),
     ])
 
@@ -86,9 +85,6 @@ describe("experimental HttpApi", () => {
 
     expect(toolIDs.status).toBe(200)
     expect(await toolIDs.json()).toContain("bash")
-
-    expect(worktrees.status).toBe(200)
-    expect(await worktrees.json()).toEqual([])
 
     expect(resources.status).toBe(200)
     expect(await resources.json()).toEqual({})
@@ -172,10 +168,6 @@ describe("experimental HttpApi", () => {
     expect(info).toMatchObject({ name: "api-test", branch: "opencode/api-test" })
     await waitReady(info.directory)
 
-    const listed = await app().request(ExperimentalPaths.worktree, { headers })
-    expect(listed.status).toBe(200)
-    expect(await listed.json()).toContain(info.directory)
-
     if (process.platform !== "win32") {
       const reset = await app().request(ExperimentalPaths.worktreeReset, {
         method: "POST",
@@ -195,9 +187,6 @@ describe("experimental HttpApi", () => {
 
     expect(removed.status).toBe(200)
     expect(await removed.json()).toBe(true)
-
-    const afterRemove = await app().request(ExperimentalPaths.worktree, { headers })
-    expect(afterRemove.status).toBe(200)
-    expect(await afterRemove.json()).toEqual([])
+    expect(await Bun.file(info.directory).exists()).toBe(false)
   })
 })

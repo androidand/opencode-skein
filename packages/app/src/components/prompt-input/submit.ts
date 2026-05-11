@@ -4,6 +4,7 @@ import { base64Encode } from "@opencode-ai/core/util/encode"
 import { Binary } from "@opencode-ai/core/util/binary"
 import { useNavigate, useParams } from "@solidjs/router"
 import { batch, type Accessor } from "solid-js"
+import { produce } from "solid-js/store"
 import type { FileSelection } from "@/context/file"
 import { useGlobalSync } from "@/context/global-sync"
 import { useLanguage } from "@/context/language"
@@ -342,6 +343,17 @@ export function createPromptSubmit(input: PromptSubmitInput) {
           return
         }
         WorktreeState.pending(createdWorktree.directory)
+        globalSync.set(
+          "project",
+          produce((draft) => {
+            const project = draft.find((item) => item.worktree === projectDirectory)
+            if (!project) return
+            project.worktrees = [
+              createdWorktree.directory,
+              ...(project.worktrees ?? []).filter((worktree) => worktree !== createdWorktree.directory),
+            ]
+          }),
+        )
         sessionDirectory = createdWorktree.directory
       }
 

@@ -130,7 +130,6 @@ describe("JSON to SQLite migration", () => {
     expect(projects[0].id).toBe(ProjectID.make("proj_test123abc"))
     expect(projects[0].worktree).toBe("/test/path")
     expect(projects[0].name).toBe("Test Project")
-    expect(projects[0].sandboxes).toEqual(["/test/sandbox"])
   })
 
   test("uses filename for project id when JSON has different value", async () => {

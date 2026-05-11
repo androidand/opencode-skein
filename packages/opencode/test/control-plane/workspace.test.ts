@@ -324,7 +324,6 @@ function insertProject(id: ProjectID, worktree: string) {
         name: null,
         time_created: Date.now(),
         time_updated: Date.now(),
-        sandboxes: [],
       })
       .run(),
   )

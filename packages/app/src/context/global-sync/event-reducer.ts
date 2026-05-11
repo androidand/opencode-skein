@@ -4,14 +4,13 @@ import type {
   Message,
   Part,
   PermissionRequest,
-  Project,
   QuestionRequest,
   Session,
   SessionStatus,
   SnapshotFileDiff,
   Todo,
 } from "@opencode-ai/sdk/v2/client"
-import type { State, VcsCache } from "./types"
+import type { ProjectInfo, State, VcsCache } from "./types"
 import { trimSessions } from "./session-trim"
 import { dropSessionCaches } from "./session-cache"
 import { diffs as list, message as clean } from "@/utils/diffs"
@@ -20,8 +19,8 @@ const SKIP_PARTS = new Set(["patch", "step-start", "step-finish"])
 
 export function applyGlobalEvent(input: {
   event: { type: string; properties?: unknown }
-  project: Project[]
-  setGlobalProject: (next: Project[] | ((draft: Project[]) => Project[])) => void
+  project: ProjectInfo[]
+  setGlobalProject: (next: ProjectInfo[] | ((draft: ProjectInfo[]) => ProjectInfo[])) => void
   refresh: () => void
 }) {
   if (input.event.type === "global.disposed" || input.event.type === "server.connected") {
@@ -30,7 +29,7 @@ export function applyGlobalEvent(input: {
   }
 
   if (input.event.type !== "project.updated") return
-  const properties = input.event.properties as Project
+  const properties = input.event.properties as ProjectInfo
   const result = Binary.search(input.project, properties.id, (s) => s.id)
   if (result.found) {
     input.setGlobalProject(

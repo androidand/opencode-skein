@@ -153,7 +153,6 @@ describe("Project.fromDirectory with worktrees", () => {
 
     expect(project.worktree).toBe(tmp.path)
     expect(sandbox).toBe(tmp.path)
-    expect(project.sandboxes).not.toContain(tmp.path)
   })
 
   test("should set worktree to root when called from a worktree", async () => {
@@ -167,8 +166,6 @@ describe("Project.fromDirectory with worktrees", () => {
 
       expect(project.worktree).toBe(tmp.path)
       expect(sandbox).toBe(worktreePath)
-      expect(project.sandboxes).toContain(worktreePath)
-      expect(project.sandboxes).not.toContain(tmp.path)
     } finally {
       await $`git worktree remove ${worktreePath}`
         .cwd(tmp.path)
@@ -218,34 +215,6 @@ describe("Project.fromDirectory with worktrees", () => {
       expect(b.id).toBe(a.id)
     } finally {
       await $`rm -rf ${bare} ${clone}`.quiet().nothrow()
-    }
-  })
-
-  test("should accumulate multiple worktrees in sandboxes", async () => {
-    await using tmp = await tmpdir({ git: true })
-
-    const worktree1 = path.join(tmp.path, "..", path.basename(tmp.path) + "-wt1")
-    const worktree2 = path.join(tmp.path, "..", path.basename(tmp.path) + "-wt2")
-    try {
-      await $`git worktree add ${worktree1} -b branch-${Date.now()}`.cwd(tmp.path).quiet()
-      await $`git worktree add ${worktree2} -b branch-${Date.now() + 1}`.cwd(tmp.path).quiet()
-
-      await run((svc) => svc.fromDirectory(worktree1))
-      const { project } = await run((svc) => svc.fromDirectory(worktree2))
-
-      expect(project.worktree).toBe(tmp.path)
-      expect(project.sandboxes).toContain(worktree1)
-      expect(project.sandboxes).toContain(worktree2)
-      expect(project.sandboxes).not.toContain(tmp.path)
-    } finally {
-      await $`git worktree remove ${worktree1}`
-        .cwd(tmp.path)
-        .quiet()
-        .catch(() => {})
-      await $`git worktree remove ${worktree2}`
-        .cwd(tmp.path)
-        .quiet()
-        .catch(() => {})
     }
   })
 })
@@ -482,39 +451,6 @@ describe("Project.setInitialized", () => {
 
     const updated = Project.get(project.id)
     expect(updated?.time.initialized).toBeDefined()
-  })
-})
-
-describe("Project.addSandbox and Project.removeSandbox", () => {
-  test("addSandbox adds directory and removeSandbox removes it", async () => {
-    await using tmp = await tmpdir({ git: true })
-    const { project } = await run((svc) => svc.fromDirectory(tmp.path))
-    const sandboxDir = path.join(tmp.path, "sandbox-test")
-
-    await run((svc) => svc.addSandbox(project.id, sandboxDir))
-
-    let found = Project.get(project.id)
-    expect(found?.sandboxes).toContain(sandboxDir)
-
-    await run((svc) => svc.removeSandbox(project.id, sandboxDir))
-
-    found = Project.get(project.id)
-    expect(found?.sandboxes).not.toContain(sandboxDir)
-  })
-
-  test("addSandbox emits GlobalBus event", async () => {
-    await using tmp = await tmpdir({ git: true })
-    const { project } = await run((svc) => svc.fromDirectory(tmp.path))
-    const sandboxDir = path.join(tmp.path, "sandbox-event")
-
-    const events: any[] = []
-    const on = (evt: any) => events.push(evt)
-    GlobalBus.on("event", on)
-
-    await run((svc) => svc.addSandbox(project.id, sandboxDir))
-
-    GlobalBus.off("event", on)
-    expect(events.some((e) => e.payload.type === Project.Event.Updated.type)).toBe(true)
   })
 })
 

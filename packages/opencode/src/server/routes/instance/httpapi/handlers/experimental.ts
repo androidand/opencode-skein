@@ -1,9 +1,7 @@
 import { Account } from "@/account/account"
 import { Agent } from "@/agent/agent"
 import { Config } from "@/config/config"
-import { InstanceState } from "@/effect/instance-state"
 import { MCP } from "@/mcp"
-import { Project } from "@/project/project"
 import { Session } from "@/session/session"
 import { ToolRegistry } from "@/tool/registry"
 import * as EffectZod from "@opencode-ai/core/effect-zod"
@@ -20,7 +18,6 @@ export const experimentalHandlers = HttpApiBuilder.group(InstanceHttpApi, "exper
     const agents = yield* Agent.Service
     const config = yield* Config.Service
     const mcp = yield* MCP.Service
-    const project = yield* Project.Service
     const registry = yield* ToolRegistry.Service
     const worktreeSvc = yield* Worktree.Service
 
@@ -93,8 +90,7 @@ export const experimentalHandlers = HttpApiBuilder.group(InstanceHttpApi, "exper
     })
 
     const worktree = Effect.fn("ExperimentalHttpApi.worktree")(function* () {
-      const ctx = yield* InstanceState.context
-      return yield* project.sandboxes(ctx.project.id)
+      return yield* worktreeSvc.list().pipe(Effect.map((items) => items.map((item) => item.directory)))
     })
 
     const worktreeCreate = Effect.fn("ExperimentalHttpApi.worktreeCreate")(function* (ctx: {
@@ -106,9 +102,7 @@ export const experimentalHandlers = HttpApiBuilder.group(InstanceHttpApi, "exper
     const worktreeRemove = Effect.fn("ExperimentalHttpApi.worktreeRemove")(function* (input: {
       payload: Worktree.RemoveInput
     }) {
-      const ctx = yield* InstanceState.context
       yield* worktreeSvc.remove(input.payload)
-      yield* project.removeSandbox(ctx.project.id, input.payload.directory)
       return true
     })
 
