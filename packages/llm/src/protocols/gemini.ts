@@ -285,14 +285,12 @@ const fromRequest = Effect.fn("Gemini.fromRequest")(function* (request: LLMReque
 // `cachedContentTokenCount` subset. `candidatesTokenCount` is *exclusive*
 // of `thoughtsTokenCount` — visible-only, not a total — so we sum the two
 // to produce the inclusive `outputTokens` the rest of the contract expects.
+// Output is left undefined when the visible component is missing, so we
+// don't fabricate an inclusive number from a partial breakdown.
 const mapUsage = (usage: GeminiUsage | undefined) => {
   if (!usage) return undefined
   const cached = usage.cachedContentTokenCount
   const nonCached = ProviderShared.subtractTokens(usage.promptTokenCount, cached)
-  // `candidatesTokenCount` is visible-only; sum with thoughts to produce the
-  // inclusive `outputTokens` the contract expects. Only compute the total
-  // when the visible component is reported — otherwise we'd fabricate an
-  // inclusive number from a partial breakdown.
   const outputTokens =
     usage.candidatesTokenCount !== undefined
       ? usage.candidatesTokenCount + (usage.thoughtsTokenCount ?? 0)

@@ -43,12 +43,10 @@ export interface ToolAccumulator {
  * when at least one is defined. Returns `undefined` when neither input nor
  * output is known so routes don't publish a misleading `0`.
  *
- * Under the additive `LLM.Usage` contract, `inputTokens` and `outputTokens`
- * are the non-cached input and visible output only. The provider-supplied
- * `total` is the source of truth when present; the computed fallback
- * under-counts cache and reasoning by design and exists mainly so
- * Anthropic-style providers (which don't surface a total) still get a
- * sensible aggregate on the input + output axes.
+ * Under the `LLM.Usage` contract, `inputTokens` and `outputTokens` are
+ * inclusive totals, so the computed fallback already covers cache reads /
+ * writes and reasoning — used mainly for Anthropic-style providers that
+ * don't surface a top-level total.
  */
 export const totalTokens = (
   inputTokens: number | undefined,
@@ -69,7 +67,8 @@ export const totalTokens = (
  *
  * If `total` is `undefined`, returns `undefined` (we don't fabricate
  * counts). If `subtrahend` is `undefined`, returns `total` unchanged. The
- * provider-native breakdown stays available on `Usage.native` for debugging.
+ * provider-native breakdown stays available on `Usage.providerMetadata`
+ * for debugging.
  */
 export const subtractTokens = (
   total: number | undefined,
