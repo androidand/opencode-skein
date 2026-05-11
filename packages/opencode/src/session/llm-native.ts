@@ -1,5 +1,6 @@
-import type { JsonSchema, LLMRequest, ProviderMetadata, ToolDefinition } from "@opencode-ai/llm"
-import { LLM } from "@opencode-ai/llm"
+import type { JsonSchema, LLMRequest, ProviderMetadata } from "@opencode-ai/llm"
+import { LLM, Message, SystemPart, ToolCallPart, ToolDefinition, ToolResultPart } from "@opencode-ai/llm"
+import "@opencode-ai/llm/providers"
 import type { ModelMessage } from "ai"
 import type { Provider } from "@/provider/provider"
 
@@ -71,7 +72,7 @@ const mediaPart = (part: Record<string, unknown>) => {
 const toolResult = (part: Record<string, unknown>) => {
   const output = isRecord(part.output) ? part.output : { type: "json", value: part.output }
   const type = output.type === "text" ? "text" : output.type === "error-text" ? "error" : "json"
-  return LLM.toolResult({
+  return ToolResultPart.make({
     id: typeof part.toolCallId === "string" ? part.toolCallId : "",
     name: typeof part.toolName === "string" ? part.toolName : "",
     result: "value" in output ? output.value : output,
@@ -92,7 +93,7 @@ const contentPart = (part: unknown) => {
       providerMetadata: providerMetadata(part.providerOptions),
     }
   if (part.type === "tool-call")
-    return LLM.toolCall({
+    return ToolCallPart.make({
       id: typeof part.toolCallId === "string" ? part.toolCallId : "",
       name: typeof part.toolName === "string" ? part.toolName : "",
       input: part.input,
@@ -104,14 +105,14 @@ const contentPart = (part: unknown) => {
 }
 
 const content = (value: ModelMessage["content"]) =>
-  typeof value === "string" ? [LLM.text(value)] : value.map(contentPart)
+  typeof value === "string" ? [{ type: "text" as const, text: value }] : value.map(contentPart)
 
 const messages = (input: readonly ModelMessage[]) => {
-  const system = input.flatMap((message) => (message.role === "system" ? [LLM.system(message.content)] : []))
+  const system = input.flatMap((message) => (message.role === "system" ? [SystemPart.make(message.content)] : []))
   const messages = input.flatMap((message) => {
     if (message.role === "system") return []
     return [
-      LLM.message({
+      Message.make({
         role: message.role,
         content: content(message.content),
         native: isRecord(message.providerOptions) ? { providerOptions: message.providerOptions } : undefined,
@@ -129,7 +130,7 @@ const schema = (value: unknown): JsonSchema => {
 
 const tools = (input: Record<string, ToolInput> | undefined): ToolDefinition[] =>
   Object.entries(input ?? {}).map(([name, item]) =>
-    LLM.toolDefinition({
+    ToolDefinition.make({
       name,
       description: item.description ?? "",
       inputSchema: schema(item.inputSchema),
@@ -173,7 +174,7 @@ export const request = (input: RequestInput) => {
   const converted = messages(input.messages)
   return LLM.request({
     model: model(input.model, input.headers),
-    system: [...(input.system ?? []).map(LLM.system), ...converted.system],
+    system: [...(input.system ?? []).map(SystemPart.make), ...converted.system],
     messages: converted.messages,
     tools: tools(input.tools),
     toolChoice: input.toolChoice,
