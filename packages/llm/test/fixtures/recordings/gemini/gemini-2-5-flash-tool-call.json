@@ -1,0 +1,38 @@
+{
+  "version": 1,
+  "metadata": {
+    "name": "gemini/gemini-2-5-flash-tool-call",
+    "recordedAt": "2026-05-11T02:02:09.308Z",
+    "provider": "google",
+    "route": "gemini",
+    "transport": "http",
+    "model": "gemini-2.5-flash",
+    "tags": [
+      "prefix:gemini",
+      "provider:google",
+      "tool",
+      "tool-call",
+      "golden"
+    ]
+  },
+  "interactions": [
+    {
+      "transport": "http",
+      "request": {
+        "method": "POST",
+        "url": "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:streamGenerateContent?alt=sse",
+        "headers": {
+          "content-type": "application/json"
+        },
+        "body": "{\"contents\":[{\"role\":\"user\",\"parts\":[{\"text\":\"Call get_weather with city exactly Paris.\"}]}],\"systemInstruction\":{\"parts\":[{\"text\":\"Call tools exactly as requested.\"}]},\"tools\":[{\"functionDeclarations\":[{\"name\":\"get_weather\",\"description\":\"Get current weather for a city.\",\"parameters\":{\"required\":[\"city\"],\"type\":\"object\",\"properties\":{\"city\":{\"type\":\"string\"}}}}]}],\"toolConfig\":{\"functionCallingConfig\":{\"mode\":\"ANY\",\"allowedFunctionNames\":[\"get_weather\"]}},\"generationConfig\":{\"maxOutputTokens\":80,\"temperature\":0}}"
+      },
+      "response": {
+        "status": 200,
+        "headers": {
+          "content-type": "text/event-stream"
+        },
+        "body": "data: {\"candidates\": [{\"content\": {\"parts\": [{\"functionCall\": {\"name\": \"get_weather\",\"args\": {\"city\": \"Paris\"}},\"thoughtSignature\": \"CiQBDDnWx/X6sWeX2joSugyWO3L/lt0AgIPCvhpqf3845fj+H70KXwEMOdbHB/cnaqYCro0pU+yLWoA55jhuwoLmTcnYm4Qzcm5DuW/v0NUyz8RDx6DFh61juENveUztly6yc6/XiWJHtsgncd9YgcZhuQKqtp5KZTkGYpT3g6v3yP9GK4AoCoUBAQw51sePh3WuWovHnwIotKLVZiU9pwh34k4FY7ugPOxyDAG9j69cy7BYYzSchI10LEjLoLlCMZuNIPootBgI02QWY/4h2PIv33BAADrFPM2T3aE4cAuMoa3GCu2nztJ/95junDhIhuXZSQ/Mh9EVxpx7ml99Z7Hxb7OtDsSZZLeCBuGmSw==\"}],\"role\": \"model\"},\"finishReason\": \"STOP\",\"index\": 0,\"finishMessage\": \"Model generated function call(s).\"}],\"usageMetadata\": {\"promptTokenCount\": 55,\"candidatesTokenCount\": 15,\"totalTokenCount\": 115,\"promptTokensDetails\": [{\"modality\": \"TEXT\",\"tokenCount\": 55}],\"thoughtsTokenCount\": 45,\"serviceTier\": \"standard\"},\"modelVersion\": \"gemini-2.5-flash\",\"responseId\": \"oDgBauj6HZ3B-8YPpaOc6QU\"}\r\n\r\n"
+      }
+    }
+  ]
+}

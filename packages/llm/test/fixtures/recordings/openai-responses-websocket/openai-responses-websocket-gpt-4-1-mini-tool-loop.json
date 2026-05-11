@@ -1,0 +1,143 @@
+{
+  "version": 1,
+  "metadata": {
+    "name": "openai-responses-websocket/openai-responses-websocket-gpt-4-1-mini-tool-loop",
+    "recordedAt": "2026-05-11T02:02:03.284Z",
+    "provider": "openai",
+    "route": "openai-responses-websocket",
+    "transport": "websocket",
+    "model": "gpt-4.1-mini",
+    "tags": [
+      "prefix:openai-responses-websocket",
+      "provider:openai",
+      "transport:websocket",
+      "tool",
+      "tool-loop",
+      "golden"
+    ]
+  },
+  "interactions": [
+    {
+      "transport": "websocket",
+      "open": {
+        "url": "wss://api.openai.com/v1/responses",
+        "headers": {}
+      },
+      "client": [
+        {
+          "kind": "text",
+          "body": "{\"type\":\"response.create\",\"model\":\"gpt-4.1-mini\",\"input\":[{\"role\":\"system\",\"content\":\"Use the get_weather tool exactly once. After the tool result, reply exactly: Paris is sunny.\"},{\"role\":\"user\",\"content\":[{\"type\":\"input_text\",\"text\":\"What is the weather in Paris?\"}]}],\"tools\":[{\"type\":\"function\",\"name\":\"get_weather\",\"description\":\"Get current weather for a city.\",\"parameters\":{\"type\":\"object\",\"properties\":{\"city\":{\"type\":\"string\"}},\"required\":[\"city\"],\"additionalProperties\":false}}],\"store\":false,\"max_output_tokens\":80,\"temperature\":0}"
+        }
+      ],
+      "server": [
+        {
+          "kind": "text",
+          "body": "{\"type\":\"response.created\",\"response\":{\"id\":\"resp_0f8d81b5d3287513016a013897415481a28585571d6710366f\",\"object\":\"response\",\"created_at\":1778464919,\"status\":\"in_progress\",\"background\":false,\"completed_at\":null,\"error\":null,\"frequency_penalty\":0.0,\"incomplete_details\":null,\"instructions\":null,\"max_output_tokens\":80,\"max_tool_calls\":null,\"model\":\"gpt-4.1-mini-2025-04-14\",\"moderation\":null,\"output\":[],\"parallel_tool_calls\":true,\"presence_penalty\":0.0,\"previous_response_id\":null,\"prompt_cache_key\":null,\"prompt_cache_retention\":\"in_memory\",\"reasoning\":{\"effort\":null,\"summary\":null},\"safety_identifier\":null,\"service_tier\":\"auto\",\"store\":false,\"temperature\":0.0,\"text\":{\"format\":{\"type\":\"text\"},\"verbosity\":\"medium\"},\"tool_choice\":\"auto\",\"tools\":[{\"type\":\"function\",\"description\":\"Get current weather for a city.\",\"name\":\"get_weather\",\"parameters\":{\"type\":\"object\",\"properties\":{\"city\":{\"type\":\"string\"}},\"required\":[\"city\"],\"additionalProperties\":false},\"strict\":true}],\"top_logprobs\":0,\"top_p\":1.0,\"truncation\":\"disabled\",\"usage\":null,\"user\":null,\"metadata\":{}},\"sequence_number\":0}"
+        },
+        {
+          "kind": "text",
+          "body": "{\"type\":\"response.in_progress\",\"response\":{\"id\":\"resp_0f8d81b5d3287513016a013897415481a28585571d6710366f\",\"object\":\"response\",\"created_at\":1778464919,\"status\":\"in_progress\",\"background\":false,\"completed_at\":null,\"error\":null,\"frequency_penalty\":0.0,\"incomplete_details\":null,\"instructions\":null,\"max_output_tokens\":80,\"max_tool_calls\":null,\"model\":\"gpt-4.1-mini-2025-04-14\",\"moderation\":null,\"output\":[],\"parallel_tool_calls\":true,\"presence_penalty\":0.0,\"previous_response_id\":null,\"prompt_cache_key\":null,\"prompt_cache_retention\":\"in_memory\",\"reasoning\":{\"effort\":null,\"summary\":null},\"safety_identifier\":null,\"service_tier\":\"auto\",\"store\":false,\"temperature\":0.0,\"text\":{\"format\":{\"type\":\"text\"},\"verbosity\":\"medium\"},\"tool_choice\":\"auto\",\"tools\":[{\"type\":\"function\",\"description\":\"Get current weather for a city.\",\"name\":\"get_weather\",\"parameters\":{\"type\":\"object\",\"properties\":{\"city\":{\"type\":\"string\"}},\"required\":[\"city\"],\"additionalProperties\":false},\"strict\":true}],\"top_logprobs\":0,\"top_p\":1.0,\"truncation\":\"disabled\",\"usage\":null,\"user\":null,\"metadata\":{}},\"sequence_number\":1}"
+        },
+        {
+          "kind": "text",
+          "body": "{\"type\":\"response.output_item.added\",\"item\":{\"id\":\"fc_0f8d81b5d3287513016a01389815f081a2a68583ed9b19c405\",\"type\":\"function_call\",\"status\":\"in_progress\",\"arguments\":\"\",\"call_id\":\"call_wRJoUdcb6w5SIpieBFOKxF6z\",\"name\":\"get_weather\"},\"output_index\":0,\"sequence_number\":2}"
+        },
+        {
+          "kind": "text",
+          "body": "{\"type\":\"response.function_call_arguments.delta\",\"delta\":\"{\\\"\",\"item_id\":\"fc_0f8d81b5d3287513016a01389815f081a2a68583ed9b19c405\",\"obfuscation\":\"EAdvUfYaysnNd3\",\"output_index\":0,\"sequence_number\":3}"
+        },
+        {
+          "kind": "text",
+          "body": "{\"type\":\"response.function_call_arguments.delta\",\"delta\":\"city\",\"item_id\":\"fc_0f8d81b5d3287513016a01389815f081a2a68583ed9b19c405\",\"obfuscation\":\"b0QWJJlscLyl\",\"output_index\":0,\"sequence_number\":4}"
+        },
+        {
+          "kind": "text",
+          "body": "{\"type\":\"response.function_call_arguments.delta\",\"delta\":\"\\\":\\\"\",\"item_id\":\"fc_0f8d81b5d3287513016a01389815f081a2a68583ed9b19c405\",\"obfuscation\":\"m5EV1wzceCkjb\",\"output_index\":0,\"sequence_number\":5}"
+        },
+        {
+          "kind": "text",
+          "body": "{\"type\":\"response.function_call_arguments.delta\",\"delta\":\"Paris\",\"item_id\":\"fc_0f8d81b5d3287513016a01389815f081a2a68583ed9b19c405\",\"obfuscation\":\"QM3FjPoN9Gi\",\"output_index\":0,\"sequence_number\":6}"
+        },
+        {
+          "kind": "text",
+          "body": "{\"type\":\"response.function_call_arguments.delta\",\"delta\":\"\\\"}\",\"item_id\":\"fc_0f8d81b5d3287513016a01389815f081a2a68583ed9b19c405\",\"obfuscation\":\"lug74orAYXtg0e\",\"output_index\":0,\"sequence_number\":7}"
+        },
+        {
+          "kind": "text",
+          "body": "{\"type\":\"response.function_call_arguments.done\",\"arguments\":\"{\\\"city\\\":\\\"Paris\\\"}\",\"item_id\":\"fc_0f8d81b5d3287513016a01389815f081a2a68583ed9b19c405\",\"output_index\":0,\"sequence_number\":8}"
+        },
+        {
+          "kind": "text",
+          "body": "{\"type\":\"response.output_item.done\",\"item\":{\"id\":\"fc_0f8d81b5d3287513016a01389815f081a2a68583ed9b19c405\",\"type\":\"function_call\",\"status\":\"completed\",\"arguments\":\"{\\\"city\\\":\\\"Paris\\\"}\",\"call_id\":\"call_wRJoUdcb6w5SIpieBFOKxF6z\",\"name\":\"get_weather\"},\"output_index\":0,\"sequence_number\":9}"
+        },
+        {
+          "kind": "text",
+          "body": "{\"type\":\"response.completed\",\"response\":{\"id\":\"resp_0f8d81b5d3287513016a013897415481a28585571d6710366f\",\"object\":\"response\",\"created_at\":1778464919,\"status\":\"completed\",\"background\":false,\"completed_at\":1778464920,\"error\":null,\"frequency_penalty\":0.0,\"incomplete_details\":null,\"instructions\":null,\"max_output_tokens\":80,\"max_tool_calls\":null,\"model\":\"gpt-4.1-mini-2025-04-14\",\"moderation\":null,\"output\":[{\"id\":\"fc_0f8d81b5d3287513016a01389815f081a2a68583ed9b19c405\",\"type\":\"function_call\",\"status\":\"completed\",\"arguments\":\"{\\\"city\\\":\\\"Paris\\\"}\",\"call_id\":\"call_wRJoUdcb6w5SIpieBFOKxF6z\",\"name\":\"get_weather\"}],\"parallel_tool_calls\":true,\"presence_penalty\":0.0,\"previous_response_id\":null,\"prompt_cache_key\":null,\"prompt_cache_retention\":\"in_memory\",\"reasoning\":{\"effort\":null,\"summary\":null},\"safety_identifier\":null,\"service_tier\":\"default\",\"store\":false,\"temperature\":0.0,\"text\":{\"format\":{\"type\":\"text\"},\"verbosity\":\"medium\"},\"tool_choice\":\"auto\",\"tools\":[{\"type\":\"function\",\"description\":\"Get current weather for a city.\",\"name\":\"get_weather\",\"parameters\":{\"type\":\"object\",\"properties\":{\"city\":{\"type\":\"string\"}},\"required\":[\"city\"],\"additionalProperties\":false},\"strict\":true}],\"top_logprobs\":0,\"top_p\":1.0,\"truncation\":\"disabled\",\"usage\":{\"input_tokens\":69,\"input_tokens_details\":{\"cached_tokens\":0},\"output_tokens\":15,\"output_tokens_details\":{\"reasoning_tokens\":0},\"total_tokens\":84},\"user\":null,\"metadata\":{}},\"sequence_number\":10}"
+        }
+      ]
+    },
+    {
+      "transport": "websocket",
+      "open": {
+        "url": "wss://api.openai.com/v1/responses",
+        "headers": {}
+      },
+      "client": [
+        {
+          "kind": "text",
+          "body": "{\"type\":\"response.create\",\"model\":\"gpt-4.1-mini\",\"input\":[{\"role\":\"system\",\"content\":\"Use the get_weather tool exactly once. After the tool result, reply exactly: Paris is sunny.\"},{\"role\":\"user\",\"content\":[{\"type\":\"input_text\",\"text\":\"What is the weather in Paris?\"}]},{\"type\":\"function_call\",\"call_id\":\"call_wRJoUdcb6w5SIpieBFOKxF6z\",\"name\":\"get_weather\",\"arguments\":\"{\\\"city\\\":\\\"Paris\\\"}\"},{\"type\":\"function_call_output\",\"call_id\":\"call_wRJoUdcb6w5SIpieBFOKxF6z\",\"output\":\"{\\\"temperature\\\":22,\\\"condition\\\":\\\"sunny\\\"}\"}],\"tools\":[{\"type\":\"function\",\"name\":\"get_weather\",\"description\":\"Get current weather for a city.\",\"parameters\":{\"type\":\"object\",\"properties\":{\"city\":{\"type\":\"string\"}},\"required\":[\"city\"],\"additionalProperties\":false}}],\"store\":false,\"max_output_tokens\":80,\"temperature\":0}"
+        }
+      ],
+      "server": [
+        {
+          "kind": "text",
+          "body": "{\"type\":\"response.created\",\"response\":{\"id\":\"resp_0767cfe3f5d98b2a016a0138994258819485d082e5c78849a4\",\"object\":\"response\",\"created_at\":1778464921,\"status\":\"in_progress\",\"background\":false,\"completed_at\":null,\"error\":null,\"frequency_penalty\":0.0,\"incomplete_details\":null,\"instructions\":null,\"max_output_tokens\":80,\"max_tool_calls\":null,\"model\":\"gpt-4.1-mini-2025-04-14\",\"moderation\":null,\"output\":[],\"parallel_tool_calls\":true,\"presence_penalty\":0.0,\"previous_response_id\":null,\"prompt_cache_key\":null,\"prompt_cache_retention\":\"in_memory\",\"reasoning\":{\"effort\":null,\"summary\":null},\"safety_identifier\":null,\"service_tier\":\"auto\",\"store\":false,\"temperature\":0.0,\"text\":{\"format\":{\"type\":\"text\"},\"verbosity\":\"medium\"},\"tool_choice\":\"auto\",\"tools\":[{\"type\":\"function\",\"description\":\"Get current weather for a city.\",\"name\":\"get_weather\",\"parameters\":{\"type\":\"object\",\"properties\":{\"city\":{\"type\":\"string\"}},\"required\":[\"city\"],\"additionalProperties\":false},\"strict\":true}],\"top_logprobs\":0,\"top_p\":1.0,\"truncation\":\"disabled\",\"usage\":null,\"user\":null,\"metadata\":{}},\"sequence_number\":0}"
+        },
+        {
+          "kind": "text",
+          "body": "{\"type\":\"response.in_progress\",\"response\":{\"id\":\"resp_0767cfe3f5d98b2a016a0138994258819485d082e5c78849a4\",\"object\":\"response\",\"created_at\":1778464921,\"status\":\"in_progress\",\"background\":false,\"completed_at\":null,\"error\":null,\"frequency_penalty\":0.0,\"incomplete_details\":null,\"instructions\":null,\"max_output_tokens\":80,\"max_tool_calls\":null,\"model\":\"gpt-4.1-mini-2025-04-14\",\"moderation\":null,\"output\":[],\"parallel_tool_calls\":true,\"presence_penalty\":0.0,\"previous_response_id\":null,\"prompt_cache_key\":null,\"prompt_cache_retention\":\"in_memory\",\"reasoning\":{\"effort\":null,\"summary\":null},\"safety_identifier\":null,\"service_tier\":\"auto\",\"store\":false,\"temperature\":0.0,\"text\":{\"format\":{\"type\":\"text\"},\"verbosity\":\"medium\"},\"tool_choice\":\"auto\",\"tools\":[{\"type\":\"function\",\"description\":\"Get current weather for a city.\",\"name\":\"get_weather\",\"parameters\":{\"type\":\"object\",\"properties\":{\"city\":{\"type\":\"string\"}},\"required\":[\"city\"],\"additionalProperties\":false},\"strict\":true}],\"top_logprobs\":0,\"top_p\":1.0,\"truncation\":\"disabled\",\"usage\":null,\"user\":null,\"metadata\":{}},\"sequence_number\":1}"
+        },
+        {
+          "kind": "text",
+          "body": "{\"type\":\"response.output_item.added\",\"item\":{\"id\":\"msg_0767cfe3f5d98b2a016a01389b1434819493f3d33e0ec6973c\",\"type\":\"message\",\"status\":\"in_progress\",\"content\":[],\"role\":\"assistant\"},\"output_index\":0,\"sequence_number\":2}"
+        },
+        {
+          "kind": "text",
+          "body": "{\"type\":\"response.content_part.added\",\"content_index\":0,\"item_id\":\"msg_0767cfe3f5d98b2a016a01389b1434819493f3d33e0ec6973c\",\"output_index\":0,\"part\":{\"type\":\"output_text\",\"annotations\":[],\"logprobs\":[],\"text\":\"\"},\"sequence_number\":3}"
+        },
+        {
+          "kind": "text",
+          "body": "{\"type\":\"response.output_text.delta\",\"content_index\":0,\"delta\":\"Paris\",\"item_id\":\"msg_0767cfe3f5d98b2a016a01389b1434819493f3d33e0ec6973c\",\"logprobs\":[],\"obfuscation\":\"fWbkBKTZ5oG\",\"output_index\":0,\"sequence_number\":4}"
+        },
+        {
+          "kind": "text",
+          "body": "{\"type\":\"response.output_text.delta\",\"content_index\":0,\"delta\":\" is\",\"item_id\":\"msg_0767cfe3f5d98b2a016a01389b1434819493f3d33e0ec6973c\",\"logprobs\":[],\"obfuscation\":\"BGuPlDrPchXwG\",\"output_index\":0,\"sequence_number\":5}"
+        },
+        {
+          "kind": "text",
+          "body": "{\"type\":\"response.output_text.delta\",\"content_index\":0,\"delta\":\" sunny\",\"item_id\":\"msg_0767cfe3f5d98b2a016a01389b1434819493f3d33e0ec6973c\",\"logprobs\":[],\"obfuscation\":\"7THzde2pni\",\"output_index\":0,\"sequence_number\":6}"
+        },
+        {
+          "kind": "text",
+          "body": "{\"type\":\"response.output_text.delta\",\"content_index\":0,\"delta\":\".\",\"item_id\":\"msg_0767cfe3f5d98b2a016a01389b1434819493f3d33e0ec6973c\",\"logprobs\":[],\"obfuscation\":\"Eo38bSElfyNmljj\",\"output_index\":0,\"sequence_number\":7}"
+        },
+        {
+          "kind": "text",
+          "body": "{\"type\":\"response.output_text.done\",\"content_index\":0,\"item_id\":\"msg_0767cfe3f5d98b2a016a01389b1434819493f3d33e0ec6973c\",\"logprobs\":[],\"output_index\":0,\"sequence_number\":8,\"text\":\"Paris is sunny.\"}"
+        },
+        {
+          "kind": "text",
+          "body": "{\"type\":\"response.content_part.done\",\"content_index\":0,\"item_id\":\"msg_0767cfe3f5d98b2a016a01389b1434819493f3d33e0ec6973c\",\"output_index\":0,\"part\":{\"type\":\"output_text\",\"annotations\":[],\"logprobs\":[],\"text\":\"Paris is sunny.\"},\"sequence_number\":9}"
+        },
+        {
+          "kind": "text",
+          "body": "{\"type\":\"response.output_item.done\",\"item\":{\"id\":\"msg_0767cfe3f5d98b2a016a01389b1434819493f3d33e0ec6973c\",\"type\":\"message\",\"status\":\"completed\",\"content\":[{\"type\":\"output_text\",\"annotations\":[],\"logprobs\":[],\"text\":\"Paris is sunny.\"}],\"role\":\"assistant\"},\"output_index\":0,\"sequence_number\":10}"
+        },
+        {
+          "kind": "text",
+          "body": "{\"type\":\"response.completed\",\"response\":{\"id\":\"resp_0767cfe3f5d98b2a016a0138994258819485d082e5c78849a4\",\"object\":\"response\",\"created_at\":1778464921,\"status\":\"completed\",\"background\":false,\"completed_at\":1778464923,\"error\":null,\"frequency_penalty\":0.0,\"incomplete_details\":null,\"instructions\":null,\"max_output_tokens\":80,\"max_tool_calls\":null,\"model\":\"gpt-4.1-mini-2025-04-14\",\"moderation\":null,\"output\":[{\"id\":\"msg_0767cfe3f5d98b2a016a01389b1434819493f3d33e0ec6973c\",\"type\":\"message\",\"status\":\"completed\",\"content\":[{\"type\":\"output_text\",\"annotations\":[],\"logprobs\":[],\"text\":\"Paris is sunny.\"}],\"role\":\"assistant\"}],\"parallel_tool_calls\":true,\"presence_penalty\":0.0,\"previous_response_id\":null,\"prompt_cache_key\":null,\"prompt_cache_retention\":\"in_memory\",\"reasoning\":{\"effort\":null,\"summary\":null},\"safety_identifier\":null,\"service_tier\":\"default\",\"store\":false,\"temperature\":0.0,\"text\":{\"format\":{\"type\":\"text\"},\"verbosity\":\"medium\"},\"tool_choice\":\"auto\",\"tools\":[{\"type\":\"function\",\"description\":\"Get current weather for a city.\",\"name\":\"get_weather\",\"parameters\":{\"type\":\"object\",\"properties\":{\"city\":{\"type\":\"string\"}},\"required\":[\"city\"],\"additionalProperties\":false},\"strict\":true}],\"top_logprobs\":0,\"top_p\":1.0,\"truncation\":\"disabled\",\"usage\":{\"input_tokens\":99,\"input_tokens_details\":{\"cached_tokens\":0},\"output_tokens\":6,\"output_tokens_details\":{\"reasoning_tokens\":0},\"total_tokens\":105},\"user\":null,\"metadata\":{}},\"sequence_number\":11}"
+        }
+      ]
+    }
+  ]
+}

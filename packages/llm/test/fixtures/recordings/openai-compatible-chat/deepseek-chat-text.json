@@ -1,0 +1,37 @@
+{
+  "version": 1,
+  "metadata": {
+    "name": "openai-compatible-chat/deepseek-chat-text",
+    "recordedAt": "2026-05-11T02:02:10.220Z",
+    "provider": "deepseek",
+    "route": "openai-compatible-chat",
+    "transport": "http",
+    "model": "deepseek-chat",
+    "tags": [
+      "prefix:openai-compatible-chat",
+      "provider:deepseek",
+      "text",
+      "golden"
+    ]
+  },
+  "interactions": [
+    {
+      "transport": "http",
+      "request": {
+        "method": "POST",
+        "url": "https://api.deepseek.com/v1/chat/completions",
+        "headers": {
+          "content-type": "application/json"
+        },
+        "body": "{\"model\":\"deepseek-chat\",\"messages\":[{\"role\":\"system\",\"content\":\"You are concise.\"},{\"role\":\"user\",\"content\":\"Reply exactly with: Hello!\"}],\"stream\":true,\"stream_options\":{\"include_usage\":true},\"max_tokens\":40,\"temperature\":0}"
+      },
+      "response": {
+        "status": 200,
+        "headers": {
+          "content-type": "text/event-stream; charset=utf-8"
+        },
+        "body": "data: {\"id\":\"159019a5-f981-4103-8b3c-2be37cefc505\",\"object\":\"chat.completion.chunk\",\"created\":1778464929,\"model\":\"deepseek-v4-flash\",\"system_fingerprint\":\"fp_058df29938_prod0820_fp8_kvcache_20260402\",\"choices\":[{\"index\":0,\"delta\":{\"role\":\"assistant\",\"content\":\"\"},\"logprobs\":null,\"finish_reason\":null}],\"usage\":null}\n\ndata: {\"id\":\"159019a5-f981-4103-8b3c-2be37cefc505\",\"object\":\"chat.completion.chunk\",\"created\":1778464929,\"model\":\"deepseek-v4-flash\",\"system_fingerprint\":\"fp_058df29938_prod0820_fp8_kvcache_20260402\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"Hello\"},\"logprobs\":null,\"finish_reason\":null}],\"usage\":null}\n\ndata: {\"id\":\"159019a5-f981-4103-8b3c-2be37cefc505\",\"object\":\"chat.completion.chunk\",\"created\":1778464929,\"model\":\"deepseek-v4-flash\",\"system_fingerprint\":\"fp_058df29938_prod0820_fp8_kvcache_20260402\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"!\"},\"logprobs\":null,\"finish_reason\":null}],\"usage\":null}\n\ndata: {\"id\":\"159019a5-f981-4103-8b3c-2be37cefc505\",\"object\":\"chat.completion.chunk\",\"created\":1778464929,\"model\":\"deepseek-v4-flash\",\"system_fingerprint\":\"fp_058df29938_prod0820_fp8_kvcache_20260402\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"\"},\"logprobs\":null,\"finish_reason\":\"stop\"}],\"usage\":{\"prompt_tokens\":14,\"completion_tokens\":2,\"total_tokens\":16,\"prompt_tokens_details\":{\"cached_tokens\":0},\"prompt_cache_hit_tokens\":0,\"prompt_cache_miss_tokens\":14}}\n\ndata: [DONE]\n\n"
+      }
+    }
+  ]
+}
