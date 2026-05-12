@@ -2,8 +2,8 @@ import { Provider } from "@/provider/provider"
 import * as Log from "@opencode-ai/core/util/log"
 import { Context, Effect, Layer, Record } from "effect"
 import * as Stream from "effect/Stream"
-import { streamText, wrapLanguageModel, type ModelMessage, type Tool, tool, jsonSchema } from "ai"
-import type { LLMEvent } from "@opencode-ai/llm"
+import { streamText, wrapLanguageModel, type ModelMessage, type Tool, tool as aiTool, jsonSchema, asSchema } from "ai"
+import { tool as nativeTool, ToolFailure, type JsonSchema, type LLMEvent } from "@opencode-ai/llm"
 import { LLMClient, RequestExecutor } from "@opencode-ai/llm/route"
 import { mergeDeep } from "remeda"
 import { GitLabWorkflowLanguageModel } from "gitlab-ai-provider"
@@ -18,6 +18,7 @@ import { Flag } from "@opencode-ai/core/flag/flag"
 import { Permission } from "@/permission"
 import { PermissionID } from "@/permission/schema"
 import { Bus } from "@/bus"
+import { errorMessage } from "@/util/error"
 import { Wildcard } from "@/util/wildcard"
 import { SessionID } from "@/session/schema"
 import { Auth } from "@/auth"
@@ -216,7 +217,7 @@ const live: Layer.Layer<
         Object.keys(tools).length === 0 &&
         hasToolCalls(input.messages)
       ) {
-        tools["_noop"] = tool({
+        tools["_noop"] = aiTool({
           description: "Do not call this tool. It exists only for API compatibility and must never be invoked.",
           inputSchema: jsonSchema({
             type: "object",
@@ -358,31 +359,31 @@ const live: Layer.Layer<
         if (input.model.providerID !== "openai" || input.model.api.npm !== "@ai-sdk/openai") {
           return yield* Effect.fail(new Error("Native LLM runtime currently only supports OpenAI models"))
         }
-        if (Object.keys(sortedTools).length > 0) {
-          return yield* Effect.fail(new Error("Native LLM runtime does not support tools yet"))
-        }
         const apiKey =
           info?.type === "api" ? info.key : typeof item.options.apiKey === "string" ? item.options.apiKey : undefined
         if (!apiKey) return yield* Effect.fail(new Error("Native LLM runtime requires API key auth for OpenAI"))
         const baseURL = typeof item.options.baseURL === "string" ? item.options.baseURL : undefined
+        const request = LLMNative.request({
+          model: input.model,
+          apiKey,
+          baseURL,
+          system: isOpenaiOauth ? system : [],
+          messages: ProviderTransform.message(messages, input.model, options),
+          tools: sortedTools,
+          toolChoice: input.toolChoice,
+          temperature: params.temperature,
+          topP: params.topP,
+          topK: params.topK,
+          maxOutputTokens: params.maxOutputTokens,
+          providerOptions: ProviderTransform.providerOptions(input.model, params.options),
+          headers: requestHeaders,
+        })
         return {
           type: "native" as const,
-          stream: LLMClient.stream(
-            LLMNative.request({
-              model: input.model,
-              apiKey,
-              baseURL,
-              system: isOpenaiOauth ? system : [],
-              messages: ProviderTransform.message(messages, input.model, options),
-              toolChoice: input.toolChoice,
-              temperature: params.temperature,
-              topP: params.topP,
-              topK: params.topK,
-              maxOutputTokens: params.maxOutputTokens,
-              providerOptions: ProviderTransform.providerOptions(input.model, params.options),
-              headers: requestHeaders,
-            }),
-          ).pipe(Stream.provide(LLMClient.layer), Stream.provide(RequestExecutor.defaultLayer)),
+          stream: LLMClient.stream({ request, tools: nativeTools(sortedTools, input) }).pipe(
+            Stream.provide(LLMClient.layer),
+            Stream.provide(RequestExecutor.defaultLayer),
+          ),
         }
       }
 
@@ -500,6 +501,37 @@ function resolveTools(input: Pick<StreamInput, "tools" | "agent" | "permission" 
     Permission.merge(input.agent.permission, input.permission ?? []),
   )
   return Record.filter(input.tools, (_, k) => input.user.tools?.[k] !== false && !disabled.has(k))
+}
+
+function nativeSchema(value: unknown): JsonSchema {
+  if (!value || typeof value !== "object") return { type: "object", properties: {} }
+  if ("jsonSchema" in value && value.jsonSchema && typeof value.jsonSchema === "object")
+    return value.jsonSchema as JsonSchema
+  return asSchema(value as Parameters<typeof asSchema>[0]).jsonSchema as JsonSchema
+}
+
+function nativeTools(tools: Record<string, Tool>, input: StreamRequest) {
+  return Object.fromEntries(
+    Object.entries(tools).map(([name, item]) => [
+      name,
+      nativeTool({
+        description: item.description ?? "",
+        jsonSchema: nativeSchema(item.inputSchema),
+        execute: (args: unknown, ctx?: { readonly id: string; readonly name: string }) =>
+          Effect.tryPromise({
+            try: () => {
+              if (!item.execute) throw new Error(`Tool has no execute handler: ${name}`)
+              return item.execute(args, {
+                toolCallId: ctx?.id ?? name,
+                messages: input.messages,
+                abortSignal: input.abort,
+              })
+            },
+            catch: (error) => new ToolFailure({ message: errorMessage(error) }),
+          }),
+      }),
+    ]),
+  )
 }
 
 // Check if messages contain any tool-call content

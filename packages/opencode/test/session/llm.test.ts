@@ -802,6 +802,134 @@ describe("session.llm.stream", () => {
     })
   })
 
+  test("executes OpenAI tool calls through native runtime", async () => {
+    const server = state.server
+    if (!server) {
+      throw new Error("Server not initialized")
+    }
+
+    const source = await loadFixture("openai", "gpt-5.2")
+    const model = source.model
+    const chunks = [
+      {
+        type: "response.output_item.added",
+        item: { type: "function_call", id: "item-native-tool", call_id: "call-native-tool", name: "lookup" },
+      },
+      {
+        type: "response.function_call_arguments.delta",
+        item_id: "item-native-tool",
+        delta: '{"query":"weather"}',
+      },
+      {
+        type: "response.output_item.done",
+        item: {
+          type: "function_call",
+          id: "item-native-tool",
+          call_id: "call-native-tool",
+          name: "lookup",
+          arguments: '{"query":"weather"}',
+        },
+      },
+      {
+        type: "response.completed",
+        response: { incomplete_details: null, usage: { input_tokens: 1, output_tokens: 1 } },
+      },
+    ]
+    const request = waitRequest("/responses", createEventResponse(chunks, true))
+    let executed: unknown
+
+    await using tmp = await tmpdir({
+      init: async (dir) => {
+        await Bun.write(
+          path.join(dir, "opencode.json"),
+          JSON.stringify({
+            $schema: "https://opencode.ai/config.json",
+            enabled_providers: ["openai"],
+            provider: {
+              openai: {
+                name: "OpenAI",
+                env: ["OPENAI_API_KEY"],
+                npm: "@ai-sdk/openai",
+                api: "https://api.openai.com/v1",
+                models: {
+                  [model.id]: model,
+                },
+                options: {
+                  apiKey: "test-openai-key",
+                  baseURL: `${server.url.origin}/v1`,
+                },
+              },
+            },
+          }),
+        )
+      },
+    })
+
+    await WithInstance.provide({
+      directory: tmp.path,
+      fn: async () => {
+        const previous = process.env.OPENCODE_LLM_RUNTIME
+        process.env.OPENCODE_LLM_RUNTIME = "native"
+        try {
+          const resolved = await getModel(ProviderID.openai, ModelID.make(model.id))
+          const sessionID = SessionID.make("session-test-native-tool")
+          const agent = {
+            name: "test",
+            mode: "primary",
+            options: {},
+            permission: [{ permission: "*", pattern: "*", action: "allow" }],
+          } satisfies Agent.Info
+
+          await drain({
+            user: {
+              id: MessageID.make("msg_user-native-tool"),
+              sessionID,
+              role: "user",
+              time: { created: Date.now() },
+              agent: agent.name,
+              model: { providerID: ProviderID.make("openai"), modelID: resolved.id },
+            } satisfies MessageV2.User,
+            sessionID,
+            model: resolved,
+            agent,
+            system: [],
+            messages: [{ role: "user", content: "Use lookup" }],
+            tools: {
+              lookup: tool({
+                description: "Lookup data",
+                inputSchema: z.object({ query: z.string() }),
+                execute: async (args, options) => {
+                  executed = { args, toolCallId: options.toolCallId }
+                  return { output: "looked up" }
+                },
+              }),
+            },
+          })
+        } finally {
+          if (previous === undefined) delete process.env.OPENCODE_LLM_RUNTIME
+          else process.env.OPENCODE_LLM_RUNTIME = previous
+        }
+
+        const capture = await request
+        expect(capture.body.tools).toEqual([
+          {
+            type: "function",
+            name: "lookup",
+            description: "Lookup data",
+            parameters: {
+              type: "object",
+              properties: { query: { type: "string" } },
+              required: ["query"],
+              additionalProperties: false,
+              $schema: "http://json-schema.org/draft-07/schema#",
+            },
+          },
+        ])
+        expect(executed).toEqual({ args: { query: "weather" }, toolCallId: "call-native-tool" })
+      },
+    })
+  })
+
   test("accepts user image attachments as data URLs for OpenAI models", async () => {
     const server = state.server
     if (!server) {
