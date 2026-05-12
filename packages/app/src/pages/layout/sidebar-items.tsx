@@ -168,7 +168,7 @@ export const SessionItem = (props: SessionItemProps): JSX.Element => {
     if (hasPermissions()) return false
     // This matches how the TUI does it
     const status = sessionStore.session_status[props.session.id]
-    return status?.type === "busy"
+    return status?.type === "busy" || status?.type === "retry"
   })
 
   const tint = createMemo(() => messageAgentColor(sessionStore.message[props.session.id], sessionStore.agent))
