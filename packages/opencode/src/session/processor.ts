@@ -365,6 +365,38 @@ export const layer: Layer.Layer<
         }
       })
 
+      const finishText = Effect.fn("SessionProcessor.finishText")(function* (
+        providerMetadata?: Extract<StreamEvent, { type: "text-end" }>["providerMetadata"],
+      ) {
+        if (!ctx.currentText) return
+        // oxlint-disable-next-line no-self-assign -- reactivity trigger
+        ctx.currentText.text = ctx.currentText.text
+        ctx.currentText.text = (yield* plugin.trigger(
+          "experimental.text.complete",
+          {
+            sessionID: ctx.sessionID,
+            messageID: ctx.assistantMessage.id,
+            partID: ctx.currentText.id,
+          },
+          { text: ctx.currentText.text },
+        )).text
+        if (!ctx.assistantMessage.summary) {
+          // TODO(v2): Temporary dual-write while migrating session messages to v2 events.
+          if (Flag.OPENCODE_EXPERIMENTAL_EVENT_SYSTEM) {
+            yield* sync.run(SessionEvent.Text.Ended.Sync, {
+              sessionID: ctx.sessionID,
+              text: ctx.currentText.text,
+              timestamp: DateTime.makeUnsafe(Date.now()),
+            })
+          }
+        }
+        const end = Date.now()
+        ctx.currentText.time = { start: ctx.currentText.time?.start ?? end, end }
+        if (providerMetadata) ctx.currentText.metadata = providerMetadata
+        yield* session.updatePart(ctx.currentText)
+        ctx.currentText = undefined
+      })
+
       const handleEvent = Effect.fnUntraced(function* (value: StreamEvent) {
         switch (value.type) {
           case "request-start":
@@ -696,38 +728,11 @@ export const layer: Layer.Layer<
             return
 
           case "text-end":
-            if (!ctx.currentText) return
-            // oxlint-disable-next-line no-self-assign -- reactivity trigger
-            ctx.currentText.text = ctx.currentText.text
-            ctx.currentText.text = (yield* plugin.trigger(
-              "experimental.text.complete",
-              {
-                sessionID: ctx.sessionID,
-                messageID: ctx.assistantMessage.id,
-                partID: ctx.currentText.id,
-              },
-              { text: ctx.currentText.text },
-            )).text
-            if (!ctx.assistantMessage.summary) {
-              // TODO(v2): Temporary dual-write while migrating session messages to v2 events.
-              if (Flag.OPENCODE_EXPERIMENTAL_EVENT_SYSTEM) {
-                yield* sync.run(SessionEvent.Text.Ended.Sync, {
-                  sessionID: ctx.sessionID,
-                  text: ctx.currentText.text,
-                  timestamp: DateTime.makeUnsafe(Date.now()),
-                })
-              }
-            }
-            {
-              const end = Date.now()
-              ctx.currentText.time = { start: ctx.currentText.time?.start ?? end, end }
-            }
-            if (value.providerMetadata) ctx.currentText.metadata = value.providerMetadata
-            yield* session.updatePart(ctx.currentText)
-            ctx.currentText = undefined
+            yield* finishText(value.providerMetadata)
             return
 
           case "request-finish":
+            yield* finishText()
             if (!ctx.assistantMessage.finish) yield* finishStep(value)
             return
         }
