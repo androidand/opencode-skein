@@ -4,8 +4,13 @@ import { Schema } from "effect"
 import { PositiveInt } from "@opencode-ai/core/schema"
 
 export const Image = Schema.Struct({
+  enforce_limits: Schema.optional(Schema.Boolean).annotate({
+    description:
+      "Enforce image attachment size limits before sending images to the model. When false, images pass through unchanged (default: false)",
+  }),
   auto_resize: Schema.optional(Schema.Boolean).annotate({
-    description: "Resize images before sending them to the model when they exceed configured limits (default: true)",
+    description:
+      "Resize images before sending them to the model when they exceed configured limits. Requires enforce_limits to be true (default: false)",
   }),
   max_width: Schema.optional(PositiveInt).annotate({
     description: "Maximum image width before resizing or rejecting the attachment (default: 2000)",

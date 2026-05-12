@@ -1143,6 +1143,7 @@ export type McpRemoteConfig = {
 export type LayoutConfig = "auto" | "stretch"
 
 export type ImageAttachmentConfig = {
+  enforce_limits?: boolean
   auto_resize?: boolean
   max_width?: number
   max_height?: number

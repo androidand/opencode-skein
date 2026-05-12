@@ -6,11 +6,24 @@ import { TestConfig } from "../fixture/config"
 import { testEffect } from "../lib/effect"
 
 const it = testEffect(Layer.mergeAll(Image.layer.pipe(Layer.provide(TestConfig.layer()))))
+const enforcing = testEffect(
+  Layer.mergeAll(
+    Image.layer.pipe(
+      Layer.provide(
+        TestConfig.layer({
+          get: () => Effect.succeed({ attachment: { image: { enforce_limits: true, auto_resize: true } } }),
+        }),
+      ),
+    ),
+  ),
+)
 const tiny = testEffect(
   Layer.mergeAll(
     Image.layer.pipe(
       Layer.provide(
-        TestConfig.layer({ get: () => Effect.succeed({ attachment: { image: { max_base64_bytes: 1 } } }) }),
+        TestConfig.layer({
+          get: () => Effect.succeed({ attachment: { image: { enforce_limits: true, max_base64_bytes: 1 } } }),
+        }),
       ),
     ),
   ),
@@ -28,7 +41,16 @@ function part(mime: string, data: string) {
 }
 
 describe("Image", () => {
-  it.effect("normalizes generated png and jpeg attachments", () =>
+  it.effect("passes images through by default without loading the resizer", () =>
+    Effect.gen(function* () {
+      const image = yield* Image.Service
+      const input = part("image/png", "not-valid-image-data")
+
+      expect(yield* image.normalize(input)).toEqual(input)
+    }),
+  )
+
+  enforcing.effect("normalizes generated png and jpeg attachments when limit enforcement is enabled", () =>
     Effect.gen(function* () {
       const photon = yield* Effect.promise(() => import("@silvia-odwyer/photon-node"))
       const source = new photon.PhotonImage(

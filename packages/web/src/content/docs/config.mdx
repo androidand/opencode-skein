@@ -345,6 +345,39 @@ You can manage the tools an LLM can use through the `tools` option.
 
 ---
 
+### Attachments
+
+You can configure how image attachments are processed before they are sent to the model through the `attachment.image` option.
+
+By default OpenCode does not enforce image attachment limits and does not resize images. Images pass through unchanged unless you explicitly enable limit enforcement.
+
+```json title="opencode.json"
+{
+  "$schema": "https://opencode.ai/config.json",
+  "attachment": {
+    "image": {
+      "enforce_limits": true,
+      "auto_resize": false,
+      "max_width": 2000,
+      "max_height": 2000,
+      "max_base64_bytes": 4718592
+    }
+  }
+}
+```
+
+Available options:
+
+- `enforce_limits` - Enforce configured image limits before sending images to the model. Defaults to `false`, which passes images through unchanged.
+- `auto_resize` - Resize images that exceed configured limits. This only applies when `enforce_limits` is `true`. Defaults to `false`.
+- `max_width` - Maximum image width when limit enforcement is enabled. Defaults to `2000`.
+- `max_height` - Maximum image height when limit enforcement is enabled. Defaults to `2000`.
+- `max_base64_bytes` - Maximum base64 payload size when limit enforcement is enabled. Defaults to `4718592`.
+
+When `enforce_limits` is `true` and `auto_resize` is `false`, images over the configured limits are omitted. When both are `true`, OpenCode attempts to resize oversized images before omitting them.
+
+---
+
 ### Models
 
 You can configure the providers and models you want to use in your OpenCode config through the `provider`, `model` and `small_model` options.
