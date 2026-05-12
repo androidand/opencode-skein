@@ -282,7 +282,9 @@ function createSummaryCompaction(sessionID: SessionID) {
 function readCompactionPart(sessionID: SessionID) {
   return SessionNs.Service.use((ssn) => ssn.messages({ sessionID })).pipe(
     Effect.map((messages) =>
-      messages.flatMap((message) => message.parts).find((item): item is MessageV2.CompactionPart => item.type === "compaction"),
+      messages
+        .findLast((message) => message.parts.some((item) => item.type === "compaction"))
+        ?.parts.find((item): item is MessageV2.CompactionPart => item.type === "compaction"),
     ),
   )
 }
