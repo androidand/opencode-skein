@@ -1,5 +1,6 @@
-import { For } from "solid-js"
+import { createMemo, For } from "solid-js"
 import { DEFAULT_THEMES, useTheme } from "@tui/context/theme"
+import { Flag } from "@opencode-ai/core/flag/flag"
 
 const themeCount = Object.keys(DEFAULT_THEMES).length
 const themeTip = `Use {highlight}/themes{/highlight} or {highlight}Ctrl+X T{/highlight} to switch between ${themeCount} built-in themes`
@@ -30,9 +31,12 @@ function parse(tip: string): TipPart[] {
   return parts
 }
 
-export function Tips() {
+const NO_MODELS_TIP = "Run {highlight}/connect{/highlight} to add an AI provider and start coding"
+
+export function Tips(props: { connected?: boolean }) {
   const theme = useTheme().theme
-  const parts = parse(TIPS[Math.floor(Math.random() * TIPS.length)])
+  const randomTip = TIPS[Math.floor(Math.random() * TIPS.length)]
+  const parts = createMemo(() => parse(props.connected === false ? NO_MODELS_TIP : randomTip))
 
   return (
     <box flexDirection="row" maxWidth="100%">
@@ -40,7 +44,7 @@ export function Tips() {
         ● Tip{" "}
       </text>
       <text flexShrink={1}>
-        <For each={parts}>
+        <For each={parts()}>
           {(part) => <span style={{ fg: part.highlight ? theme.text : theme.textMuted }}>{part.text}</span>}
         </For>
       </text>
@@ -63,6 +67,14 @@ const TIPS = [
   themeTip,
   "Press {highlight}Ctrl+X N{/highlight} or {highlight}/new{/highlight} to start a fresh conversation session",
   "Use {highlight}/sessions{/highlight} or {highlight}Ctrl+X L{/highlight} to list and continue previous conversations",
+  ...(Flag.OPENCODE_EXPERIMENTAL_SESSION_SWITCHING
+    ? [
+        "Press {highlight}Ctrl+F{/highlight} in the session list to pin a session so it stays at the top",
+        "Pinned and recent sessions are bound to {highlight}Ctrl+X 1{/highlight} through {highlight}Ctrl+X 9{/highlight} for one-press switching",
+        "Press {highlight}Ctrl+X ]{/highlight} / {highlight}Ctrl+X [{/highlight} to cycle through recently visited sessions",
+        "Press {highlight}Ctrl+H{/highlight} in the session list to show or hide a session in the Recent group",
+      ]
+    : []),
   "Run {highlight}/compact{/highlight} to summarize long sessions near context limits",
   "Press {highlight}Ctrl+X X{/highlight} or {highlight}/export{/highlight} to save the conversation as Markdown",
   "Press {highlight}Ctrl+X Y{/highlight} to copy the assistant's last message to clipboard",

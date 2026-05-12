@@ -1,86 +1,69 @@
 import z from "zod"
-import { NamedError } from "@opencode-ai/shared/util/error"
-import { Global } from "../global"
-import { Instance } from "../project/instance"
-import { InstanceBootstrap } from "../project/bootstrap"
-import { Project } from "../project"
-import { Database, eq } from "../storage"
+import { NamedError } from "@opencode-ai/core/util/error"
+import { Global } from "@opencode-ai/core/global"
+import { InstanceLayer } from "@/project/instance-layer"
+import { InstanceStore } from "@/project/instance-store"
+import { Project } from "@/project/project"
+import { Database } from "@/storage/db"
+import { eq } from "drizzle-orm"
 import { ProjectTable } from "../project/project.sql"
 import type { ProjectID } from "../project/schema"
-import { Log } from "../util"
-import { Slug } from "@opencode-ai/shared/util/slug"
+import * as Log from "@opencode-ai/core/util/log"
+import { Slug } from "@opencode-ai/core/util/slug"
 import { errorMessage } from "../util/error"
 import { BusEvent } from "@/bus/bus-event"
 import { GlobalBus } from "@/bus/global"
 import { Git } from "@/git"
-import { Effect, Layer, Path, Scope, Context, Stream } from "effect"
+import { Effect, Layer, Path, Schema, Scope, Context, Stream } from "effect"
 import { ChildProcess, ChildProcessSpawner } from "effect/unstable/process"
 import { NodePath } from "@effect/platform-node"
-import { AppFileSystem } from "@opencode-ai/shared/filesystem"
+import { AppFileSystem } from "@opencode-ai/core/filesystem"
 import { BootstrapRuntime } from "@/effect/bootstrap-runtime"
-import * as CrossSpawnSpawner from "@/effect/cross-spawn-spawner"
-import { InstanceState } from "@/effect"
+import { CrossSpawnSpawner } from "@opencode-ai/core/cross-spawn-spawner"
+import { InstanceState } from "@/effect/instance-state"
 
 const log = Log.create({ service: "worktree" })
 
 export const Event = {
   Ready: BusEvent.define(
     "worktree.ready",
-    z.object({
-      name: z.string(),
-      branch: z.string(),
+    Schema.Struct({
+      name: Schema.String,
+      branch: Schema.optional(Schema.String),
     }),
   ),
   Failed: BusEvent.define(
     "worktree.failed",
-    z.object({
-      message: z.string(),
+    Schema.Struct({
+      message: Schema.String,
     }),
   ),
 }
 
-export const Info = z
-  .object({
-    name: z.string(),
-    branch: z.string(),
-    directory: z.string(),
-  })
-  .meta({
-    ref: "Worktree",
-  })
+export const Info = Schema.Struct({
+  name: Schema.String,
+  branch: Schema.optional(Schema.String),
+  directory: Schema.String,
+}).annotate({ identifier: "Worktree" })
+export type Info = Schema.Schema.Type<typeof Info>
 
-export type Info = z.infer<typeof Info>
+export const CreateInput = Schema.Struct({
+  name: Schema.optional(Schema.String),
+  startCommand: Schema.optional(
+    Schema.String.annotate({ description: "Additional startup script to run after the project's start command" }),
+  ),
+}).annotate({ identifier: "WorktreeCreateInput" })
+export type CreateInput = Schema.Schema.Type<typeof CreateInput>
 
-export const CreateInput = z
-  .object({
-    name: z.string().optional(),
-    startCommand: z.string().optional().describe("Additional startup script to run after the project's start command"),
-  })
-  .meta({
-    ref: "WorktreeCreateInput",
-  })
+export const RemoveInput = Schema.Struct({
+  directory: Schema.String,
+}).annotate({ identifier: "WorktreeRemoveInput" })
+export type RemoveInput = Schema.Schema.Type<typeof RemoveInput>
 
-export type CreateInput = z.infer<typeof CreateInput>
-
-export const RemoveInput = z
-  .object({
-    directory: z.string(),
-  })
-  .meta({
-    ref: "WorktreeRemoveInput",
-  })
-
-export type RemoveInput = z.infer<typeof RemoveInput>
-
-export const ResetInput = z
-  .object({
-    directory: z.string(),
-  })
-  .meta({
-    ref: "WorktreeResetInput",
-  })
-
-export type ResetInput = z.infer<typeof ResetInput>
+export const ResetInput = Schema.Struct({
+  directory: Schema.String,
+}).annotate({ identifier: "WorktreeResetInput" })
+export type ResetInput = Schema.Schema.Type<typeof ResetInput>
 
 export const NotGitError = NamedError.create(
   "WorktreeNotGitError",
@@ -124,6 +107,13 @@ export const ResetFailedError = NamedError.create(
   }),
 )
 
+export const ListFailedError = NamedError.create(
+  "WorktreeListFailedError",
+  z.object({
+    message: z.string(),
+  }),
+)
+
 function slugify(input: string) {
   return input
     .trim()
@@ -153,9 +143,10 @@ function failedRemoves(...chunks: string[]) {
 // ---------------------------------------------------------------------------
 
 export interface Interface {
-  readonly makeWorktreeInfo: (name?: string) => Effect.Effect<Info>
+  readonly makeWorktreeInfo: (options?: { name?: string; detached?: boolean }) => Effect.Effect<Info>
   readonly createFromInfo: (info: Info, startCommand?: string) => Effect.Effect<void>
   readonly create: (input?: CreateInput) => Effect.Effect<Info>
+  readonly list: () => Effect.Effect<(Omit<Info, "branch"> & { branch?: string })[]>
   readonly remove: (input: RemoveInput) => Effect.Effect<boolean>
   readonly reset: (input: ResetInput) => Effect.Effect<boolean>
 }
@@ -167,7 +158,12 @@ type GitResult = { code: number; text: string; stderr: string }
 export const layer: Layer.Layer<
   Service,
   never,
-  AppFileSystem.Service | Path.Path | ChildProcessSpawner.ChildProcessSpawner | Git.Service | Project.Service
+  | AppFileSystem.Service
+  | Path.Path
+  | ChildProcessSpawner.ChildProcessSpawner
+  | Git.Service
+  | Project.Service
+  | InstanceStore.Service
 > = Layer.effect(
   Service,
   Effect.gen(function* () {
@@ -177,6 +173,7 @@ export const layer: Layer.Layer<
     const spawner = yield* ChildProcessSpawner.ChildProcessSpawner
     const gitSvc = yield* Git.Service
     const project = yield* Project.Service
+    const store = yield* InstanceStore.Service
 
     const git = Effect.fnUntraced(
       function* (args: string[], opts?: { cwd?: string }) {
@@ -197,25 +194,34 @@ export const layer: Layer.Layer<
     )
 
     const MAX_NAME_ATTEMPTS = 26
-    const candidate = Effect.fn("Worktree.candidate")(function* (root: string, base?: string) {
+    const candidate = Effect.fn("Worktree.candidate")(function* (input: {
+      root: string
+      name?: string
+      detached?: boolean
+    }) {
       const ctx = yield* InstanceState.context
       for (const attempt of Array.from({ length: MAX_NAME_ATTEMPTS }, (_, i) => i)) {
-        const name = base ? (attempt === 0 ? base : `${base}-${Slug.create()}`) : Slug.create()
-        const branch = `opencode/${name}`
-        const directory = pathSvc.join(root, name)
+        const name = input.name ? (attempt === 0 ? input.name : `${input.name}-${Slug.create()}`) : Slug.create()
+        const branch = input.detached ? undefined : `opencode/${name}`
+        const directory = pathSvc.join(input.root, name)
 
         if (yield* fs.exists(directory).pipe(Effect.orDie)) continue
 
-        const ref = `refs/heads/${branch}`
-        const branchCheck = yield* git(["show-ref", "--verify", "--quiet", ref], { cwd: ctx.worktree })
-        if (branchCheck.code === 0) continue
+        if (branch) {
+          const ref = `refs/heads/${branch}`
+          const branchCheck = yield* git(["show-ref", "--verify", "--quiet", ref], { cwd: ctx.worktree })
+          if (branchCheck.code === 0) continue
+        }
 
-        return Info.parse({ name, branch, directory })
+        return { name, directory, ...(branch ? { branch } : {}) }
       }
       throw new NameGenerationFailedError({ message: "Failed to generate a unique worktree name" })
     })
 
-    const makeWorktreeInfo = Effect.fn("Worktree.makeWorktreeInfo")(function* (name?: string) {
+    const makeWorktreeInfo = Effect.fn("Worktree.makeWorktreeInfo")(function* (input?: {
+      name?: string
+      detached?: boolean
+    }) {
       const ctx = yield* InstanceState.context
       if (ctx.project.vcs !== "git") {
         throw new NotGitError({ message: "Worktrees are only supported for git projects" })
@@ -224,15 +230,17 @@ export const layer: Layer.Layer<
       const root = pathSvc.join(Global.Path.data, "worktree", ctx.project.id)
       yield* fs.makeDirectory(root, { recursive: true }).pipe(Effect.orDie)
 
-      const base = name ? slugify(name) : ""
-      return yield* candidate(root, base || undefined)
+      return yield* candidate({ root, name: input?.name ? slugify(input.name) : "", detached: input?.detached })
     })
 
     const setup = Effect.fnUntraced(function* (info: Info) {
       const ctx = yield* InstanceState.context
-      const created = yield* git(["worktree", "add", "--no-checkout", "-b", info.branch, info.directory], {
-        cwd: ctx.worktree,
-      })
+      const created = yield* git(
+        info.branch
+          ? ["worktree", "add", "--no-checkout", "-b", info.branch, info.directory]
+          : ["worktree", "add", "--no-checkout", "--detach", info.directory, "HEAD"],
+        { cwd: ctx.worktree },
+      )
       if (created.code !== 0) {
         throw new CreateFailedError({ message: created.stderr || created.text || "Failed to create git worktree" })
       }
@@ -259,14 +267,10 @@ export const layer: Layer.Layer<
         return
       }
 
-      const booted = yield* Effect.promise(() =>
-        Instance.provide({
-          directory: info.directory,
-          init: () => BootstrapRuntime.runPromise(InstanceBootstrap),
-          fn: () => undefined,
-        })
-          .then(() => true)
-          .catch((error) => {
+      const booted = yield* store.load({ directory: info.directory }).pipe(
+        Effect.as(true),
+        Effect.catch((error) =>
+          Effect.sync(() => {
             const message = errorMessage(error)
             log.error("worktree bootstrap failed", { directory: info.directory, message })
             GlobalBus.emit("event", {
@@ -277,6 +281,7 @@ export const layer: Layer.Layer<
             })
             return false
           }),
+        ),
       )
       if (!booted) return
 
@@ -286,7 +291,7 @@ export const layer: Layer.Layer<
         workspace: workspaceID,
         payload: {
           type: Event.Ready.type,
-          properties: { name: info.name, branch: info.branch },
+          properties: { name: info.name, ...(info.branch ? { branch: info.branch } : {}) },
         },
       })
 
@@ -295,16 +300,15 @@ export const layer: Layer.Layer<
 
     const createFromInfo = Effect.fn("Worktree.createFromInfo")(function* (info: Info, startCommand?: string) {
       yield* setup(info)
-      yield* boot(info, startCommand)
-    })
-
-    const create = Effect.fn("Worktree.create")(function* (input?: CreateInput) {
-      const info = yield* makeWorktreeInfo(input?.name)
-      yield* setup(info)
-      yield* boot(info, input?.startCommand).pipe(
+      yield* boot(info, startCommand).pipe(
         Effect.catchCause((cause) => Effect.sync(() => log.error("worktree bootstrap failed", { cause }))),
         Effect.forkIn(scope),
       )
+    })
+
+    const create = Effect.fn("Worktree.create")(function* (input?: CreateInput) {
+      const info = yield* makeWorktreeInfo({ name: input?.name })
+      yield* createFromInfo(info, input?.startCommand)
       return info
     })
 
@@ -344,6 +348,34 @@ export const layer: Layer.Layer<
         if (key === directory) return item
       }
       return undefined
+    })
+
+    const list = Effect.fn("Worktree.list")(function* () {
+      const ctx = yield* InstanceState.context
+      if (ctx.project.vcs !== "git") {
+        return []
+      }
+
+      const result = yield* git(["worktree", "list", "--porcelain"], { cwd: ctx.worktree })
+      if (result.code !== 0) {
+        throw new ListFailedError({ message: result.stderr || result.text || "Failed to read git worktrees" })
+      }
+
+      const primary = yield* canonical(ctx.worktree)
+      const primaryName = pathSvc.basename(primary).toLowerCase()
+      return yield* Effect.forEach(parseWorktreeList(result.text), (entry) =>
+        Effect.gen(function* () {
+          if (!entry.path) return undefined
+          const directory = yield* canonical(entry.path)
+          if (directory === primary) return undefined
+          const name = pathSvc.basename(directory).toLowerCase()
+          return {
+            name: name === primaryName ? pathSvc.basename(pathSvc.dirname(directory)) : name,
+            directory,
+            ...(entry.branch ? { branch: entry.branch.replace(/^refs\/heads\//, "") } : {}),
+          }
+        }),
+      ).pipe(Effect.map((items) => items.filter((item) => item !== undefined)))
     })
 
     function stopFsmonitor(target: string) {
@@ -584,16 +616,18 @@ export const layer: Layer.Layer<
       return true
     })
 
-    return Service.of({ makeWorktreeInfo, createFromInfo, create, remove, reset })
+    return Service.of({ makeWorktreeInfo, createFromInfo, create, list, remove, reset })
   }),
 )
 
-export const defaultLayer = layer.pipe(
+export const appLayer = layer.pipe(
   Layer.provide(Git.defaultLayer),
   Layer.provide(CrossSpawnSpawner.defaultLayer),
   Layer.provide(Project.defaultLayer),
   Layer.provide(AppFileSystem.defaultLayer),
   Layer.provide(NodePath.layer),
 )
+
+export const defaultLayer = appLayer.pipe(Layer.provide(InstanceLayer.layer))
 
 export * as Worktree from "."
