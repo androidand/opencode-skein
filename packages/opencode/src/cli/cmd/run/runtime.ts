@@ -13,7 +13,9 @@
 //      local sessions,
 //   4. runs the prompt queue until the footer closes.
 import { createOpencodeClient } from "@opencode-ai/sdk/v2"
+import { Effect } from "effect"
 import { Flag } from "@opencode-ai/core/flag/flag"
+import { AppRuntime } from "@/effect/app-runtime"
 import { createRunDemo } from "./demo"
 import { resolveDiffStyle, resolveFooterKeybinds, resolveModelInfo, resolveSessionInfo } from "./runtime.boot"
 import { createRuntimeLifecycle } from "./runtime.lifecycle"
@@ -70,9 +72,10 @@ type RunLocalInput = {
   demo?: RunInput["demo"]
 }
 
+type StreamModule = Awaited<typeof import("./stream.transport")>
 type StreamState = {
-  mod: Awaited<typeof import("./stream.transport")>
-  handle: Awaited<ReturnType<Awaited<typeof import("./stream.transport")>["createSessionTransport"]>>
+  mod: StreamModule
+  handle: import("./stream.transport").SessionTransport
 }
 
 type ResolvedSession = {
@@ -485,15 +488,27 @@ async function runInteractiveRuntime(input: RunRuntimeInput): Promise<void> {
             throw new Error("runtime closed")
           }
 
-          const handle = await mod.createSessionTransport({
-            sdk: ctx.sdk,
-            directory: ctx.directory,
-            sessionID: state.sessionID,
-            thinking: input.thinking,
-            limits: () => state.limits,
-            footer,
-            trace: log,
-          })
+          // Yield SessionTransport.Service inside Effect.gen and call svc.make.
+          // The handle holds its own internal scope; teardown happens via handle.close().
+          const inner = await AppRuntime.runPromise(
+            Effect.gen(function* () {
+              const svc = yield* mod.SessionTransport.Service
+              return yield* svc.make({
+                sdk: ctx.sdk,
+                directory: ctx.directory,
+                sessionID: state.sessionID,
+                thinking: input.thinking,
+                limits: () => state.limits,
+                footer,
+                trace: log,
+              })
+            }).pipe(Effect.provide(mod.SessionTransport.layer)),
+          )
+          const handle: import("./stream.transport").SessionTransport = {
+            runPromptTurn: (next) => AppRuntime.runPromise(inner.runPromptTurn(next)),
+            selectSubagent: (sessionID) => AppRuntime.runSync(inner.selectSubagent(sessionID)),
+            close: () => AppRuntime.runPromise(inner.close()),
+          }
           if (footer.isClosed) {
             await handle.close()
             throw new Error("runtime closed")
