@@ -1,12 +1,14 @@
-import { afterEach, describe, expect, mock, spyOn, test } from "bun:test"
+import { afterEach, describe, expect, mock, spyOn } from "bun:test"
 import type { KeyEvent, Renderable } from "@opentui/core"
 import type { Binding } from "@opentui/keymap"
 import { createBindingLookup } from "@opentui/keymap/extras"
 import { OpencodeClient, type Provider } from "@opencode-ai/sdk/v2"
+import { Effect } from "effect"
 import { TuiConfig, type Resolved } from "@/cli/cmd/tui/config/tui"
 import { formatBindings } from "@/cli/cmd/run/keymap.shared"
 import { TuiKeybind } from "@/cli/cmd/tui/config/keybind"
-import { resolveDiffStyle, resolveFooterKeybinds, resolveModelInfo } from "@/cli/cmd/run/runtime.boot"
+import { RunBoot } from "@/cli/cmd/run/runtime.boot"
+import { testEffect } from "../../lib/effect"
 
 type RunBinding = Binding<Renderable, KeyEvent>
 
@@ -102,186 +104,206 @@ function config(input?: {
   }
 }
 
+const it = testEffect(RunBoot.defaultLayer)
+
 describe("run runtime boot", () => {
   afterEach(() => {
     mock.restore()
   })
 
-  test("reads footer keybinds from resolved keybind config", async () => {
-    spyOn(TuiConfig, "get").mockResolvedValue(
-      config({
-        leader: "ctrl+g",
-        bindings: {
-          commandList: bindings("ctrl+p"),
-          variantCycle: bindings("ctrl+t", "alt+t"),
-          interrupt: bindings("ctrl+c"),
-          historyPrevious: bindings("k"),
-          historyNext: bindings("j"),
-          inputClear: bindings("ctrl+l"),
-          inputSubmit: bindings("ctrl+s"),
-          inputNewline: bindings("alt+return"),
-        },
-      }),
-    )
-
-    const result = await resolveFooterKeybinds()
-
-    expect(result.leader).toBe("ctrl+g")
-    expect(result.leaderTimeout).toBe(2000)
-    expect(formatBindings(result.commandList, result.leader)).toBe("ctrl+p")
-    expect(formatBindings(result.variantCycle, result.leader)).toBe("ctrl+t, alt+t")
-    expect(formatBindings(result.interrupt, result.leader)).toBe("ctrl+c")
-    expect(formatBindings(result.historyPrevious, result.leader)).toBe("k")
-    expect(formatBindings(result.historyNext, result.leader)).toBe("j")
-    expect(formatBindings(result.inputClear, result.leader)).toBe("ctrl+l")
-    expect(formatBindings(result.inputSubmit, result.leader)).toBe("ctrl+s")
-    expect(formatBindings(result.inputNewline, result.leader)).toBe("alt+return")
-  })
-
-  test("falls back to default keybinds when config load fails", async () => {
-    spyOn(TuiConfig, "get").mockRejectedValue(new Error("boom"))
-
-    const result = await resolveFooterKeybinds()
-
-    expect(result.leader).toBe("ctrl+x")
-    expect(result.leaderTimeout).toBe(2000)
-    expect(formatBindings(result.commandList, result.leader)).toBe("ctrl+p")
-    expect(formatBindings(result.variantCycle, result.leader)).toBe("ctrl+t")
-    expect(formatBindings(result.interrupt, result.leader)).toBe("esc")
-    expect(formatBindings(result.historyPrevious, result.leader)).toBe("up")
-    expect(formatBindings(result.historyNext, result.leader)).toBe("down")
-    expect(formatBindings(result.inputClear, result.leader)).toBe("ctrl+c")
-    expect(formatBindings(result.inputSubmit, result.leader)).toBe("return")
-    expect(formatBindings(result.inputNewline, result.leader)).toBe("shift+return, ctrl+return, alt+return, ctrl+j")
-  })
-
-  test("reads diff style and falls back to auto", async () => {
-    spyOn(TuiConfig, "get").mockResolvedValue(config({ diff_style: "stacked" }))
-    await expect(resolveDiffStyle()).resolves.toBe("stacked")
-
-    mock.restore()
-    spyOn(TuiConfig, "get").mockRejectedValue(new Error("boom"))
-    await expect(resolveDiffStyle()).resolves.toBe("auto")
-  })
-
-  test("prefers configured providers for model selector data", async () => {
-    const sdk = new OpencodeClient()
-    const data: {
-      all: Provider[]
-      default: Record<string, string>
-      connected: string[]
-    } = {
-      all: [
-        {
-          id: "openai",
-          name: "OpenAI",
-          source: "api",
-          env: [],
-          options: {},
-          models: {
-            "gpt-5": model("gpt-5", "openai", 128000, {
-              high: {},
-              minimal: {},
-            }),
+  it.live("reads footer keybinds from resolved keybind config", () =>
+    Effect.gen(function* () {
+      spyOn(TuiConfig, "get").mockResolvedValue(
+        config({
+          leader: "ctrl+g",
+          bindings: {
+            commandList: bindings("ctrl+p"),
+            variantCycle: bindings("ctrl+t", "alt+t"),
+            interrupt: bindings("ctrl+c"),
+            historyPrevious: bindings("k"),
+            historyNext: bindings("j"),
+            inputClear: bindings("ctrl+l"),
+            inputSubmit: bindings("ctrl+s"),
+            inputNewline: bindings("alt+return"),
           },
-        },
-        {
-          id: "anthropic",
-          name: "Anthropic",
-          source: "api",
-          env: [],
-          options: {},
-          models: {
-            sonnet: model("sonnet", "anthropic", 200000),
-          },
-        },
-      ],
-      default: {},
-      connected: [],
-    }
-    const configured = {
-      providers: [data.all[0]!],
-      default: {},
-    }
-    const list = spyOn(sdk.provider, "list").mockImplementation(() =>
-      Promise.resolve({
-        data,
-        error: undefined,
-        request: new Request("https://opencode.test"),
-        response: new Response(),
-      }),
-    )
-    spyOn(sdk.config, "providers").mockImplementation(() =>
-      Promise.resolve({
-        data: configured,
-        error: undefined,
-        request: new Request("https://opencode.test"),
-        response: new Response(),
-      }),
-    )
+        }),
+      )
 
-    await expect(resolveModelInfo(sdk, "/workspace", { providerID: "openai", modelID: "gpt-5" })).resolves.toEqual({
-      providers: configured.providers,
-      variants: ["high", "minimal"],
-      limits: {
-        "openai/gpt-5": 128000,
-      },
-    })
-    expect(list).not.toHaveBeenCalled()
-  })
+      const boot = yield* RunBoot.Service
+      const result = yield* boot.resolveFooterKeybinds()
 
-  test("falls back to provider list when configured providers are unavailable", async () => {
-    const sdk = new OpencodeClient()
-    const data: {
-      all: Provider[]
-      default: Record<string, string>
-      connected: string[]
-    } = {
-      all: [
-        {
-          id: "openai",
-          name: "OpenAI",
-          source: "api",
-          env: [],
-          options: {},
-          models: {
-            "gpt-5": model("gpt-5", "openai", 128000, {
-              high: {},
-              minimal: {},
-            }),
-          },
-        },
-        {
-          id: "anthropic",
-          name: "Anthropic",
-          source: "api",
-          env: [],
-          options: {},
-          models: {
-            sonnet: model("sonnet", "anthropic", 200000),
-          },
-        },
-      ],
-      default: {},
-      connected: [],
-    }
-    spyOn(sdk.config, "providers").mockRejectedValue(new Error("boom"))
-    spyOn(sdk.provider, "list").mockImplementation(() =>
-      Promise.resolve({
-        data,
-        error: undefined,
-        request: new Request("https://opencode.test"),
-        response: new Response(),
-      }),
-    )
+      expect(result.leader).toBe("ctrl+g")
+      expect(result.leaderTimeout).toBe(2000)
+      expect(formatBindings(result.commandList, result.leader)).toBe("ctrl+p")
+      expect(formatBindings(result.variantCycle, result.leader)).toBe("ctrl+t, alt+t")
+      expect(formatBindings(result.interrupt, result.leader)).toBe("ctrl+c")
+      expect(formatBindings(result.historyPrevious, result.leader)).toBe("k")
+      expect(formatBindings(result.historyNext, result.leader)).toBe("j")
+      expect(formatBindings(result.inputClear, result.leader)).toBe("ctrl+l")
+      expect(formatBindings(result.inputSubmit, result.leader)).toBe("ctrl+s")
+      expect(formatBindings(result.inputNewline, result.leader)).toBe("alt+return")
+    }),
+  )
 
-    await expect(resolveModelInfo(sdk, "/workspace", { providerID: "openai", modelID: "gpt-5" })).resolves.toEqual({
-      providers: data.all,
-      variants: ["high", "minimal"],
-      limits: {
-        "openai/gpt-5": 128000,
-        "anthropic/sonnet": 200000,
-      },
-    })
-  })
+  it.live("falls back to default keybinds when config load fails", () =>
+    Effect.gen(function* () {
+      spyOn(TuiConfig, "get").mockRejectedValue(new Error("boom"))
+
+      const boot = yield* RunBoot.Service
+      const result = yield* boot.resolveFooterKeybinds()
+
+      expect(result.leader).toBe("ctrl+x")
+      expect(result.leaderTimeout).toBe(2000)
+      expect(formatBindings(result.commandList, result.leader)).toBe("ctrl+p")
+      expect(formatBindings(result.variantCycle, result.leader)).toBe("ctrl+t")
+      expect(formatBindings(result.interrupt, result.leader)).toBe("esc")
+      expect(formatBindings(result.historyPrevious, result.leader)).toBe("up")
+      expect(formatBindings(result.historyNext, result.leader)).toBe("down")
+      expect(formatBindings(result.inputClear, result.leader)).toBe("ctrl+c")
+      expect(formatBindings(result.inputSubmit, result.leader)).toBe("return")
+      expect(formatBindings(result.inputNewline, result.leader)).toBe("shift+return, ctrl+return, alt+return, ctrl+j")
+    }),
+  )
+
+  it.live("reads diff style and falls back to auto", () =>
+    Effect.gen(function* () {
+      spyOn(TuiConfig, "get").mockResolvedValue(config({ diff_style: "stacked" }))
+      const boot = yield* RunBoot.Service
+      expect(yield* boot.resolveDiffStyle()).toBe("stacked")
+
+      mock.restore()
+      spyOn(TuiConfig, "get").mockRejectedValue(new Error("boom"))
+      expect(yield* boot.resolveDiffStyle()).toBe("auto")
+    }),
+  )
+
+  it.live("prefers configured providers for model selector data", () =>
+    Effect.gen(function* () {
+      const sdk = new OpencodeClient()
+      const data: {
+        all: Provider[]
+        default: Record<string, string>
+        connected: string[]
+      } = {
+        all: [
+          {
+            id: "openai",
+            name: "OpenAI",
+            source: "api",
+            env: [],
+            options: {},
+            models: {
+              "gpt-5": model("gpt-5", "openai", 128000, {
+                high: {},
+                minimal: {},
+              }),
+            },
+          },
+          {
+            id: "anthropic",
+            name: "Anthropic",
+            source: "api",
+            env: [],
+            options: {},
+            models: {
+              sonnet: model("sonnet", "anthropic", 200000),
+            },
+          },
+        ],
+        default: {},
+        connected: [],
+      }
+      const configured = {
+        providers: [data.all[0]!],
+        default: {},
+      }
+      const list = spyOn(sdk.provider, "list").mockImplementation(() =>
+        Promise.resolve({
+          data,
+          error: undefined,
+          request: new Request("https://opencode.test"),
+          response: new Response(),
+        }),
+      )
+      spyOn(sdk.config, "providers").mockImplementation(() =>
+        Promise.resolve({
+          data: configured,
+          error: undefined,
+          request: new Request("https://opencode.test"),
+          response: new Response(),
+        }),
+      )
+
+      const boot = yield* RunBoot.Service
+      const result = yield* boot.resolveModelInfo(sdk, "/workspace", { providerID: "openai", modelID: "gpt-5" })
+      expect(result).toEqual({
+        providers: configured.providers,
+        variants: ["high", "minimal"],
+        limits: {
+          "openai/gpt-5": 128000,
+        },
+      })
+      expect(list).not.toHaveBeenCalled()
+    }),
+  )
+
+  it.live("falls back to provider list when configured providers are unavailable", () =>
+    Effect.gen(function* () {
+      const sdk = new OpencodeClient()
+      const data: {
+        all: Provider[]
+        default: Record<string, string>
+        connected: string[]
+      } = {
+        all: [
+          {
+            id: "openai",
+            name: "OpenAI",
+            source: "api",
+            env: [],
+            options: {},
+            models: {
+              "gpt-5": model("gpt-5", "openai", 128000, {
+                high: {},
+                minimal: {},
+              }),
+            },
+          },
+          {
+            id: "anthropic",
+            name: "Anthropic",
+            source: "api",
+            env: [],
+            options: {},
+            models: {
+              sonnet: model("sonnet", "anthropic", 200000),
+            },
+          },
+        ],
+        default: {},
+        connected: [],
+      }
+      spyOn(sdk.config, "providers").mockRejectedValue(new Error("boom"))
+      spyOn(sdk.provider, "list").mockImplementation(() =>
+        Promise.resolve({
+          data,
+          error: undefined,
+          request: new Request("https://opencode.test"),
+          response: new Response(),
+        }),
+      )
+
+      const boot = yield* RunBoot.Service
+      const result = yield* boot.resolveModelInfo(sdk, "/workspace", { providerID: "openai", modelID: "gpt-5" })
+      expect(result).toEqual({
+        providers: data.all,
+        variants: ["high", "minimal"],
+        limits: {
+          "openai/gpt-5": 128000,
+          "anthropic/sonnet": 200000,
+        },
+      })
+    }),
+  )
 })
+

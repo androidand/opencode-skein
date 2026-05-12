@@ -9,7 +9,6 @@ import { Context, Effect, Layer } from "effect"
 import { stringifyKeyStroke } from "@opentui/keymap"
 import { TuiConfig } from "@/cli/cmd/tui/config/tui"
 import { TuiKeybind } from "@/cli/cmd/tui/config/keybind"
-import { makeRuntime } from "@/effect/run-service"
 import { reusePendingTask } from "./runtime.shared"
 import { resolveSession, sessionHistory } from "./session.shared"
 import type { FooterKeybinds, RunDiffStyle, RunInput, RunPrompt, RunProvider } from "./types"
@@ -28,6 +27,8 @@ const DEFAULT_KEYBINDS: FooterKeybinds = {
   inputNewline: [{ key: "shift+return,ctrl+return,alt+return,ctrl+j" }],
 }
 
+export const defaultKeybinds: FooterKeybinds = DEFAULT_KEYBINDS
+
 export type ModelInfo = {
   providers: RunProvider[]
   variants: string[]
@@ -41,7 +42,8 @@ export type SessionInfo = {
 }
 
 type Config = Awaited<ReturnType<typeof TuiConfig.get>>
-type BootService = {
+
+export interface Interface {
   readonly resolveModelInfo: (
     sdk: RunInput["sdk"],
     directory: string,
@@ -58,13 +60,13 @@ type BootService = {
 
 const configTask: { current?: Promise<Config> } = {}
 
-class Service extends Context.Service<Service, BootService>()("@opencode/RunBoot") {}
+export class Service extends Context.Service<Service, Interface>()("@opencode/RunBoot") {}
 
 function loadConfig() {
   return reusePendingTask(configTask, () => TuiConfig.get())
 }
 
-function emptyModelInfo(): ModelInfo {
+export function emptyModelInfo(): ModelInfo {
   return {
     providers: [],
     variants: [],
@@ -72,7 +74,7 @@ function emptyModelInfo(): ModelInfo {
   }
 }
 
-function emptySessionInfo(): SessionInfo {
+export function emptySessionInfo(): SessionInfo {
   return {
     first: true,
     history: [],
@@ -105,7 +107,7 @@ function footerKeybinds(config: Config | undefined): FooterKeybinds {
   }
 }
 
-const layer = Layer.effect(
+export const layer = Layer.effect(
   Service,
   Effect.gen(function* () {
     const config = Effect.fn("RunBoot.config")(() => Effect.promise(() => loadConfig().catch(() => undefined)))
@@ -192,31 +194,6 @@ const layer = Layer.effect(
   }),
 )
 
-const runtime = makeRuntime(Service, layer)
+export const defaultLayer = layer
 
-// Fetches available variants and context limits for every provider/model pair.
-export async function resolveModelInfo(
-  sdk: RunInput["sdk"],
-  directory: string,
-  model: RunInput["model"],
-): Promise<ModelInfo> {
-  return runtime.runPromise((svc) => svc.resolveModelInfo(sdk, directory, model)).catch(() => emptyModelInfo())
-}
-
-// Fetches session messages to determine if this is the first turn and build prompt history.
-export async function resolveSessionInfo(
-  sdk: RunInput["sdk"],
-  sessionID: string,
-  model: RunInput["model"],
-): Promise<SessionInfo> {
-  return runtime.runPromise((svc) => svc.resolveSessionInfo(sdk, sessionID, model)).catch(() => emptySessionInfo())
-}
-
-// Reads keybind overrides from TUI config and merges them with defaults.
-export async function resolveFooterKeybinds(): Promise<FooterKeybinds> {
-  return runtime.runPromise((svc) => svc.resolveFooterKeybinds()).catch(() => DEFAULT_KEYBINDS)
-}
-
-export async function resolveDiffStyle(): Promise<RunDiffStyle> {
-  return runtime.runPromise((svc) => svc.resolveDiffStyle()).catch(() => "auto")
-}
+export * as RunBoot from "./runtime.boot"

@@ -14,13 +14,33 @@
 //   4. runs the prompt queue until the footer closes.
 import { createOpencodeClient } from "@opencode-ai/sdk/v2"
 import { Flag } from "@opencode-ai/core/flag/flag"
+import { Effect, Layer } from "effect"
+import { AppRuntime } from "@/effect/app-runtime"
 import { createRunDemo } from "./demo"
-import { resolveDiffStyle, resolveFooterKeybinds, resolveModelInfo, resolveSessionInfo } from "./runtime.boot"
+import {
+  RunBoot,
+  defaultKeybinds,
+  emptyModelInfo,
+  emptySessionInfo,
+  type ModelInfo,
+  type SessionInfo,
+} from "./runtime.boot"
 import { createRuntimeLifecycle } from "./runtime.lifecycle"
 import { recordRunSpanError, setRunSpanAttributes, withRunSpan } from "./otel"
 import { trace } from "./trace"
-import { cycleVariant, formatModelLabel, resolveSavedVariant, resolveVariant, saveVariant } from "./variant.shared"
-import type { RunInput, RunPrompt, RunProvider } from "./types"
+import { Variant, cycleVariant, formatModelLabel, resolveVariant } from "./variant.shared"
+import type { RunDiffStyle, RunInput, RunPrompt, RunProvider } from "./types"
+
+const BootLayer = Layer.mergeAll(RunBoot.defaultLayer, Variant.defaultLayer)
+
+function persistVariant(model: RunInput["model"], variant: string | undefined) {
+  AppRuntime.runFork(
+    Effect.gen(function* () {
+      const variantSvc = yield* Variant.Service
+      yield* variantSvc.saveVariant(model, variant).pipe(Effect.orElseSucceed(() => undefined))
+    }).pipe(Effect.provide(BootLayer)),
+  )
+}
 
 /** @internal Exported for testing */
 export { pickVariant, resolveVariant } from "./variant.shared"
@@ -169,25 +189,44 @@ async function runInteractiveRuntime(input: RunRuntimeInput): Promise<void> {
     async (span) => {
       const start = performance.now()
       const log = trace()
-      const keybindTask = resolveFooterKeybinds()
-      const diffTask = resolveDiffStyle()
+      const earlyTask = AppRuntime.runPromise(
+        Effect.gen(function* () {
+          const boot = yield* RunBoot.Service
+          return yield* Effect.all(
+            {
+              keybinds: boot.resolveFooterKeybinds().pipe(Effect.orElseSucceed(() => defaultKeybinds)),
+              diffStyle: boot.resolveDiffStyle().pipe(Effect.orElseSucceed((): RunDiffStyle => "auto")),
+            },
+            { concurrency: "unbounded" },
+          )
+        }).pipe(Effect.provide(BootLayer)),
+      )
       const ctx = await input.boot()
-      const modelTask = resolveModelInfo(ctx.sdk, ctx.directory, ctx.model)
-      const sessionTask =
-        ctx.resume === true
-          ? resolveSessionInfo(ctx.sdk, ctx.sessionID, ctx.model)
-          : Promise.resolve({
-              first: true,
-              history: [],
-              variant: undefined,
-            })
-      const savedTask = resolveSavedVariant(ctx.model)
-      const [keybinds, diffStyle, session, savedVariant] = await Promise.all([
-        keybindTask,
-        diffTask,
-        sessionTask,
-        savedTask,
-      ])
+      const modelTask = AppRuntime.runPromise(
+        Effect.gen(function* () {
+          const boot = yield* RunBoot.Service
+          return yield* boot.resolveModelInfo(ctx.sdk, ctx.directory, ctx.model)
+        }).pipe(Effect.provide(BootLayer)),
+      ).catch((): ModelInfo => emptyModelInfo())
+      const sessionAndSavedTask = AppRuntime.runPromise(
+        Effect.gen(function* () {
+          const boot = yield* RunBoot.Service
+          const variantSvc = yield* Variant.Service
+          return yield* Effect.all(
+            {
+              session:
+                ctx.resume === true
+                  ? boot
+                      .resolveSessionInfo(ctx.sdk, ctx.sessionID, ctx.model)
+                      .pipe(Effect.orElseSucceed((): SessionInfo => emptySessionInfo()))
+                  : Effect.succeed<SessionInfo>({ first: true, history: [], variant: undefined }),
+              savedVariant: variantSvc.resolveSavedVariant(ctx.model).pipe(Effect.orElseSucceed(() => undefined)),
+            },
+            { concurrency: "unbounded" },
+          )
+        }).pipe(Effect.provide(BootLayer)),
+      )
+      const [{ keybinds, diffStyle }, { session, savedVariant }] = await Promise.all([earlyTask, sessionAndSavedTask])
       const state: RuntimeState = {
         shown: !session.first,
         aborting: false,
@@ -280,7 +319,7 @@ async function runInteractiveRuntime(input: RunRuntimeInput): Promise<void> {
           }
 
           state.activeVariant = cycleVariant(state.activeVariant, state.variants)
-          saveVariant(state.model, state.activeVariant)
+          persistVariant(state.model, state.activeVariant)
           setRunSpanAttributes(span, {
             "opencode.model.variant": state.activeVariant,
           })
@@ -298,7 +337,12 @@ async function runInteractiveRuntime(input: RunRuntimeInput): Promise<void> {
           state.model = model
           state.activeVariant = undefined
           state.variants = variantsFor(state.providers, model)
-          const switching = resolveSavedVariant(model).then((saved) => {
+          const switching = AppRuntime.runPromise(
+            Effect.gen(function* () {
+              const variantSvc = yield* Variant.Service
+              return yield* variantSvc.resolveSavedVariant(model).pipe(Effect.orElseSucceed(() => undefined))
+            }).pipe(Effect.provide(BootLayer)),
+          ).then((saved) => {
             const current = state.model
             if (!current || current.providerID !== model.providerID || current.modelID !== model.modelID) {
               return
@@ -343,7 +387,7 @@ async function runInteractiveRuntime(input: RunRuntimeInput): Promise<void> {
           }
 
           state.activeVariant = variant
-          saveVariant(state.model, state.activeVariant)
+          persistVariant(state.model, state.activeVariant)
           setRunSpanAttributes(span, {
             "opencode.model.variant": state.activeVariant,
           })

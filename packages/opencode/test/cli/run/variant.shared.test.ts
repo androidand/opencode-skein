@@ -4,13 +4,7 @@ import { AppFileSystem } from "@opencode-ai/core/filesystem"
 import { describe, expect, test } from "bun:test"
 import { Effect, FileSystem, Layer } from "effect"
 import { Global } from "@opencode-ai/core/global"
-import {
-  createVariantRuntime,
-  cycleVariant,
-  formatModelLabel,
-  pickVariant,
-  resolveVariant,
-} from "@/cli/cmd/run/variant.shared"
+import { Variant, cycleVariant, formatModelLabel, pickVariant, resolveVariant } from "@/cli/cmd/run/variant.shared"
 import type { SessionMessages } from "@/cli/cmd/run/session.shared"
 import type { RunProvider } from "@/cli/cmd/run/types"
 import { testEffect } from "../../lib/effect"
@@ -171,26 +165,27 @@ describe("run variant shared", () => {
         },
       })
 
-      const svc = createVariantRuntime(remappedFs(root))
+      yield* Effect.gen(function* () {
+        const svc = yield* Variant.Service
+        yield* svc.saveVariant(model, "high")
+        expect(yield* svc.resolveSavedVariant(model)).toBe("high")
+        expect(yield* fs.readJson(file)).toEqual({
+          recent: [{ providerID: "anthropic", modelID: "sonnet" }],
+          variant: {
+            "openai/gpt-4.1": "low",
+            "openai/gpt-5": "high",
+          },
+        })
 
-      yield* Effect.promise(() => svc.saveVariant(model, "high"))
-      expect(yield* Effect.promise(() => svc.resolveSavedVariant(model))).toBe("high")
-      expect(yield* fs.readJson(file)).toEqual({
-        recent: [{ providerID: "anthropic", modelID: "sonnet" }],
-        variant: {
-          "openai/gpt-4.1": "low",
-          "openai/gpt-5": "high",
-        },
-      })
-
-      yield* Effect.promise(() => svc.saveVariant(model, undefined))
-      expect(yield* Effect.promise(() => svc.resolveSavedVariant(model))).toBeUndefined()
-      expect(yield* fs.readJson(file)).toEqual({
-        recent: [{ providerID: "anthropic", modelID: "sonnet" }],
-        variant: {
-          "openai/gpt-4.1": "low",
-        },
-      })
+        yield* svc.saveVariant(model, undefined)
+        expect(yield* svc.resolveSavedVariant(model)).toBeUndefined()
+        expect(yield* fs.readJson(file)).toEqual({
+          recent: [{ providerID: "anthropic", modelID: "sonnet" }],
+          variant: {
+            "openai/gpt-4.1": "low",
+          },
+        })
+      }).pipe(Effect.provide(Variant.layer.pipe(Layer.provide(remappedFs(root)))))
     }),
   )
 
@@ -203,15 +198,16 @@ describe("run variant shared", () => {
 
       yield* filesys.writeFileString(file, "{")
 
-      const svc = createVariantRuntime(remappedFs(root))
-
-      yield* Effect.promise(() => svc.saveVariant(model, "high"))
-      expect(yield* Effect.promise(() => svc.resolveSavedVariant(model))).toBe("high")
-      expect(yield* fs.readJson(file)).toEqual({
-        variant: {
-          "openai/gpt-5": "high",
-        },
-      })
+      yield* Effect.gen(function* () {
+        const svc = yield* Variant.Service
+        yield* svc.saveVariant(model, "high")
+        expect(yield* svc.resolveSavedVariant(model)).toBe("high")
+        expect(yield* fs.readJson(file)).toEqual({
+          variant: {
+            "openai/gpt-5": "high",
+          },
+        })
+      }).pipe(Effect.provide(Variant.layer.pipe(Layer.provide(remappedFs(root)))))
     }),
   )
 })

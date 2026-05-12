@@ -9,7 +9,6 @@
 import path from "path"
 import { AppFileSystem } from "@opencode-ai/core/filesystem"
 import { Context, Effect, Layer } from "effect"
-import { makeRuntime } from "@/effect/run-service"
 import { Global } from "@opencode-ai/core/global"
 import { isRecord } from "@/util/record"
 import { createSession, sessionVariant, type RunSession, type SessionMessages } from "./session.shared"
@@ -20,16 +19,13 @@ const MODEL_FILE = path.join(Global.Path.state, "model.json")
 type ModelState = Record<string, unknown> & {
   variant?: Record<string, string | undefined>
 }
-type VariantService = {
+
+export interface Interface {
   readonly resolveSavedVariant: (model: RunInput["model"]) => Effect.Effect<string | undefined>
   readonly saveVariant: (model: RunInput["model"], variant: string | undefined) => Effect.Effect<void>
 }
-type VariantRuntime = {
-  resolveSavedVariant(model: RunInput["model"]): Promise<string | undefined>
-  saveVariant(model: RunInput["model"], variant: string | undefined): Promise<void>
-}
 
-class Service extends Context.Service<Service, VariantService>()("@opencode/RunVariant") {}
+export class Service extends Context.Service<Service, Interface>()("@opencode/RunVariant") {}
 
 function modelKey(provider: string, model: string): string {
   return `${provider}/${model}`
@@ -135,81 +131,62 @@ function state(value: unknown): ModelState {
   }
 }
 
-function createLayer(fs = AppFileSystem.defaultLayer) {
-  return Layer.fresh(
-    Layer.effect(
-      Service,
-      Effect.gen(function* () {
-        const file = yield* AppFileSystem.Service
+export const layer = Layer.effect(
+  Service,
+  Effect.gen(function* () {
+    const file = yield* AppFileSystem.Service
 
-        const read = Effect.fn("RunVariant.read")(function* () {
-          return yield* file.readJson(MODEL_FILE).pipe(
-            Effect.map(state),
-            Effect.catchCause(() => Effect.succeed(state(undefined))),
-          )
+    const read = Effect.fn("RunVariant.read")(function* () {
+      return yield* file.readJson(MODEL_FILE).pipe(
+        Effect.map(state),
+        Effect.catchCause(() => Effect.succeed(state(undefined))),
+      )
+    })
+
+    const resolveSavedVariant = Effect.fn("RunVariant.resolveSavedVariant")(function* (model: RunInput["model"]) {
+      if (!model) {
+        return undefined
+      }
+
+      return (yield* read()).variant?.[variantKey(model)]
+    })
+
+    const saveVariant = Effect.fn("RunVariant.saveVariant")(function* (
+      model: RunInput["model"],
+      variant: string | undefined,
+    ) {
+      if (!model) {
+        return
+      }
+
+      const current = yield* read()
+      const next = {
+        ...current.variant,
+      }
+      const key = variantKey(model)
+      if (variant) {
+        next[key] = variant
+      }
+
+      if (!variant) {
+        delete next[key]
+      }
+
+      yield* file
+        .writeJson(MODEL_FILE, {
+          ...current,
+          variant: next,
         })
+        .pipe(Effect.orElseSucceed(() => undefined))
+    })
 
-        const resolveSavedVariant = Effect.fn("RunVariant.resolveSavedVariant")(function* (model: RunInput["model"]) {
-          if (!model) {
-            return undefined
-          }
+    return Service.of({
+      resolveSavedVariant,
+      saveVariant,
+    })
+  }),
+)
 
-          return (yield* read()).variant?.[variantKey(model)]
-        })
+export const defaultLayer = layer.pipe(Layer.provide(AppFileSystem.defaultLayer))
 
-        const saveVariant = Effect.fn("RunVariant.saveVariant")(function* (
-          model: RunInput["model"],
-          variant: string | undefined,
-        ) {
-          if (!model) {
-            return
-          }
-
-          const current = yield* read()
-          const next = {
-            ...current.variant,
-          }
-          const key = variantKey(model)
-          if (variant) {
-            next[key] = variant
-          }
-
-          if (!variant) {
-            delete next[key]
-          }
-
-          yield* file
-            .writeJson(MODEL_FILE, {
-              ...current,
-              variant: next,
-            })
-            .pipe(Effect.orElseSucceed(() => undefined))
-        })
-
-        return Service.of({
-          resolveSavedVariant,
-          saveVariant,
-        })
-      }),
-    ).pipe(Layer.provide(fs)),
-  )
-}
-
-/** @internal Exported for testing. */
-export function createVariantRuntime(fs = AppFileSystem.defaultLayer): VariantRuntime {
-  const runtime = makeRuntime(Service, createLayer(fs))
-  return {
-    resolveSavedVariant: (model) => runtime.runPromise((svc) => svc.resolveSavedVariant(model)).catch(() => undefined),
-    saveVariant: (model, variant) => runtime.runPromise((svc) => svc.saveVariant(model, variant)).catch(() => {}),
-  }
-}
-
-const runtime = createVariantRuntime()
-
-export async function resolveSavedVariant(model: RunInput["model"]): Promise<string | undefined> {
-  return runtime.resolveSavedVariant(model)
-}
-
-export function saveVariant(model: RunInput["model"], variant: string | undefined): void {
-  void runtime.saveVariant(model, variant)
-}
+export * as Variant from "./variant.shared"
