@@ -5,6 +5,7 @@ import * as Stream from "effect/Stream"
 import { streamText, wrapLanguageModel, type ModelMessage, type Tool, tool as aiTool, jsonSchema, asSchema } from "ai"
 import { tool as nativeTool, ToolFailure, type JsonSchema, type LLMEvent } from "@opencode-ai/llm"
 import { LLMClient, RequestExecutor } from "@opencode-ai/llm/route"
+import type { LLMClientService } from "@opencode-ai/llm/route"
 import { mergeDeep } from "remeda"
 import { GitLabWorkflowLanguageModel } from "gitlab-ai-provider"
 import { ProviderTransform } from "@/provider/transform"
@@ -66,7 +67,7 @@ export class Service extends Context.Service<Service, Interface>()("@opencode/LL
 const live: Layer.Layer<
   Service,
   never,
-  Auth.Service | Config.Service | Provider.Service | Plugin.Service | Permission.Service
+  Auth.Service | Config.Service | Provider.Service | Plugin.Service | Permission.Service | LLMClientService
 > = Layer.effect(
   Service,
   Effect.gen(function* () {
@@ -75,6 +76,7 @@ const live: Layer.Layer<
     const provider = yield* Provider.Service
     const plugin = yield* Plugin.Service
     const perm = yield* Permission.Service
+    const llmClient = yield* LLMClient.Service
 
     const run = Effect.fn("LLM.run")(function* (input: StreamRequest) {
       const l = log
@@ -380,10 +382,7 @@ const live: Layer.Layer<
         })
         return {
           type: "native" as const,
-          stream: LLMClient.stream({ request, tools: nativeTools(sortedTools, input) }).pipe(
-            Stream.provide(LLMClient.layer),
-            Stream.provide(RequestExecutor.defaultLayer),
-          ),
+          stream: llmClient.stream({ request, tools: nativeTools(sortedTools, input) }),
         }
       }
 
@@ -492,6 +491,7 @@ export const defaultLayer = Layer.suspend(() =>
     Layer.provide(Config.defaultLayer),
     Layer.provide(Provider.defaultLayer),
     Layer.provide(Plugin.defaultLayer),
+    Layer.provide(LLMClient.layer.pipe(Layer.provide(RequestExecutor.defaultLayer))),
   ),
 )
 

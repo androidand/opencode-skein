@@ -1,14 +1,19 @@
 import { afterAll, beforeAll, beforeEach, describe, expect, test } from "bun:test"
 import path from "path"
 import { tool, type ModelMessage } from "ai"
-import { Cause, Effect, Exit, Stream } from "effect"
+import { Cause, Effect, Exit, Layer, Stream } from "effect"
+import { HttpClientRequest, HttpClientResponse } from "effect/unstable/http"
 import z from "zod"
-import { makeRuntime } from "../../src/effect/run-service"
+import { attach, makeRuntime } from "../../src/effect/run-service"
 import { LLM } from "../../src/session/llm"
+import { LLMClient, RequestExecutor } from "@opencode-ai/llm/route"
 import { WithInstance } from "../../src/project/with-instance"
+import { Auth } from "@/auth"
+import { Config } from "@/config/config"
 import { Provider } from "@/provider/provider"
 import { ProviderTransform } from "@/provider/transform"
 import { ModelsDev } from "@/provider/models"
+import { Plugin } from "@/plugin"
 import { ProviderID, ModelID } from "../../src/provider/schema"
 import { Filesystem } from "@/util/filesystem"
 import { tmpdir } from "../fixture/fixture"
@@ -16,6 +21,29 @@ import type { Agent } from "../../src/agent/agent"
 import { MessageV2 } from "../../src/session/message-v2"
 import { SessionID, MessageID } from "../../src/session/schema"
 import { AppRuntime } from "../../src/effect/app-runtime"
+
+const openAIConfig = (model: ModelsDev.Provider["models"][string], baseURL: string): Partial<Config.Info> => {
+  const { experimental: _experimental, ...configModel } = model
+  type ConfigModel = NonNullable<NonNullable<Config.Info["provider"]>[string]["models"]>[string]
+  return {
+    enabled_providers: ["openai"],
+    provider: {
+      openai: {
+        name: "OpenAI",
+        env: ["OPENAI_API_KEY"],
+        npm: "@ai-sdk/openai",
+        api: "https://api.openai.com/v1",
+        models: {
+          [model.id]: JSON.parse(JSON.stringify(configModel)) as ConfigModel,
+        },
+        options: {
+          apiKey: "test-openai-key",
+          baseURL,
+        },
+      },
+    },
+  }
+}
 
 async function getModel(providerID: ProviderID, modelID: ModelID) {
   return AppRuntime.runPromise(
@@ -30,6 +58,22 @@ const llm = makeRuntime(LLM.Service, LLM.defaultLayer)
 
 async function drain(input: LLM.StreamInput) {
   return llm.runPromise((svc) => svc.stream(input).pipe(Stream.runDrain))
+}
+
+async function drainWith(layer: Layer.Layer<LLM.Service>, input: LLM.StreamInput) {
+  return Effect.runPromise(
+    attach(LLM.Service.use((svc) => svc.stream(input).pipe(Stream.runDrain))).pipe(Effect.provide(layer)),
+  )
+}
+
+function llmLayerWithExecutor(executor: Layer.Layer<RequestExecutor.Service>) {
+  return LLM.layer.pipe(
+    Layer.provide(Auth.defaultLayer),
+    Layer.provide(Config.defaultLayer),
+    Layer.provide(Provider.defaultLayer),
+    Layer.provide(Plugin.defaultLayer),
+    Layer.provide(LLMClient.layer.pipe(Layer.provide(executor))),
+  )
 }
 
 describe("session.llm.hasToolCalls", () => {
@@ -614,32 +658,7 @@ describe("session.llm.stream", () => {
     ]
     const request = waitRequest("/responses", createEventResponse(responseChunks, true))
 
-    await using tmp = await tmpdir({
-      init: async (dir) => {
-        await Bun.write(
-          path.join(dir, "opencode.json"),
-          JSON.stringify({
-            $schema: "https://opencode.ai/config.json",
-            enabled_providers: ["openai"],
-            provider: {
-              openai: {
-                name: "OpenAI",
-                env: ["OPENAI_API_KEY"],
-                npm: "@ai-sdk/openai",
-                api: "https://api.openai.com/v1",
-                models: {
-                  [model.id]: model,
-                },
-                options: {
-                  apiKey: "test-openai-key",
-                  baseURL: `${server.url.origin}/v1`,
-                },
-              },
-            },
-          }),
-        )
-      },
-    })
+    await using tmp = await tmpdir({ config: openAIConfig(model, `${server.url.origin}/v1`) })
 
     await WithInstance.provide({
       directory: tmp.path,
@@ -726,32 +745,7 @@ describe("session.llm.stream", () => {
     ]
     const request = waitRequest("/responses", createEventResponse(chunks, true))
 
-    await using tmp = await tmpdir({
-      init: async (dir) => {
-        await Bun.write(
-          path.join(dir, "opencode.json"),
-          JSON.stringify({
-            $schema: "https://opencode.ai/config.json",
-            enabled_providers: ["openai"],
-            provider: {
-              openai: {
-                name: "OpenAI",
-                env: ["OPENAI_API_KEY"],
-                npm: "@ai-sdk/openai",
-                api: "https://api.openai.com/v1",
-                models: {
-                  [model.id]: model,
-                },
-                options: {
-                  apiKey: "test-openai-key",
-                  baseURL: `${server.url.origin}/v1`,
-                },
-              },
-            },
-          }),
-        )
-      },
-    })
+    await using tmp = await tmpdir({ config: openAIConfig(model, `${server.url.origin}/v1`) })
 
     await WithInstance.provide({
       directory: tmp.path,
@@ -798,6 +792,115 @@ describe("session.llm.stream", () => {
         expect((capture.body.reasoning as { effort?: string } | undefined)?.effort).toBe("high")
         expect(JSON.stringify(capture.body.input)).toContain("You are a helpful assistant.")
         expect(capture.body.input).toContainEqual({ role: "user", content: [{ type: "input_text", text: "Hello" }] })
+      },
+    })
+  })
+
+  test("uses injected native request executor for tool calls", async () => {
+    const source = await loadFixture("openai", "gpt-5.2")
+    const model = source.model
+    const chunks = [
+      {
+        type: "response.output_item.added",
+        item: { type: "function_call", id: "item-injected-tool", call_id: "call-injected-tool", name: "lookup" },
+      },
+      {
+        type: "response.function_call_arguments.delta",
+        item_id: "item-injected-tool",
+        delta: '{"query":"weather"}',
+      },
+      {
+        type: "response.output_item.done",
+        item: {
+          type: "function_call",
+          id: "item-injected-tool",
+          call_id: "call-injected-tool",
+          name: "lookup",
+          arguments: '{"query":"weather"}',
+        },
+      },
+      {
+        type: "response.completed",
+        response: { incomplete_details: null, usage: { input_tokens: 1, output_tokens: 1 } },
+      },
+    ]
+    let captured: Record<string, unknown> | undefined
+    let executed: unknown
+    const executor = Layer.succeed(
+      RequestExecutor.Service,
+      RequestExecutor.Service.of({
+        execute: (request) =>
+          Effect.gen(function* () {
+            const web = yield* HttpClientRequest.toWeb(request).pipe(Effect.orDie)
+            captured = (yield* Effect.promise(() => web.json())) as Record<string, unknown>
+            return HttpClientResponse.fromWeb(request, createEventResponse(chunks, true))
+          }),
+      }),
+    )
+
+    await using tmp = await tmpdir({ config: openAIConfig(model, "https://injected-openai.test/v1") })
+
+    await WithInstance.provide({
+      directory: tmp.path,
+      fn: async () => {
+        const previous = process.env.OPENCODE_LLM_RUNTIME
+        process.env.OPENCODE_LLM_RUNTIME = "native"
+        try {
+          const resolved = await getModel(ProviderID.openai, ModelID.make(model.id))
+          const sessionID = SessionID.make("session-test-native-injected-tool")
+          const agent = {
+            name: "test",
+            mode: "primary",
+            options: {},
+            permission: [{ permission: "*", pattern: "*", action: "allow" }],
+          } satisfies Agent.Info
+
+          await drainWith(llmLayerWithExecutor(executor), {
+            user: {
+              id: MessageID.make("msg_user-native-injected-tool"),
+              sessionID,
+              role: "user",
+              time: { created: Date.now() },
+              agent: agent.name,
+              model: { providerID: ProviderID.make("openai"), modelID: resolved.id },
+            } satisfies MessageV2.User,
+            sessionID,
+            model: resolved,
+            agent,
+            system: [],
+            messages: [{ role: "user", content: "Use lookup" }],
+            tools: {
+              lookup: tool({
+                description: "Lookup data",
+                inputSchema: z.object({ query: z.string() }),
+                execute: async (args, options) => {
+                  executed = { args, toolCallId: options.toolCallId }
+                  return { output: "looked up" }
+                },
+              }),
+            },
+          })
+        } finally {
+          if (previous === undefined) delete process.env.OPENCODE_LLM_RUNTIME
+          else process.env.OPENCODE_LLM_RUNTIME = previous
+        }
+
+        expect(captured?.model).toBe(model.id)
+        expect(captured?.tools).toEqual([
+          {
+            type: "function",
+            name: "lookup",
+            description: "Lookup data",
+            parameters: {
+              type: "object",
+              properties: { query: { type: "string" } },
+              required: ["query"],
+              additionalProperties: false,
+              $schema: "http://json-schema.org/draft-07/schema#",
+            },
+          },
+        ])
+        expect(executed).toEqual({ args: { query: "weather" }, toolCallId: "call-injected-tool" })
       },
     })
   })
