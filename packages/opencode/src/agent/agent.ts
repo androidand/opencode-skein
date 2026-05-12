@@ -119,7 +119,7 @@ export const layer = Layer.effect(
 
         // Convert permission layers to rulesets and merge them
         // Each layer's rules come after the previous, so later configs override earlier ones
-        const layers = (cfg.permission_layers ?? []) as ConfigPermission.Info[]
+        const layers = ConfigPermission.toLayers(cfg.permission)
         const user = Permission.merge(...layers.map((p) => Permission.fromConfig(p)))
 
         const agents: Record<string, Info> = {
