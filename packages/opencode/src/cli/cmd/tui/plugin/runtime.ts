@@ -14,6 +14,8 @@ import {
 import path from "path"
 import { fileURLToPath } from "url"
 import { TuiConfig } from "@/cli/cmd/tui/config/tui"
+import { AppRuntime } from "@/effect/app-runtime"
+import { Effect } from "effect"
 import * as Log from "@opencode-ai/core/util/log"
 import { errorData, errorMessage } from "@/util/error"
 import { isRecord } from "@/util/record"
@@ -41,6 +43,14 @@ import { ConfigPlugin } from "@/config/plugin"
 import { createCommandShim } from "./command-shim"
 
 ensureRuntimePluginSupport({ additional: keymapRuntimeModules })
+
+// Exposed as a separate function so tests can mock it without touching the
+// TuiConfig service. Production callers wait on plugin install fibers via
+// AppRuntime + TuiConfig.layer; tests replace this with a no-op.
+export const waitForDependencies = () =>
+  AppRuntime.runPromise(
+    TuiConfig.Service.use((svc) => svc.waitForDependencies()).pipe(Effect.provide(TuiConfig.layer)),
+  )
 
 type PluginLoad = {
   options: ConfigPlugin.Options | undefined
@@ -837,7 +847,7 @@ async function addPluginBySpec(state: RuntimeState | undefined, raw: string) {
     state.pending.delete(spec)
     return true
   }
-  const ready = await resolveExternalPlugins([cfg], () => TuiConfig.waitForDependencies()).catch((error) => {
+  const ready = await resolveExternalPlugins([cfg], () => waitForDependencies()).catch((error) => {
     fail("failed to add tui plugin", { path: next, error })
     return [] as PluginLoad[]
   })
@@ -1049,7 +1059,7 @@ async function load(input: { api: Api; config: TuiConfig.Resolved }) {
       })
     }
 
-    const ready = await resolveExternalPlugins(records, () => TuiConfig.waitForDependencies())
+    const ready = await resolveExternalPlugins(records, () => waitForDependencies())
     await addExternalPluginEntries(next, ready)
 
     applyInitialPluginEnabledState(next, config)

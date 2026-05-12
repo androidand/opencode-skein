@@ -197,7 +197,7 @@ Most of the original facade-removal backlog is already done. The practical remai
 ## Checklist
 
 - [ ] `src/npm/index.ts` (`Npm`) - still exports runtime-backed async facade helpers on top of `Npm.Service`
-- [ ] `src/cli/cmd/tui/config/tui.ts` (`TuiConfig`) - still exports runtime-backed async facade helpers on top of `TuiConfig.Service`
+- [x] `src/cli/cmd/tui/config/tui.ts` (`TuiConfig`) - facades removed
 - [x] `src/session/session.ts` / `src/session/prompt.ts` / `src/session/revert.ts` / `src/session/summary.ts` - service-local facades removed
 - [x] `src/agent/agent.ts` (`Agent`) - service-local facades removed
 - [x] `src/permission/index.ts` (`Permission`) - service-local facades removed

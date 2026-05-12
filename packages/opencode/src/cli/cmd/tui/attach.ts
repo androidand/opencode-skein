@@ -2,6 +2,8 @@ import { cmd } from "../cmd"
 import { UI } from "@/cli/ui"
 import { win32DisableProcessedInput, win32InstallCtrlCGuard } from "./win32"
 import { TuiConfig } from "@/cli/cmd/tui/config/tui"
+import { AppRuntime } from "@/effect/app-runtime"
+import { Effect } from "effect"
 import { errorMessage } from "@/util/error"
 import { validateSession } from "./validate-session"
 import { ServerAuth } from "@/server/auth"
@@ -66,7 +68,9 @@ export const AttachCommand = cmd({
         }
       })()
       const headers = ServerAuth.headers({ password: args.password, username: args.username })
-      const config = await TuiConfig.get()
+      const config = await AppRuntime.runPromise(
+        TuiConfig.Service.use((svc) => svc.get()).pipe(Effect.provide(TuiConfig.layer)),
+      )
       const { tui } = await import("./app")
 
       try {

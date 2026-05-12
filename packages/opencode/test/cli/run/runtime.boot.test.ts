@@ -3,10 +3,15 @@ import type { KeyEvent, Renderable } from "@opentui/core"
 import type { Binding } from "@opentui/keymap"
 import { createBindingLookup } from "@opentui/keymap/extras"
 import { OpencodeClient, type Provider } from "@opencode-ai/sdk/v2"
-import { TuiConfig, type Resolved } from "@/cli/cmd/tui/config/tui"
+import { type Resolved } from "@/cli/cmd/tui/config/tui"
 import { formatBindings } from "@/cli/cmd/run/keymap.shared"
 import { TuiKeybind } from "@/cli/cmd/tui/config/keybind"
-import { resolveDiffStyle, resolveFooterKeybinds, resolveModelInfo } from "@/cli/cmd/run/runtime.boot"
+import {
+  TuiConfigLoader,
+  resolveDiffStyle,
+  resolveFooterKeybinds,
+  resolveModelInfo,
+} from "@/cli/cmd/run/runtime.boot"
 
 type RunBinding = Binding<Renderable, KeyEvent>
 
@@ -108,7 +113,7 @@ describe("run runtime boot", () => {
   })
 
   test("reads footer keybinds from resolved keybind config", async () => {
-    spyOn(TuiConfig, "get").mockResolvedValue(
+    spyOn(TuiConfigLoader, "get").mockResolvedValue(
       config({
         leader: "ctrl+g",
         bindings: {
@@ -139,7 +144,7 @@ describe("run runtime boot", () => {
   })
 
   test("falls back to default keybinds when config load fails", async () => {
-    spyOn(TuiConfig, "get").mockRejectedValue(new Error("boom"))
+    spyOn(TuiConfigLoader, "get").mockRejectedValue(new Error("boom"))
 
     const result = await resolveFooterKeybinds()
 
@@ -156,11 +161,11 @@ describe("run runtime boot", () => {
   })
 
   test("reads diff style and falls back to auto", async () => {
-    spyOn(TuiConfig, "get").mockResolvedValue(config({ diff_style: "stacked" }))
+    spyOn(TuiConfigLoader, "get").mockResolvedValue(config({ diff_style: "stacked" }))
     await expect(resolveDiffStyle()).resolves.toBe("stacked")
 
     mock.restore()
-    spyOn(TuiConfig, "get").mockRejectedValue(new Error("boom"))
+    spyOn(TuiConfigLoader, "get").mockRejectedValue(new Error("boom"))
     await expect(resolveDiffStyle()).resolves.toBe("auto")
   })
 

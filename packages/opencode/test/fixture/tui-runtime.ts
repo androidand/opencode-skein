@@ -2,6 +2,7 @@ import { spyOn } from "bun:test"
 import path from "path"
 import { createBindingLookup } from "@opentui/keymap/extras"
 import { TuiConfig } from "../../src/cli/cmd/tui/config/tui"
+import { TuiPluginRuntime } from "../../src/cli/cmd/tui/plugin/runtime"
 import { TuiKeybind } from "../../src/cli/cmd/tui/config/keybind"
 
 type PluginSpec = string | [string, Record<string, unknown>]
@@ -34,7 +35,7 @@ export function mockTuiRuntime(dir: string, plugin: PluginSpec[], opts?: { plugi
     scope: "local" as const,
     source: path.join(dir, "tui.json"),
   }))
-  const wait = spyOn(TuiConfig, "waitForDependencies").mockResolvedValue()
+  const wait = spyOn(TuiPluginRuntime, "waitForDependencies").mockResolvedValue()
   const cwd = spyOn(process, "cwd").mockImplementation(() => dir)
 
   const config = createTuiResolvedConfig({

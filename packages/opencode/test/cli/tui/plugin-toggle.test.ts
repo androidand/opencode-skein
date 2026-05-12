@@ -5,8 +5,6 @@ import { pathToFileURL } from "url"
 import { tmpdir } from "../../fixture/fixture"
 import { createTuiPluginApi } from "../../fixture/tui-plugin"
 import { createTuiResolvedConfig } from "../../fixture/tui-runtime"
-import { TuiConfig } from "../../../src/cli/cmd/tui/config/tui"
-
 const { TuiPluginRuntime } = await import("../../../src/cli/cmd/tui/plugin/runtime")
 
 test("toggles plugin runtime state by exported id", async () => {
@@ -53,7 +51,7 @@ test("toggles plugin runtime state by exported id", async () => {
       },
     ],
   })
-  const wait = spyOn(TuiConfig, "waitForDependencies").mockResolvedValue()
+  const wait = spyOn(TuiPluginRuntime, "waitForDependencies").mockResolvedValue()
   const cwd = spyOn(process, "cwd").mockImplementation(() => tmp.path)
   const api = createTuiPluginApi()
 
@@ -130,7 +128,7 @@ test("kv plugin_enabled overrides tui config on startup", async () => {
       },
     ],
   })
-  const wait = spyOn(TuiConfig, "waitForDependencies").mockResolvedValue()
+  const wait = spyOn(TuiPluginRuntime, "waitForDependencies").mockResolvedValue()
   const cwd = spyOn(process, "cwd").mockImplementation(() => tmp.path)
   const api = createTuiPluginApi()
   api.kv.set("plugin_enabled", {
@@ -160,7 +158,7 @@ test("kv plugin_enabled overrides tui config on startup", async () => {
 test("loads disabled-by-default internal plugin inactive and activates on demand", async () => {
   await using tmp = await tmpdir()
   const config = createTuiResolvedConfig()
-  const wait = spyOn(TuiConfig, "waitForDependencies").mockResolvedValue()
+  const wait = spyOn(TuiPluginRuntime, "waitForDependencies").mockResolvedValue()
   const cwd = spyOn(process, "cwd").mockImplementation(() => tmp.path)
   const api = createTuiPluginApi()
 

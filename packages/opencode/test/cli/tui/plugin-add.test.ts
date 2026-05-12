@@ -5,8 +5,6 @@ import { pathToFileURL } from "url"
 import { tmpdir } from "../../fixture/fixture"
 import { createTuiPluginApi } from "../../fixture/tui-plugin"
 import { createTuiResolvedConfig } from "../../fixture/tui-runtime"
-import { TuiConfig } from "../../../src/cli/cmd/tui/config/tui"
-
 const { TuiPluginRuntime } = await import("../../../src/cli/cmd/tui/plugin/runtime")
 
 test("adds tui plugin at runtime from spec", async () => {
@@ -35,7 +33,7 @@ test("adds tui plugin at runtime from spec", async () => {
   const config = createTuiResolvedConfig({
     plugin: [],
   })
-  const wait = spyOn(TuiConfig, "waitForDependencies").mockResolvedValue()
+  const wait = spyOn(TuiPluginRuntime, "waitForDependencies").mockResolvedValue()
   const cwd = spyOn(process, "cwd").mockImplementation(() => tmp.path)
 
   try {
@@ -77,7 +75,7 @@ test("retries runtime add for file plugins after dependency wait", async () => {
   const config = createTuiResolvedConfig({
     plugin: [],
   })
-  const wait = spyOn(TuiConfig, "waitForDependencies").mockImplementation(async () => {
+  const wait = spyOn(TuiPluginRuntime, "waitForDependencies").mockImplementation(async () => {
     await Bun.write(
       path.join(tmp.extra.mod, "index.ts"),
       `export default {
