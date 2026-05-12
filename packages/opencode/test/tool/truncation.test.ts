@@ -224,7 +224,7 @@ describe("Truncate", () => {
     )
 
     test("loads truncate effect in a fresh process", async () => {
-      const out = await Process.run([process.execPath, "run", path.join(ROOT, "src", "tool", "truncate.ts")], {
+      const out = await Process.runPromise([process.execPath, "run", path.join(ROOT, "src", "tool", "truncate.ts")], {
         cwd: ROOT,
       })
 

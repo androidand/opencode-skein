@@ -192,7 +192,7 @@ async function executeUninstall(method: Installation.Method, targets: RemovalTar
     const cmd = cmds[method]
     if (cmd) {
       spinner.start(`Running ${cmd.join(" ")}...`)
-      const result = await Process.run(method === "choco" ? ["choco", "uninstall", "opencode", "-y", "-r"] : cmd, {
+      const result = await Process.runPromise(method === "choco" ? ["choco", "uninstall", "opencode", "-y", "-r"] : cmd, {
         nothrow: true,
       })
       if (result.code !== 0) {

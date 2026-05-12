@@ -221,7 +221,7 @@ export const rlang: Info = {
     const air = which("air")
     if (air == null) return false
 
-    const output = await Process.text([air, "--help"], { nothrow: true })
+    const output = await Process.textPromise([air, "--help"], { nothrow: true })
 
     // Check for "Air: An R language server and formatter"
     const firstLine = output.text.split("\n")[0]
@@ -239,7 +239,7 @@ export const uvformat: Info = {
     if (await ruff.enabled(context)) return false
     const uv = which("uv")
     if (uv == null) return false
-    const output = await Process.run([uv, "format", "--help"], { nothrow: true })
+    const output = await Process.runPromise([uv, "format", "--help"], { nothrow: true })
     if (output.code === 0) return [uv, "format", "--", "$FILE"]
     return false
   },

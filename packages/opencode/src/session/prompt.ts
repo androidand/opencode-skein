@@ -1908,7 +1908,7 @@ NOTE: At any point in time through this workflow you should feel free to ask the
         const sh = Shell.preferred(cfg.shell)
         const results = yield* Effect.promise(() =>
           Promise.all(
-            shellMatches.map(async ([, cmd]) => (await Process.text([cmd], { shell: sh, nothrow: true })).text),
+            shellMatches.map(async ([, cmd]) => (await Process.textPromise([cmd], { shell: sh, nothrow: true })).text),
           ),
         )
         let index = 0

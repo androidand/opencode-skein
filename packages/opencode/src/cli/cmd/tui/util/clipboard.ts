@@ -50,7 +50,7 @@ export async function read(): Promise<Content | undefined> {
   if (os === "darwin") {
     const tmpfile = path.join(tmpdir(), "opencode-clipboard.png")
     try {
-      await Process.run(
+      await Process.runPromise(
         [
           "osascript",
           "-e",
@@ -79,7 +79,7 @@ export async function read(): Promise<Content | undefined> {
   if (os === "win32" || release().includes("WSL")) {
     const script =
       "Add-Type -AssemblyName System.Windows.Forms; $img = [System.Windows.Forms.Clipboard]::GetImage(); if ($img) { $ms = New-Object System.IO.MemoryStream; $img.Save($ms, [System.Drawing.Imaging.ImageFormat]::Png); [System.Convert]::ToBase64String($ms.ToArray()) }"
-    const base64 = await Process.text(["powershell.exe", "-NonInteractive", "-NoProfile", "-command", script], {
+    const base64 = await Process.textPromise(["powershell.exe", "-NonInteractive", "-NoProfile", "-command", script], {
       nothrow: true,
     })
     if (base64.text) {
@@ -91,11 +91,11 @@ export async function read(): Promise<Content | undefined> {
   }
 
   if (os === "linux") {
-    const wayland = await Process.run(["wl-paste", "-t", "image/png"], { nothrow: true })
+    const wayland = await Process.runPromise(["wl-paste", "-t", "image/png"], { nothrow: true })
     if (wayland.stdout.byteLength > 0) {
       return { data: Buffer.from(wayland.stdout).toString("base64"), mime: "image/png" }
     }
-    const x11 = await Process.run(["xclip", "-selection", "clipboard", "-t", "image/png", "-o"], {
+    const x11 = await Process.runPromise(["xclip", "-selection", "clipboard", "-t", "image/png", "-o"], {
       nothrow: true,
     })
     if (x11.stdout.byteLength > 0) {
@@ -118,7 +118,7 @@ const getCopyMethod = lazy(async () => {
     console.log("clipboard: using osascript")
     return async (text: string) => {
       const escaped = text.replace(/\\/g, "\\\\").replace(/"/g, '\\"')
-      await Process.run(["osascript", "-e", `set the clipboard to "${escaped}"`], { nothrow: true })
+      await Process.runPromise(["osascript", "-e", `set the clipboard to "${escaped}"`], { nothrow: true })
     }
   }
 

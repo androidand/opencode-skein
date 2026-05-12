@@ -10,19 +10,19 @@ function node(script: string) {
 
 describe("util.process", () => {
   test("captures stdout and stderr", async () => {
-    const out = await Process.run(node('process.stdout.write("out");process.stderr.write("err")'))
+    const out = await Process.runPromise(node('process.stdout.write("out");process.stderr.write("err")'))
     expect(out.code).toBe(0)
     expect(out.stdout.toString()).toBe("out")
     expect(out.stderr.toString()).toBe("err")
   })
 
   test("returns code when nothrow is enabled", async () => {
-    const out = await Process.run(node("process.exit(7)"), { nothrow: true })
+    const out = await Process.runPromise(node("process.exit(7)"), { nothrow: true })
     expect(out.code).toBe(7)
   })
 
   test("throws RunFailedError on non-zero exit", async () => {
-    const err = await Process.run(node('process.stderr.write("bad");process.exit(3)')).catch((error) => error)
+    const err = await Process.runPromise(node('process.stderr.write("bad");process.exit(3)')).catch((error) => error)
     expect(err).toBeInstanceOf(Process.RunFailedError)
     if (!(err instanceof Process.RunFailedError)) throw err
     expect(err.code).toBe(3)
@@ -34,7 +34,7 @@ describe("util.process", () => {
     const started = Date.now()
     setTimeout(() => abort.abort(), 25)
 
-    const out = await Process.run(node("setInterval(() => {}, 1000)"), {
+    const out = await Process.runPromise(node("setInterval(() => {}, 1000)"), {
       abort: abort.signal,
       nothrow: true,
     })
@@ -50,7 +50,7 @@ describe("util.process", () => {
     const started = Date.now()
     setTimeout(() => abort.abort(), 25)
 
-    const out = await Process.run(node('process.on("SIGTERM", () => {}); setInterval(() => {}, 1000)'), {
+    const out = await Process.runPromise(node('process.on("SIGTERM", () => {}); setInterval(() => {}, 1000)'), {
       abort: abort.signal,
       nothrow: true,
       timeout: 25,
@@ -62,14 +62,14 @@ describe("util.process", () => {
 
   test("uses cwd when spawning commands", async () => {
     await using tmp = await tmpdir()
-    const out = await Process.run(node("process.stdout.write(process.cwd())"), {
+    const out = await Process.runPromise(node("process.stdout.write(process.cwd())"), {
       cwd: tmp.path,
     })
     expect(out.stdout.toString()).toBe(tmp.path)
   })
 
   test("merges environment overrides", async () => {
-    const out = await Process.run(node('process.stdout.write(process.env.OPENCODE_TEST ?? "")'), {
+    const out = await Process.runPromise(node('process.stdout.write(process.env.OPENCODE_TEST ?? "")'), {
       env: {
         OPENCODE_TEST: "set",
       },
@@ -80,7 +80,7 @@ describe("util.process", () => {
   test("uses shell in run on Windows", async () => {
     if (process.platform !== "win32") return
 
-    const out = await Process.run(["set", "OPENCODE_TEST_SHELL"], {
+    const out = await Process.runPromise(["set", "OPENCODE_TEST_SHELL"], {
       shell: true,
       env: {
         OPENCODE_TEST_SHELL: "ok",

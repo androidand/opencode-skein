@@ -5,6 +5,9 @@ import { Global } from "@opencode-ai/core/global"
 import * as Log from "@opencode-ai/core/util/log"
 import { text } from "node:stream/consumers"
 import fs from "fs/promises"
+import { Effect, ManagedRuntime } from "effect"
+import { CrossSpawnSpawner } from "@opencode-ai/core/cross-spawn-spawner"
+import { memoMap } from "@opencode-ai/core/effect/memo-map"
 import { Filesystem } from "@/util/filesystem"
 import type { InstanceContext } from "../project/instance"
 import { Flag } from "@opencode-ai/core/flag/flag"
@@ -21,8 +24,17 @@ const pathExists = async (p: string) =>
     .stat(p)
     .then(() => true)
     .catch(() => false)
-const run = (cmd: string[], opts: Process.RunOptions = {}) => Process.run(cmd, { ...opts, nothrow: true })
-const output = (cmd: string[], opts: Process.RunOptions = {}) => Process.text(cmd, { ...opts, nothrow: true })
+
+// Private runtime so the Effect-returning `Process.run` / `Process.text` can be
+// invoked from this file's promise-based spawn callbacks. The `LSP` service
+// layer in `lsp.ts` calls these spawn functions inside `Effect.promise(async
+// () => ...)`, so a re-entry point is needed. Sharing `memoMap` keeps a single
+// `ChildProcessSpawner` instance across the process.
+const processRuntime = ManagedRuntime.make(CrossSpawnSpawner.defaultLayer, { memoMap })
+const run = (cmd: string[], opts: Process.RunOptions = {}) =>
+  processRuntime.runPromise(Process.run(cmd, { ...opts, nothrow: true }))
+const output = (cmd: string[], opts: Process.RunOptions = {}) =>
+  processRuntime.runPromise(Process.text(cmd, { ...opts, nothrow: true }))
 
 export interface Handle {
   process: ChildProcessWithoutNullStreams
@@ -188,8 +200,12 @@ export const ESLint: Info = {
       await fs.rename(extractedPath, finalPath)
 
       const npmCmd = process.platform === "win32" ? "npm.cmd" : "npm"
-      await Process.run([npmCmd, "install"], { cwd: finalPath })
-      await Process.run([npmCmd, "run", "compile"], { cwd: finalPath })
+      await processRuntime.runPromise(
+        Effect.gen(function* () {
+          yield* Process.run([npmCmd, "install"], { cwd: finalPath })
+          yield* Process.run([npmCmd, "run", "compile"], { cwd: finalPath })
+        }),
+      )
 
       log.info("installed VS Code ESLint server", { serverPath })
     }
@@ -570,9 +586,13 @@ export const ElixirLS: Info = {
 
         const cwd = path.join(Global.Path.bin, "elixir-ls-master")
         const env = { MIX_ENV: "prod", ...process.env }
-        await Process.run(["mix", "deps.get"], { cwd, env })
-        await Process.run(["mix", "compile"], { cwd, env })
-        await Process.run(["mix", "elixir_ls.release2", "-o", "release"], { cwd, env })
+        await processRuntime.runPromise(
+          Effect.gen(function* () {
+            yield* Process.run(["mix", "deps.get"], { cwd, env })
+            yield* Process.run(["mix", "compile"], { cwd, env })
+            yield* Process.run(["mix", "elixir_ls.release2", "-o", "release"], { cwd, env })
+          }),
+        )
 
         log.info(`installed elixir-ls`, {
           path: elixirLsPath,

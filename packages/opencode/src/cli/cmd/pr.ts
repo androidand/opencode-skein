@@ -29,14 +29,14 @@ export const PrCommand = effectCmd({
     UI.println(`Fetching and checking out PR #${prNumber}...`)
 
     const checkout = yield* Effect.promise(() =>
-      Process.run(["gh", "pr", "checkout", `${prNumber}`, "--branch", localBranchName, "--force"], { nothrow: true }),
+      Process.runPromise(["gh", "pr", "checkout", `${prNumber}`, "--branch", localBranchName, "--force"], { nothrow: true }),
     )
     if (checkout.code !== 0) {
       return yield* fail(`Failed to checkout PR #${prNumber}. Make sure you have gh CLI installed and authenticated.`)
     }
 
     const prInfoResult = yield* Effect.promise(() =>
-      Process.text(
+      Process.textPromise(
         [
           "gh",
           "pr",
@@ -80,7 +80,7 @@ export const PrCommand = effectCmd({
           UI.println(`Importing session...`)
 
           const importResult = yield* Effect.promise(() =>
-            Process.text(["opencode", "import", sessionUrl], { nothrow: true }),
+            Process.textPromise(["opencode", "import", sessionUrl], { nothrow: true }),
           )
           if (importResult.code === 0) {
             const sessionIdMatch = importResult.text.trim().match(/Imported session: ([a-zA-Z0-9_-]+)/)

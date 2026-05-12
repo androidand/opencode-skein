@@ -12,7 +12,7 @@ const root = path.join(import.meta.dir, "../..")
 const worker = path.join(import.meta.dir, "../fixture/plugin-meta-worker.ts")
 
 function run(input: { file: string; spec: string; target: string; id: string }) {
-  return Process.run([process.execPath, worker, JSON.stringify(input)], {
+  return Process.runPromise([process.execPath, worker, JSON.stringify(input)], {
     cwd: root,
     nothrow: true,
   })

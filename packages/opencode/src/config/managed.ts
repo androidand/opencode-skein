@@ -56,7 +56,7 @@ export async function readManagedPreferences() {
   for (const plist of paths) {
     if (!existsSync(plist)) continue
     log.info("reading macOS managed preferences", { path: plist })
-    const result = await Process.run(["plutil", "-convert", "json", "-o", "-", plist], { nothrow: true })
+    const result = await Process.runPromise(["plutil", "-convert", "json", "-o", "-", plist], { nothrow: true })
     if (result.code !== 0) {
       log.warn("failed to convert managed preferences plist", { path: plist })
       continue

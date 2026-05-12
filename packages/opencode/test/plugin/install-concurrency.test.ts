@@ -17,7 +17,7 @@ type Msg = {
 }
 
 function run(msg: Msg) {
-  return Process.run([process.execPath, worker, JSON.stringify(msg)], {
+  return Process.runPromise([process.execPath, worker, JSON.stringify(msg)], {
     cwd: root,
     nothrow: true,
   })
