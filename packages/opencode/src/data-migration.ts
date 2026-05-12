@@ -86,17 +86,18 @@ export const layer = Layer.effect(
                   }
 
                   for (const [sessionID, value] of usageBySession) {
-                    db.run(sql`
-                      update ${SessionTable}
-                      set
-                        ${SessionTable.cost} = ${value.cost},
-                        ${SessionTable.tokens_input} = ${value.tokens.input},
-                        ${SessionTable.tokens_output} = ${value.tokens.output},
-                        ${SessionTable.tokens_reasoning} = ${value.tokens.reasoning},
-                        ${SessionTable.tokens_cache_read} = ${value.tokens.cache.read},
-                        ${SessionTable.tokens_cache_write} = ${value.tokens.cache.write}
-                      where ${SessionTable.id} = ${sessionID}
-                    `)
+                    db.update(SessionTable)
+                      .set({
+                        cost: value.cost,
+                        tokens_input: value.tokens.input,
+                        tokens_output: value.tokens.output,
+                        tokens_reasoning: value.tokens.reasoning,
+                        tokens_cache_read: value.tokens.cache.read,
+                        tokens_cache_write: value.tokens.cache.write,
+                        time_updated: sql`${SessionTable.time_updated}`,
+                      })
+                      .where(eq(SessionTable.id, sessionID))
+                      .run()
                   }
                 }),
               )
