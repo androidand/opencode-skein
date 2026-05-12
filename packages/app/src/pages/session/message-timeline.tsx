@@ -3,7 +3,7 @@ import { createStore, produce } from "solid-js/store"
 import { Dynamic } from "solid-js/web"
 import { useNavigate } from "@solidjs/router"
 import { useMutation } from "@tanstack/solid-query"
-import { Virtualizer, type VirtualizerHandle } from "virtua/solid"
+import { VList, type VListHandle } from "virtua/solid"
 import { Accordion } from "@opencode-ai/ui/accordion"
 import { Button } from "@opencode-ai/ui/button"
 import { Card } from "@opencode-ai/ui/card"
@@ -27,7 +27,6 @@ import { Dialog } from "@opencode-ai/ui/dialog"
 import { InlineInput } from "@opencode-ai/ui/inline-input"
 import { Spinner } from "@opencode-ai/ui/spinner"
 import { SessionRetry } from "@opencode-ai/ui/session-retry"
-import { ScrollView } from "@opencode-ai/ui/scroll-view"
 import { StickyAccordionHeader } from "@opencode-ai/ui/sticky-accordion-header"
 import { TextField } from "@opencode-ai/ui/text-field"
 import { TextReveal } from "@opencode-ai/ui/text-reveal"
@@ -101,6 +100,70 @@ function sameKeys(a: readonly string[] | undefined, b: readonly string[] | undef
   if (!a || !b) return false
   if (a.length !== b.length) return false
   return a.every((key, index) => key === b[index])
+}
+
+function samePartGroup(a: PartGroup, b: PartGroup) {
+  if (a === b) return true
+  if (a.key !== b.key) return false
+  if (a.type !== b.type) return false
+  if (a.type === "part") {
+    if (b.type !== "part") return false
+    return a.ref.messageID === b.ref.messageID && a.ref.partID === b.ref.partID
+  }
+  if (b.type !== "context") return false
+  if (a.refs.length !== b.refs.length) return false
+  return a.refs.every((ref, index) => ref.messageID === b.refs[index]?.messageID && ref.partID === b.refs[index]?.partID)
+}
+
+function sameSummaryDiff(a: SummaryDiff, b: SummaryDiff) {
+  return a.file === b.file && a.patch === b.patch && a.additions === b.additions && a.deletions === b.deletions && a.status === b.status
+}
+
+function sameSummaryDiffs(a: readonly SummaryDiff[], b: readonly SummaryDiff[]) {
+  if (a === b) return true
+  if (a.length !== b.length) return false
+  return a.every((diff, index) => sameSummaryDiff(diff, b[index]!))
+}
+
+function sameTimelineRow(a: TimelineRow, b: TimelineRow) {
+  if (a === b) return true
+  if (a.key !== b.key) return false
+  if (a.type !== b.type) return false
+  if (a.userMessageID !== b.userMessageID) return false
+
+  switch (a.type) {
+    case "comment-strip":
+      return b.type === "comment-strip" && a.previousUserMessage === b.previousUserMessage
+    case "user-message":
+      return b.type === "user-message" && a.anchor === b.anchor && a.previousUserMessage === b.previousUserMessage
+    case "turn-divider":
+      return b.type === "turn-divider" && a.label === b.label
+    case "assistant-part":
+      return (
+        b.type === "assistant-part" &&
+        a.previousAssistantPart === b.previousAssistantPart &&
+        a.lastAssistantPart === b.lastAssistantPart &&
+        samePartGroup(a.group, b.group)
+      )
+    case "thinking":
+      return b.type === "thinking" && a.reasoningHeading === b.reasoningHeading
+    case "retry":
+      return b.type === "retry"
+    case "diff-summary":
+      return b.type === "diff-summary" && sameSummaryDiffs(a.diffs, b.diffs)
+    case "error":
+      return b.type === "error" && a.text === b.text
+  }
+}
+
+function reuseTimelineRows(previous: TimelineRow[] | undefined, rows: TimelineRow[]) {
+  if (!previous?.length) return rows
+  const byKey = new Map(previous.map((row) => [row.key, row] as const))
+  return rows.map((row) => {
+    const existing = byKey.get(row.key)
+    if (!existing) return row
+    return sameTimelineRow(existing, row) ? existing : row
+  })
 }
 
 function record(value: unknown): value is Record<string, unknown> {
@@ -405,8 +468,7 @@ export function MessageTimeline(props: {
   const { params, sessionKey } = useSessionKey()
   const platform = usePlatform()
 
-  const [viewport, setViewport] = createSignal<HTMLDivElement>()
-  let virtualizer: VirtualizerHandle | undefined
+  let virtualizer: VListHandle | undefined
   const sessionID = createMemo(() => params.id)
   const sessionMessages = createMemo(() => {
     const id = sessionID()
@@ -516,7 +578,7 @@ export function MessageTimeline(props: {
     mapArray(
       () => props.userMessages,
       (userMessage, indexAccessor) => {
-        return createMemo(() => {
+        return createMemo((previous: TimelineRow[] | undefined) => {
           const rows: TimelineRow[] = []
           const status = sessionStatus()
           const active = activeMessageID()
@@ -605,7 +667,7 @@ export function MessageTimeline(props: {
             })
           }
 
-          return rows
+          return reuseTimelineRows(previous, rows)
         })
       }
     )
@@ -662,14 +724,95 @@ export function MessageTimeline(props: {
 
   let more: HTMLButtonElement | undefined
   let head: HTMLDivElement | undefined
+  let listHost: HTMLDivElement | undefined
+  let listRoot: HTMLDivElement | undefined
+  let listCleanup = () => {}
+  let listFrame: number | undefined
+
+  const updateTitleMetrics = () => {
+    if (!head || head.clientWidth <= 0) return
+    setBar("ms", pace(head.clientWidth))
+  }
 
   createResizeObserver(
     () => head,
-    () => {
-      if (!head || head.clientWidth <= 0) return
-      setBar("ms", pace(head.clientWidth))
-    },
+    updateTitleMetrics,
   )
+
+  const bindListRoot = () => {
+    const root = listHost?.firstElementChild
+    if (!(root instanceof HTMLDivElement)) return
+    if (root === listRoot) return
+
+    listCleanup()
+    listRoot = root
+    props.setScrollRef(root)
+    props.setContentRef(root.firstElementChild instanceof HTMLDivElement ? root.firstElementChild : root)
+
+    const onWheel = (event: WheelEvent) => {
+      const delta = normalizeWheelDelta({
+        deltaY: event.deltaY,
+        deltaMode: event.deltaMode,
+        rootHeight: root.clientHeight,
+      })
+      if (!delta) return
+      markBoundaryGesture({ root, target: event.target, delta, onMarkScrollGesture: props.onMarkScrollGesture })
+    }
+    const onTouchStart = (event: TouchEvent) => {
+      touchGesture = event.touches[0]?.clientY
+    }
+    const onTouchMove = (event: TouchEvent) => {
+      const next = event.touches[0]?.clientY
+      const prev = touchGesture
+      touchGesture = next
+      if (next === undefined || prev === undefined) return
+
+      const delta = prev - next
+      if (!delta) return
+
+      markBoundaryGesture({ root, target: event.target, delta, onMarkScrollGesture: props.onMarkScrollGesture })
+    }
+    const onTouchEnd = () => {
+      touchGesture = undefined
+    }
+    const onPointerDown = (event: PointerEvent) => {
+      if (event.target !== root) return
+      props.onMarkScrollGesture(root)
+    }
+    const onClick = (event: MouseEvent) => props.onAutoScrollInteraction(event)
+
+    root.addEventListener("wheel", onWheel, { passive: true })
+    root.addEventListener("touchstart", onTouchStart, { passive: true })
+    root.addEventListener("touchmove", onTouchMove, { passive: true })
+    root.addEventListener("touchend", onTouchEnd)
+    root.addEventListener("touchcancel", onTouchEnd)
+    root.addEventListener("pointerdown", onPointerDown)
+    root.addEventListener("click", onClick)
+    listCleanup = () => {
+      root.removeEventListener("wheel", onWheel)
+      root.removeEventListener("touchstart", onTouchStart)
+      root.removeEventListener("touchmove", onTouchMove)
+      root.removeEventListener("touchend", onTouchEnd)
+      root.removeEventListener("touchcancel", onTouchEnd)
+      root.removeEventListener("pointerdown", onPointerDown)
+      root.removeEventListener("click", onClick)
+    }
+  }
+
+  const bindListHost = (el: HTMLDivElement) => {
+    listHost = el
+    if (listFrame !== undefined) cancelAnimationFrame(listFrame)
+    listFrame = requestAnimationFrame(() => {
+      listFrame = undefined
+      bindListRoot()
+    })
+  }
+
+  onCleanup(() => {
+    if (listFrame !== undefined) cancelAnimationFrame(listFrame)
+    listCleanup()
+    props.setScrollRef(undefined)
+  })
 
   const viewShare = () => {
     const url = shareUrl()
@@ -999,6 +1142,7 @@ export function MessageTimeline(props: {
         classList={{
           "min-w-0 w-full max-w-full": true,
           "md:max-w-200 2xl:max-w-[1000px]": props.centered,
+          "md:mx-auto": props.centered,
           "pt-6":
             (input.row.type === "comment-strip" || input.row.type === "user-message") && input.row.previousUserMessage,
           "pt-3": input.row.type === "assistant-part" && input.row.previousAssistantPart,
@@ -1162,67 +1306,18 @@ export function MessageTimeline(props: {
             </div>
           </button>
         </div>
-        <ScrollView
-          viewportRef={(el) => {
-            setViewport(el)
-            props.setScrollRef(el)
-          }}
-          onWheel={(e) => {
-            const root = e.currentTarget
-            const delta = normalizeWheelDelta({
-              deltaY: e.deltaY,
-              deltaMode: e.deltaMode,
-              rootHeight: root.clientHeight,
-            })
-            if (!delta) return
-            markBoundaryGesture({ root, target: e.target, delta, onMarkScrollGesture: props.onMarkScrollGesture })
-          }}
-          onTouchStart={(e) => {
-            touchGesture = e.touches[0]?.clientY
-          }}
-          onTouchMove={(e) => {
-            const next = e.touches[0]?.clientY
-            const prev = touchGesture
-            touchGesture = next
-            if (next === undefined || prev === undefined) return
-
-            const delta = prev - next
-            if (!delta) return
-
-            const root = e.currentTarget
-            markBoundaryGesture({ root, target: e.target, delta, onMarkScrollGesture: props.onMarkScrollGesture })
-          }}
-          onTouchEnd={() => {
-            touchGesture = undefined
-          }}
-          onTouchCancel={() => {
-            touchGesture = undefined
-          }}
-          onPointerDown={(e) => {
-            if (e.target !== e.currentTarget) return
-            props.onMarkScrollGesture(e.currentTarget)
-          }}
-          onScroll={(e) => {
-            props.onScheduleScrollState(e.currentTarget)
-            props.onHistoryScroll()
-            if (!props.hasScrollGesture()) return
-            props.onUserScroll()
-            props.onAutoScrollHandleScroll()
-            props.onMarkScrollGesture(e.currentTarget)
-          }}
-          onClick={props.onAutoScrollInteraction}
-          class="relative min-w-0 w-full h-full"
+        <div
+          class="relative min-w-0 w-full h-full flex flex-col"
           style={{
             "--session-title-height": showHeader() ? "40px" : "0px",
             "--sticky-accordion-top": showHeader() ? "48px" : "0px",
           }}
         >
-          <div ref={props.setContentRef} class="min-w-0 w-full">
-            <Show when={showHeader()}>
+          <Show when={showHeader()}>
               <div
                 ref={(el) => {
                   head = el
-                  setBar("ms", pace(el.clientWidth))
+                  updateTitleMetrics()
                 }}
                 data-session-title
                 classList={{
@@ -1507,36 +1602,31 @@ export function MessageTimeline(props: {
                   </Show>
                 </div>
               </div>
-            </Show>
-            <div
-              role="log"
-              data-slot="session-turn-list"
-              class="flex flex-col items-start justify-start pb-16 transition-[margin]"
-              classList={{
-                "w-full": true,
-                "md:max-w-200 md:mx-auto 2xl:max-w-[1000px]": props.centered,
-                "mt-0.5": props.centered,
-                "mt-0": !props.centered,
+          </Show>
+          <div ref={bindListHost} class="min-h-0 flex-1">
+            <VList
+              data={timelineRowKeys()}
+              shift={props.historyShift}
+              keepMounted={keepMounted()}
+              ref={(handle) => {
+                virtualizer = handle
+              }}
+              class="relative min-w-0 w-full h-full pb-16 no-scrollbar"
+              onScroll={() => {
+                const root = listRoot
+                if (!root) return
+                props.onScheduleScrollState(root)
+                props.onHistoryScroll()
+                if (!props.hasScrollGesture()) return
+                props.onUserScroll()
+                props.onAutoScrollHandleScroll()
+                props.onMarkScrollGesture(root)
               }}
             >
-              <Show when={viewport()}>
-                {(root) => (
-                  <Virtualizer
-                    data={timelineRowKeys()}
-                    scrollRef={root()}
-                    shift={props.historyShift}
-                    keepMounted={keepMounted()}
-                    ref={(handle) => {
-                      virtualizer = handle
-                    }}
-                  >
-                    {(key) => <TimelineRowView rowKey={key} />}
-                  </Virtualizer>
-                )}
-              </Show>
-            </div>
+              {(key) => <TimelineRowView rowKey={key} />}
+            </VList>
           </div>
-        </ScrollView>
+        </div>
       </div>
     </Show>
   )
