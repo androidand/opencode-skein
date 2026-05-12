@@ -94,6 +94,9 @@ type TimelineRow =
   | { key: string; type: "retry"; userMessageID: string }
   | { key: string; type: "diff-summary"; userMessageID: string; diffs: SummaryDiff[] }
   | { key: string; type: "error"; userMessageID: string; text: string }
+  | { key: string; type: "bottom-spacer" }
+
+type FramedTimelineRow = Exclude<TimelineRow, { type: "bottom-spacer" }>
 
 function sameKeys(a: readonly string[] | undefined, b: readonly string[] | undefined) {
   if (a === b) return true
@@ -129,6 +132,8 @@ function sameTimelineRow(a: TimelineRow, b: TimelineRow) {
   if (a === b) return true
   if (a.key !== b.key) return false
   if (a.type !== b.type) return false
+  if (a.type === "bottom-spacer") return b.type === "bottom-spacer"
+  if (b.type === "bottom-spacer") return false
   if (a.userMessageID !== b.userMessageID) return false
 
   switch (a.type) {
@@ -371,25 +376,6 @@ function TimelineDiffSummaryRow(props: { diffs: SummaryDiff[] }) {
           <For each={visible()}>
             {(diff) => {
               const view = normalize(diff)
-              const active = createMemo(() => expanded().includes(diff.file))
-              const [shown, setShown] = createSignal(false)
-
-              createEffect(
-                on(
-                  active,
-                  (value) => {
-                    if (!value) {
-                      setShown(false)
-                      return
-                    }
-
-                    requestAnimationFrame(() => {
-                      if (active()) setShown(true)
-                    })
-                  },
-                  { defer: true },
-                ),
-              )
 
               return (
                 <Accordion.Item value={diff.file}>
@@ -414,11 +400,9 @@ function TimelineDiffSummaryRow(props: { diffs: SummaryDiff[] }) {
                     </Accordion.Trigger>
                   </StickyAccordionHeader>
                   <Accordion.Content>
-                    <Show when={shown()}>
-                      <div data-slot="session-turn-diff-view" data-scrollable>
-                        <Dynamic component={fileComponent} mode="diff" fileDiff={view.fileDiff} />
-                      </div>
-                    </Show>
+                    <div data-slot="session-turn-diff-view" data-scrollable>
+                      <Dynamic component={fileComponent} mode="diff" fileDiff={view.fileDiff} />
+                    </div>
                   </Accordion.Content>
                 </Accordion.Item>
               )
@@ -673,12 +657,17 @@ export function MessageTimeline(props: {
     )
   )
 
-  const timelineRows = createMemo(() => messageRowMemos().flatMap((memo) => memo()))
+  const timelineRows = createMemo((previous: TimelineRow[] | undefined) => {
+    const rows = messageRowMemos().flatMap((memo) => memo())
+    if (rows.length === 0) return rows
+    return reuseTimelineRows(previous, [...rows, { key: "bottom-spacer", type: "bottom-spacer" }])
+  })
   const timelineRowKeys = createMemo(() => timelineRows().map((row) => row.key), [] as string[], { equals: sameKeys })
   const timelineRowByKey = createMemo(() => new Map(timelineRows().map((row) => [row.key, row] as const)))
   const messageRowIndex = createMemo(() => {
     const result = new Map<string, number>()
     timelineRows().forEach((row, index) => {
+      if (!("userMessageID" in row)) return
       if (result.has(row.userMessageID)) return
       result.set(row.userMessageID, index)
     })
@@ -688,7 +677,7 @@ export function MessageTimeline(props: {
     const id = activeMessageID()
     if (!id) return
     const rows = timelineRows()
-    const index = rows.findLastIndex((row) => row.userMessageID === id)
+    const index = rows.findLastIndex((row) => "userMessageID" in row && row.userMessageID === id)
     if (index < 0) return
     return [index]
   })
@@ -1127,11 +1116,12 @@ export function MessageTimeline(props: {
         showAssistantCopyPartID={assistantCopyPartID(row.userMessageID)}
         turnDurationMs={turnDurationMs(row.userMessageID)}
         defaultOpen={partDefaultOpen(part, settings.general.shellToolPartsExpanded(), settings.general.editToolPartsExpanded())}
+        deferToolContent={false}
       />
     )
   }
 
-  function TimelineRowFrame(input: { row: TimelineRow; children: JSX.Element }) {
+  function TimelineRowFrame(input: { row: FramedTimelineRow; children: JSX.Element }) {
     const anchor = () => input.row.type === "comment-strip" || (input.row.type === "user-message" && input.row.anchor)
 
     return (
@@ -1269,6 +1259,8 @@ export function MessageTimeline(props: {
             </div>
           </TimelineRowFrame>
         )
+      case "bottom-spacer":
+        return <div data-timeline-row="bottom-spacer" aria-hidden="true" class="h-16" />
     }
   }
 
@@ -1611,7 +1603,7 @@ export function MessageTimeline(props: {
               ref={(handle) => {
                 virtualizer = handle
               }}
-              class="relative min-w-0 w-full h-full pb-16 no-scrollbar"
+              class="relative min-w-0 w-full h-full"
               onScroll={() => {
                 const root = listRoot
                 if (!root) return

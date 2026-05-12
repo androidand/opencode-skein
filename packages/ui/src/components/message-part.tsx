@@ -150,6 +150,7 @@ export interface MessagePartProps {
   message: MessageType
   hideDetails?: boolean
   defaultOpen?: boolean
+  deferToolContent?: boolean
   showAssistantCopyPartID?: string | null
   turnDurationMs?: number
 }
@@ -1233,6 +1234,7 @@ export function Part(props: MessagePartProps) {
         message={props.message}
         hideDetails={props.hideDetails}
         defaultOpen={props.defaultOpen}
+        deferToolContent={props.deferToolContent}
         showAssistantCopyPartID={props.showAssistantCopyPartID}
         turnDurationMs={props.turnDurationMs}
       />
@@ -1249,6 +1251,7 @@ export interface ToolProps {
   status?: string
   hideDetails?: boolean
   defaultOpen?: boolean
+  deferContent?: boolean
   forceOpen?: boolean
   locked?: boolean
 }
@@ -1387,6 +1390,7 @@ PART_MAPPING["tool"] = function ToolPartDisplay(props) {
               status={part().state.status}
               hideDetails={props.hideDetails}
               defaultOpen={props.defaultOpen}
+              deferContent={props.deferToolContent}
             />
           </Match>
         </Switch>
@@ -1888,7 +1892,7 @@ ToolRegistry.register({
         <BasicTool
           {...props}
           icon="code-lines"
-          defer
+          defer={props.deferContent !== false}
           trigger={
             <div data-component="edit-trigger">
               <div data-slot="message-part-title-area">
@@ -1960,7 +1964,7 @@ ToolRegistry.register({
         <BasicTool
           {...props}
           icon="code-lines"
-          defer
+          defer={props.deferContent !== false}
           trigger={
             <div data-component="write-trigger">
               <div data-slot="message-part-title-area">
@@ -2042,7 +2046,7 @@ ToolRegistry.register({
             <BasicTool
               {...props}
               icon="code-lines"
-              defer
+              defer={props.deferContent !== false}
               trigger={{
                 title: i18n.t("ui.tool.patch"),
                 subtitle: subtitle(),
@@ -2114,7 +2118,7 @@ ToolRegistry.register({
                             </Accordion.Trigger>
                           </StickyAccordionHeader>
                           <Accordion.Content>
-                            <Show when={visible()}>
+                            <Show when={props.deferContent === false || visible()}>
                               <div data-component="apply-patch-file-diff">
                                 <Dynamic component={fileComponent} mode="diff" fileDiff={file.view.fileDiff} />
                               </div>
@@ -2134,7 +2138,7 @@ ToolRegistry.register({
           <BasicTool
             {...props}
             icon="code-lines"
-            defer
+            defer={props.deferContent !== false}
             trigger={
               <div data-component="edit-trigger">
                 <div data-slot="message-part-title-area">
