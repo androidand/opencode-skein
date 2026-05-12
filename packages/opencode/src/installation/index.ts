@@ -10,6 +10,7 @@ import * as Log from "@opencode-ai/core/util/log"
 import semver from "semver"
 import { InstallationChannel, InstallationVersion } from "@opencode-ai/core/installation/version"
 import { NpmConfig } from "@opencode-ai/core/npm-config"
+import { defineService } from "@/effect/run-service"
 
 const log = Log.create({ service: "installation" })
 
@@ -323,5 +324,7 @@ export const defaultLayer = layer.pipe(
   Layer.provide(FetchHttpClient.layer),
   Layer.provide(CrossSpawnSpawner.defaultLayer),
 )
+
+export const { runPromise, runFork, runCallback } = defineService(Service, defaultLayer)
 
 export * as Installation from "."

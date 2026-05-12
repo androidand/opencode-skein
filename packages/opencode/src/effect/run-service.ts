@@ -55,3 +55,16 @@ export function makeRuntime<I, S, E>(service: Context.Service<I, S>, layer: Laye
       getRuntime().runCallback(attach(service.use(fn))),
   }
 }
+
+/**
+ * Composition of `makeRuntime` for services that own their own runtime. Returns
+ * the service class, the supplied layer, and the per-service runtime methods
+ * (`runPromise`, `runFork`, etc.). Each runtime uses the shared `memoMap`, so
+ * dependencies are built once across all `defineService` runtimes.
+ *
+ * Use for services that don't belong in `AppLayer` (TUI-specific config, etc.)
+ * or for services where call sites want to bypass `AppRuntime` provisioning.
+ */
+export function defineService<I, S, E>(service: Context.Service<I, S>, layer: Layer.Layer<I, E>) {
+  return { Service: service, layer, ...makeRuntime(service, layer) }
+}

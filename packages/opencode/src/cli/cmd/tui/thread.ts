@@ -14,8 +14,6 @@ import type { EventSource } from "./context/sdk"
 import { win32DisableProcessedInput, win32InstallCtrlCGuard } from "./win32"
 import { writeHeapSnapshot } from "v8"
 import { TuiConfig } from "./config/tui"
-import { AppRuntime } from "@/effect/app-runtime"
-import { Effect } from "effect"
 import {
   OPENCODE_PROCESS_ROLE,
   OPENCODE_RUN_ID,
@@ -189,9 +187,7 @@ export const TuiThreadCommand = cmd({
       }
 
       const prompt = await input(args.prompt)
-      const config = await AppRuntime.runPromise(
-        TuiConfig.Service.use((svc) => svc.get()).pipe(Effect.provide(TuiConfig.layer)),
-      )
+      const config = await TuiConfig.runPromise((svc) => svc.get())
 
       const network = resolveNetworkOptionsNoConfig(args)
       const external =

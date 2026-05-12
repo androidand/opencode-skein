@@ -14,8 +14,6 @@ import {
 import path from "path"
 import { fileURLToPath } from "url"
 import { TuiConfig } from "@/cli/cmd/tui/config/tui"
-import { AppRuntime } from "@/effect/app-runtime"
-import { Effect } from "effect"
 import * as Log from "@opencode-ai/core/util/log"
 import { errorData, errorMessage } from "@/util/error"
 import { isRecord } from "@/util/record"
@@ -45,12 +43,9 @@ import { createCommandShim } from "./command-shim"
 ensureRuntimePluginSupport({ additional: keymapRuntimeModules })
 
 // Exposed as a separate function so tests can mock it without touching the
-// TuiConfig service. Production callers wait on plugin install fibers via
-// AppRuntime + TuiConfig.layer; tests replace this with a no-op.
-export const waitForDependencies = () =>
-  AppRuntime.runPromise(
-    TuiConfig.Service.use((svc) => svc.waitForDependencies()).pipe(Effect.provide(TuiConfig.layer)),
-  )
+// TuiConfig service. Production callers wait on plugin install fibers via the
+// TuiConfig per-service runtime; tests replace this with a no-op.
+export const waitForDependencies = () => TuiConfig.runPromise((svc) => svc.waitForDependencies())
 
 type PluginLoad = {
   options: ConfigPlugin.Options | undefined

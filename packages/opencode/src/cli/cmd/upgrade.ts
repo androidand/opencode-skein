@@ -2,7 +2,6 @@ import type { Argv } from "yargs"
 import { UI } from "../ui"
 import * as prompts from "@clack/prompts"
 import { Installation } from "../../installation"
-import { AppRuntime } from "../../effect/app-runtime"
 import { InstallationVersion } from "@opencode-ai/core/installation/version"
 import { Effect } from "effect"
 
@@ -27,7 +26,7 @@ export const UpgradeCommand = {
     UI.println(UI.logo("  "))
     UI.empty()
     prompts.intro("Upgrade")
-    const detectedMethod = await AppRuntime.runPromise(Installation.Service.use((svc) => svc.method()))
+    const detectedMethod = await Installation.runPromise((svc) => svc.method())
     const method = (args.method as Installation.Method) ?? detectedMethod
     if (method === "unknown") {
       prompts.log.error(`opencode is installed to ${process.execPath} and may be managed by a package manager`)
@@ -47,7 +46,7 @@ export const UpgradeCommand = {
     prompts.log.info("Using method: " + method)
     const target = args.target
       ? args.target.replace(/^v/, "")
-      : await AppRuntime.runPromise(Installation.Service.use((svc) => svc.latest()))
+      : await Installation.runPromise((svc) => svc.latest())
 
     if (InstallationVersion === target) {
       prompts.log.warn(`opencode upgrade skipped: ${target} is already installed`)
@@ -58,14 +57,11 @@ export const UpgradeCommand = {
     prompts.log.info(`From ${InstallationVersion} → ${target}`)
     const spinner = prompts.spinner()
     spinner.start("Upgrading...")
-    const err = await AppRuntime.runPromise(
-      Effect.gen(function* () {
-        const installation = yield* Installation.Service
-        return yield* installation.upgrade(method, target).pipe(
-          Effect.map(() => undefined as Installation.UpgradeFailedError | Error | undefined),
-          Effect.catch((error) => Effect.succeed(error as Installation.UpgradeFailedError | Error | undefined)),
-        )
-      }),
+    const err = await Installation.runPromise((installation) =>
+      installation.upgrade(method, target).pipe(
+        Effect.map(() => undefined as Installation.UpgradeFailedError | Error | undefined),
+        Effect.catch((error) => Effect.succeed(error as Installation.UpgradeFailedError | Error | undefined)),
+      ),
     ).catch((err: Error) => err)
     if (err) {
       spinner.stop("Upgrade failed", 1)

@@ -9,7 +9,6 @@ import { Context, Effect, Layer } from "effect"
 import { stringifyKeyStroke } from "@opentui/keymap"
 import { TuiConfig } from "@/cli/cmd/tui/config/tui"
 import { TuiKeybind } from "@/cli/cmd/tui/config/keybind"
-import { AppRuntime } from "@/effect/app-runtime"
 import { makeRuntime } from "@/effect/run-service"
 import { reusePendingTask } from "./runtime.shared"
 import { resolveSession, sessionHistory } from "./session.shared"
@@ -62,9 +61,9 @@ const configTask: { current?: Promise<Config> } = {}
 class Service extends Context.Service<Service, BootService>()("@opencode/RunBoot") {}
 
 // Exposed on `TuiConfigLoader` so tests can mock without depending on the
-// TuiConfig namespace; production calls TuiConfig.Service via AppRuntime.
+// TuiConfig namespace; production calls the TuiConfig per-service runtime.
 export const TuiConfigLoader = {
-  get: () => AppRuntime.runPromise(TuiConfig.Service.use((svc) => svc.get()).pipe(Effect.provide(TuiConfig.layer))),
+  get: () => TuiConfig.runPromise((svc) => svc.get()),
 }
 
 function loadConfig() {
