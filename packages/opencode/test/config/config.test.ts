@@ -1902,15 +1902,23 @@ test("multiple global config files preserve permission layer ordering", async ()
 
   try {
     // First global file: deny rm-style commands.
-    await writeConfig(globalTmp.path, {
-      $schema: "https://opencode.ai/config.json",
-      permission: { bash: { "rm *": "deny" } },
-    }, "config.json")
+    await writeConfig(
+      globalTmp.path,
+      {
+        $schema: "https://opencode.ai/config.json",
+        permission: { bash: { "rm *": "deny" } },
+      },
+      "config.json",
+    )
     // Second global file: top-level catchall "ask" — must come *after* the deny layer.
-    await writeConfig(globalTmp.path, {
-      $schema: "https://opencode.ai/config.json",
-      permission: { "*": "ask" },
-    }, "opencode.json")
+    await writeConfig(
+      globalTmp.path,
+      {
+        $schema: "https://opencode.ai/config.json",
+        permission: { "*": "ask" },
+      },
+      "opencode.json",
+    )
 
     await WithInstance.provide({
       directory: tmp.path,
@@ -1933,11 +1941,7 @@ test("multiple global config files preserve permission layer ordering", async ()
 test("OPENCODE_PERMISSION env var rejects malformed input", () => {
   // Validates the env-var parser surfaces clear errors instead of silently casting.
   expect(() =>
-    ConfigParse.schema(
-      ConfigPermission.LayersInput,
-      { bash: "maybe" },
-      "OPENCODE_PERMISSION",
-    ),
+    ConfigParse.schema(ConfigPermission.LayersInput, { bash: "maybe" }, "OPENCODE_PERMISSION"),
   ).toThrow()
 })
 
