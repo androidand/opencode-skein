@@ -1,38 +1,10 @@
-// {
-//   "$schema": "https://opencode.ai/config.json",
-//   "provider": {},
-//   // Array form: each entry is its own permission layer; later layers override earlier rules.
-//   "permission": [
-//     // Layer 1: safety defaults.
-//     {
-//       "bash": {
-//         "rm -rf *": "deny",
-//       },
-//     },
-//     // Layer 2: project-specific rules — uses per-field shorthand and object forms.
-//     {
-//       "edit": {
-//         "packages/opencode/migration/*": "ask",
-//       },
-//       "webfetch": "allow",
-//     },
-//     // Layer 3: deny everything that runs through bash. Shorthand for bash: { "*": "deny" }.
-//     {
-//       "bash": "deny",
-//     },
-//     // Layer 4: relax layer 3 for a specific pattern. Later layer wins for matching commands,
-//     // so `echo foo` is allowed while everything else stays denied.
-//     {
-//       "bash": {
-//         "echo *": "allow",
-//       },
-//     },
-//   ],
-//   "mcp": {},
-//   "tools": {
-//     "github-triage": false,
-//     "github-pr-search": false,
-//   },
-// }
-{}
-
+{
+  "$schema": "https://opencode.ai/config.json",
+  "provider": {},
+  "permission": {},
+  "mcp": {},
+  "tools": {
+    "github-triage": false,
+    "github-pr-search": false,
+  },
+}
