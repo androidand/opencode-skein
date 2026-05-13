@@ -27,6 +27,7 @@ import { Dialog } from "@opencode-ai/ui/dialog"
 import { InlineInput } from "@opencode-ai/ui/inline-input"
 import { Spinner } from "@opencode-ai/ui/spinner"
 import { SessionRetry } from "@opencode-ai/ui/session-retry"
+import { ScrollView } from "@opencode-ai/ui/scroll-view"
 import { StickyAccordionHeader } from "@opencode-ai/ui/sticky-accordion-header"
 import { TextField } from "@opencode-ai/ui/text-field"
 import { TextReveal } from "@opencode-ai/ui/text-reveal"
@@ -714,7 +715,6 @@ export function MessageTimeline(props: {
   let more: HTMLButtonElement | undefined
   let head: HTMLDivElement | undefined
   let listRoot: HTMLDivElement | undefined
-  let listCleanup = () => {}
   let listFrame: number | undefined
   let contentFrame: number | undefined
   const [scrollRoot, setScrollRoot] = createSignal<HTMLDivElement>()
@@ -763,65 +763,59 @@ export function MessageTimeline(props: {
 
     if (listFrame !== undefined) cancelAnimationFrame(listFrame)
     if (contentFrame !== undefined) cancelAnimationFrame(contentFrame)
-    listCleanup()
     listRoot = root
     setScrollRoot(undefined)
     connectListRoot(root)
+  }
 
-    const onWheel = (event: WheelEvent) => {
-      const delta = normalizeWheelDelta({
-        deltaY: event.deltaY,
-        deltaMode: event.deltaMode,
-        rootHeight: root.clientHeight,
-      })
-      if (!delta) return
-      markBoundaryGesture({ root, target: event.target, delta, onMarkScrollGesture: props.onMarkScrollGesture })
-    }
-    const onTouchStart = (event: TouchEvent) => {
-      touchGesture = event.touches[0]?.clientY
-    }
-    const onTouchMove = (event: TouchEvent) => {
-      const next = event.touches[0]?.clientY
-      const prev = touchGesture
-      touchGesture = next
-      if (next === undefined || prev === undefined) return
+  const handleListWheel = (event: WheelEvent & { currentTarget: HTMLDivElement }) => {
+    const root = event.currentTarget
+    const delta = normalizeWheelDelta({
+      deltaY: event.deltaY,
+      deltaMode: event.deltaMode,
+      rootHeight: root.clientHeight,
+    })
+    if (!delta) return
+    markBoundaryGesture({ root, target: event.target, delta, onMarkScrollGesture: props.onMarkScrollGesture })
+  }
 
-      const delta = prev - next
-      if (!delta) return
+  const handleListTouchStart = (event: TouchEvent) => {
+    touchGesture = event.touches[0]?.clientY
+  }
 
-      markBoundaryGesture({ root, target: event.target, delta, onMarkScrollGesture: props.onMarkScrollGesture })
-    }
-    const onTouchEnd = () => {
-      touchGesture = undefined
-    }
-    const onPointerDown = (event: PointerEvent) => {
-      if (event.target !== root) return
-      props.onMarkScrollGesture(root)
-    }
-    const onClick = (event: MouseEvent) => props.onAutoScrollInteraction(event)
+  const handleListTouchMove = (event: TouchEvent & { currentTarget: HTMLDivElement }) => {
+    const next = event.touches[0]?.clientY
+    const prev = touchGesture
+    touchGesture = next
+    if (next === undefined || prev === undefined) return
 
-    root.addEventListener("wheel", onWheel, { passive: true })
-    root.addEventListener("touchstart", onTouchStart, { passive: true })
-    root.addEventListener("touchmove", onTouchMove, { passive: true })
-    root.addEventListener("touchend", onTouchEnd)
-    root.addEventListener("touchcancel", onTouchEnd)
-    root.addEventListener("pointerdown", onPointerDown)
-    root.addEventListener("click", onClick)
-    listCleanup = () => {
-      root.removeEventListener("wheel", onWheel)
-      root.removeEventListener("touchstart", onTouchStart)
-      root.removeEventListener("touchmove", onTouchMove)
-      root.removeEventListener("touchend", onTouchEnd)
-      root.removeEventListener("touchcancel", onTouchEnd)
-      root.removeEventListener("pointerdown", onPointerDown)
-      root.removeEventListener("click", onClick)
-    }
+    const delta = prev - next
+    if (!delta) return
+
+    markBoundaryGesture({ root: event.currentTarget, target: event.target, delta, onMarkScrollGesture: props.onMarkScrollGesture })
+  }
+
+  const handleListTouchEnd = () => {
+    touchGesture = undefined
+  }
+
+  const handleListPointerDown = (event: PointerEvent & { currentTarget: HTMLDivElement }) => {
+    if (event.target !== event.currentTarget) return
+    props.onMarkScrollGesture(event.currentTarget)
+  }
+
+  const handleListScroll = (event: Event & { currentTarget: HTMLDivElement }) => {
+    props.onScheduleScrollState(event.currentTarget)
+    props.onHistoryScroll()
+    if (!props.hasScrollGesture()) return
+    props.onUserScroll()
+    props.onAutoScrollHandleScroll()
+    props.onMarkScrollGesture(event.currentTarget)
   }
 
   onCleanup(() => {
     if (listFrame !== undefined) cancelAnimationFrame(listFrame)
     if (contentFrame !== undefined) cancelAnimationFrame(contentFrame)
-    listCleanup()
     setScrollRoot(undefined)
     props.setScrollRef(undefined)
   })
@@ -1618,10 +1612,17 @@ export function MessageTimeline(props: {
                 </div>
               </div>
           </Show>
-          <div
-            ref={bindListRoot}
-            class="relative min-w-0 w-full h-full overflow-y-auto"
-            style={{ contain: "strict", "overflow-anchor": "none" }}
+          <ScrollView
+            viewportRef={bindListRoot}
+            onWheel={handleListWheel}
+            onTouchStart={handleListTouchStart}
+            onTouchMove={handleListTouchMove}
+            onTouchEnd={handleListTouchEnd}
+            onTouchCancel={handleListTouchEnd}
+            onPointerDown={handleListPointerDown}
+            onScroll={handleListScroll}
+            onClick={props.onAutoScrollInteraction}
+            class="relative min-w-0 w-full h-full"
           >
             <Show when={scrollRoot()}>
               {(root) => (
@@ -1634,22 +1635,12 @@ export function MessageTimeline(props: {
                     virtualizer = handle
                     scheduleContentRoot(root())
                   }}
-                  onScroll={() => {
-                    const root = listRoot
-                    if (!root) return
-                    props.onScheduleScrollState(root)
-                    props.onHistoryScroll()
-                    if (!props.hasScrollGesture()) return
-                    props.onUserScroll()
-                    props.onAutoScrollHandleScroll()
-                    props.onMarkScrollGesture(root)
-                  }}
                 >
                   {(key) => <TimelineRowView rowKey={key} />}
                 </Virtualizer>
               )}
             </Show>
-          </div>
+          </ScrollView>
         </div>
       </div>
     </Show>
