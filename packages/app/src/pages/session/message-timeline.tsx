@@ -721,13 +721,12 @@ export function MessageTimeline(props: {
     const key = sessionKey()
     if (bottomAnchorSessionKey === key) return
     if (!virtualizer) return
-    if (timelineRowKeys().length === 0) return
+    const keys = timelineRowKeys()
+    if (keys.length === 0) return
     bottomAnchorSessionKey = key
     if (!props.shouldAnchorBottom()) return
-    virtualizer.scrollToIndex(timelineRowKeys().length - 1, { align: "end" })
+    virtualizer.scrollToIndex(keys.length - 1, { align: "end" })
   }
-
-  createEffect(maybeAnchorBottom)
 
   createEffect(
     on(
@@ -739,6 +738,7 @@ export function MessageTimeline(props: {
         if (virtualizer) {
           virtualizerSessionKey = cacheSessionKey
           virtualizerRowKeys = cacheRowKeys
+          maybeAnchorBottom()
         }
       },
       { defer: true },
