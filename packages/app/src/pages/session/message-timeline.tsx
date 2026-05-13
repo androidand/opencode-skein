@@ -3,7 +3,7 @@ import { createStore, produce } from "solid-js/store"
 import { Dynamic } from "solid-js/web"
 import { useNavigate } from "@solidjs/router"
 import { useMutation } from "@tanstack/solid-query"
-import { VList, type VListHandle } from "virtua/solid"
+import { Virtualizer, type VirtualizerHandle } from "virtua/solid"
 import { Accordion } from "@opencode-ai/ui/accordion"
 import { Button } from "@opencode-ai/ui/button"
 import { Card } from "@opencode-ai/ui/card"
@@ -452,7 +452,7 @@ export function MessageTimeline(props: {
   const { params, sessionKey } = useSessionKey()
   const platform = usePlatform()
 
-  let virtualizer: VListHandle | undefined
+  let virtualizer: VirtualizerHandle | undefined
   const sessionID = createMemo(() => params.id)
   const sessionMessages = createMemo(() => {
     const id = sessionID()
@@ -713,10 +713,11 @@ export function MessageTimeline(props: {
 
   let more: HTMLButtonElement | undefined
   let head: HTMLDivElement | undefined
-  let listHost: HTMLDivElement | undefined
   let listRoot: HTMLDivElement | undefined
   let listCleanup = () => {}
   let listFrame: number | undefined
+  let contentFrame: number | undefined
+  const [scrollRoot, setScrollRoot] = createSignal<HTMLDivElement>()
 
   const updateTitleMetrics = () => {
     if (!head || head.clientWidth <= 0) return
@@ -728,15 +729,44 @@ export function MessageTimeline(props: {
     updateTitleMetrics,
   )
 
-  const bindListRoot = () => {
-    const root = listHost?.firstElementChild
-    if (!(root instanceof HTMLDivElement)) return
+  const bindContentRoot = (root: HTMLDivElement) => {
+    const child = root.firstElementChild
+    props.setContentRef(child instanceof HTMLDivElement ? child : root)
+  }
+
+  const scheduleContentRoot = (root: HTMLDivElement) => {
+    if (contentFrame !== undefined) cancelAnimationFrame(contentFrame)
+    contentFrame = requestAnimationFrame(() => {
+      contentFrame = undefined
+      if (listRoot !== root) return
+      bindContentRoot(root)
+    })
+  }
+
+  const connectListRoot = (root: HTMLDivElement) => {
+    if (listRoot !== root) return
+    if (!root.isConnected || !root.ownerDocument.defaultView) {
+      listFrame = requestAnimationFrame(() => {
+        listFrame = undefined
+        connectListRoot(root)
+      })
+      return
+    }
+
+    props.setScrollRef(root)
+    setScrollRoot(root)
+    scheduleContentRoot(root)
+  }
+
+  const bindListRoot = (root: HTMLDivElement) => {
     if (root === listRoot) return
 
+    if (listFrame !== undefined) cancelAnimationFrame(listFrame)
+    if (contentFrame !== undefined) cancelAnimationFrame(contentFrame)
     listCleanup()
     listRoot = root
-    props.setScrollRef(root)
-    props.setContentRef(root.firstElementChild instanceof HTMLDivElement ? root.firstElementChild : root)
+    setScrollRoot(undefined)
+    connectListRoot(root)
 
     const onWheel = (event: WheelEvent) => {
       const delta = normalizeWheelDelta({
@@ -788,18 +818,11 @@ export function MessageTimeline(props: {
     }
   }
 
-  const bindListHost = (el: HTMLDivElement) => {
-    listHost = el
-    if (listFrame !== undefined) cancelAnimationFrame(listFrame)
-    listFrame = requestAnimationFrame(() => {
-      listFrame = undefined
-      bindListRoot()
-    })
-  }
-
   onCleanup(() => {
     if (listFrame !== undefined) cancelAnimationFrame(listFrame)
+    if (contentFrame !== undefined) cancelAnimationFrame(contentFrame)
     listCleanup()
+    setScrollRoot(undefined)
     props.setScrollRef(undefined)
   })
 
@@ -1595,28 +1618,37 @@ export function MessageTimeline(props: {
                 </div>
               </div>
           </Show>
-          <div ref={bindListHost} class="min-h-0 flex-1">
-            <VList
-              data={timelineRowKeys()}
-              shift={props.historyShift}
-              keepMounted={keepMounted()}
-              ref={(handle) => {
-                virtualizer = handle
-              }}
-              class="relative min-w-0 w-full h-full"
-              onScroll={() => {
-                const root = listRoot
-                if (!root) return
-                props.onScheduleScrollState(root)
-                props.onHistoryScroll()
-                if (!props.hasScrollGesture()) return
-                props.onUserScroll()
-                props.onAutoScrollHandleScroll()
-                props.onMarkScrollGesture(root)
-              }}
-            >
-              {(key) => <TimelineRowView rowKey={key} />}
-            </VList>
+          <div
+            ref={bindListRoot}
+            class="relative min-w-0 w-full h-full overflow-y-auto"
+            style={{ contain: "strict", "overflow-anchor": "none" }}
+          >
+            <Show when={scrollRoot()}>
+              {(root) => (
+                <Virtualizer
+                  data={timelineRowKeys()}
+                  scrollRef={root()}
+                  shift={props.historyShift}
+                  keepMounted={keepMounted()}
+                  ref={(handle) => {
+                    virtualizer = handle
+                    scheduleContentRoot(root())
+                  }}
+                  onScroll={() => {
+                    const root = listRoot
+                    if (!root) return
+                    props.onScheduleScrollState(root)
+                    props.onHistoryScroll()
+                    if (!props.hasScrollGesture()) return
+                    props.onUserScroll()
+                    props.onAutoScrollHandleScroll()
+                    props.onMarkScrollGesture(root)
+                  }}
+                >
+                  {(key) => <TimelineRowView rowKey={key} />}
+                </Virtualizer>
+              )}
+            </Show>
           </div>
         </div>
       </div>
