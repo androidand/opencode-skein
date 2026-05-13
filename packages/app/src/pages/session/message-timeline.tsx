@@ -107,6 +107,7 @@ function sameKeys(a: readonly string[] | undefined, b: readonly string[] | undef
 }
 
 const timelineCacheLimit = 16
+const timelineFallbackItemSize = 60
 const timelineCache = new Map<string, { keys: readonly string[]; cache: VirtualizerHandle["cache"] }>()
 
 function readTimelineCache(id: string, keys: readonly string[]) {
@@ -451,6 +452,7 @@ export function MessageTimeline(props: {
   onUserScroll: () => void
   onHistoryScroll: () => void
   onAutoScrollInteraction: (event: MouseEvent) => void
+  shouldAnchorBottom: () => boolean
   centered: boolean
   setContentRef: (el: HTMLDivElement) => void
   historyShift: boolean
@@ -713,6 +715,18 @@ export function MessageTimeline(props: {
   let cacheRowKeys = timelineRowKeys()
   let virtualizerSessionKey = cacheSessionKey
   let virtualizerRowKeys = cacheRowKeys
+  let bottomAnchorSessionKey = ""
+
+  const maybeAnchorBottom = () => {
+    const key = sessionKey()
+    if (bottomAnchorSessionKey === key) return
+    if (!virtualizer) return
+    const keys = timelineRowKeys()
+    if (keys.length === 0) return
+    bottomAnchorSessionKey = key
+    if (!props.shouldAnchorBottom()) return
+    virtualizer.scrollToIndex(keys.length - 1, { align: "end" })
+  }
 
   createEffect(
     on(
@@ -724,6 +738,7 @@ export function MessageTimeline(props: {
         if (virtualizer) {
           virtualizerSessionKey = cacheSessionKey
           virtualizerRowKeys = cacheRowKeys
+          maybeAnchorBottom()
         }
       },
       { defer: true },
@@ -1669,6 +1684,7 @@ export function MessageTimeline(props: {
                 <Virtualizer
                   data={timelineRowKeys()}
                   cache={virtualCache()}
+                  itemSize={virtualCache() ? undefined : timelineFallbackItemSize}
                   scrollRef={root()}
                   shift={props.historyShift}
                   keepMounted={keepMounted()}
@@ -1681,6 +1697,7 @@ export function MessageTimeline(props: {
                     virtualizer = handle
                     virtualizerSessionKey = cacheSessionKey
                     virtualizerRowKeys = cacheRowKeys
+                    maybeAnchorBottom()
                     scheduleContentRoot(root())
                   }}
                 >
