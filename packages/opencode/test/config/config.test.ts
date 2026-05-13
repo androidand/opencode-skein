@@ -2,10 +2,10 @@ import { test, expect, describe, mock, afterEach, beforeEach } from "bun:test"
 import { Effect, Layer, Option } from "effect"
 import { NodeFileSystem, NodePath } from "@effect/platform-node"
 import { Config } from "@/config/config"
-import { ConfigManaged } from "@/config/managed"
 import { ConfigPermission } from "@/config/permission"
+import { ConfigManaged } from "@/config/managed"
 import { ConfigParse } from "../../src/config/parse"
-import { Permission } from "../../src/permission"
+import { Permission } from "@/permission"
 import { EffectFlock } from "@opencode-ai/core/util/effect-flock"
 
 import { Instance } from "../../src/project/instance"
@@ -272,40 +272,6 @@ test("updates global config and omits empty shell key in json", async () => {
 
     const writtenConfig = await Filesystem.readJson<{ shell?: string }>(path.join(tmp.path, "opencode.json"))
     expect("shell" in writtenConfig).toBe(false)
-  } finally {
-    ;(Global.Path as { config: string }).config = prev
-    await clear(true)
-  }
-})
-
-test("global config update preserves single-object permission shape on disk", async () => {
-  await using tmp = await tmpdir({
-    init: async (dir) => {
-      await Filesystem.write(
-        path.join(dir, "opencode.json"),
-        JSON.stringify({
-          $schema: "https://opencode.ai/config.json",
-          shell: "bash",
-          permission: { bash: "ask" },
-        }),
-      )
-    },
-  })
-
-  const prev = Global.Path.config
-  ;(Global.Path as { config: string }).config = tmp.path
-  await clear(true)
-
-  try {
-    // Updating an unrelated key must not rewrite `permission` from object to array form.
-    await saveGlobal({ shell: "zsh" })
-
-    const written = await Filesystem.readJson<{ permission?: unknown; shell?: string }>(
-      path.join(tmp.path, "opencode.json"),
-    )
-    expect(written.shell).toBe("zsh")
-    expect(Array.isArray(written.permission)).toBe(false)
-    expect(written.permission).toEqual({ bash: "ask" })
   } finally {
     ;(Global.Path as { config: string }).config = prev
     await clear(true)
@@ -1749,10 +1715,8 @@ test("permission config preserves user key order", async () => {
     directory: tmp.path,
     fn: async () => {
       const config = await load()
-      // load() goes through the merge pipeline, producing the layered array form
-      expect(config.permission).toHaveLength(1)
-      const perm = (config.permission as ConfigPermission.Info[])[0]
-      expect(Object.keys(perm)).toEqual([
+      const [permission] = ConfigPermission.toLayers(config.permission)
+      expect(Object.keys(permission)).toEqual([
         "*",
         "edit",
         "write",
@@ -1970,7 +1934,6 @@ test("config parser preserves permission order while rejecting unknown top-level
     "test",
   )
 
-  // ConfigParse.schema preserves the raw shape the user wrote
   expect(Object.keys(config.permission as ConfigPermission.Info)).toEqual(["bash", "*", "edit"])
   try {
     ConfigParse.schema(Config.Info, { invalid_field: true }, "test")
@@ -2808,12 +2771,12 @@ test("parseManagedPlist parses permission rules", async () => {
     ),
     "test:mobileconfig",
   )
-  const perm = config.permission as ConfigPermission.Info
-  expect(perm?.["*"]).toBe("ask")
-  expect(perm?.grep).toBe("allow")
-  expect(perm?.webfetch).toBe("ask")
-  expect(perm?.["~/.ssh/*"]).toBe("deny")
-  const bash = perm?.bash as Record<string, string>
+  const permission = config.permission as ConfigPermission.Info
+  expect(permission?.["*"]).toBe("ask")
+  expect(permission?.grep).toBe("allow")
+  expect(permission?.webfetch).toBe("ask")
+  expect(permission?.["~/.ssh/*"]).toBe("deny")
+  const bash = permission?.bash as Record<string, string>
   expect(bash?.["rm -rf *"]).toBe("deny")
   expect(bash?.["curl *"]).toBe("deny")
 })

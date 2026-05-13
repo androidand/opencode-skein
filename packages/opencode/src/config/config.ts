@@ -724,7 +724,7 @@ export const layer = Layer.effect(
         }
 
         if (result.tools) {
-          const perms: ConfigPermission.Info = {}
+          const perms: Record<string, ConfigPermission.Action> = {}
           for (const [tool, enabled] of Object.entries(result.tools)) {
             const action: ConfigPermission.Action = enabled ? "allow" : "deny"
             if (tool === "write" || tool === "edit" || tool === "patch") {
@@ -733,7 +733,6 @@ export const layer = Layer.effect(
             }
             perms[tool] = action
           }
-          // Tools permissions come before other permissions (they can be overridden)
           result.permission = [perms, ...ConfigPermission.toLayers(result.permission)]
         }
 
