@@ -31,6 +31,18 @@ async function readFirstEvent(response: Response) {
   }
 }
 
+async function readEvent(reader: ReadableStreamDefaultReader<Uint8Array>) {
+  const result = await Promise.race([
+    reader.read(),
+    new Promise<never>((_, reject) => setTimeout(() => reject(new Error("timed out waiting for event")), 5_000)),
+  ])
+  return JSON.parse(new TextDecoder().decode(result.value).replace(/^data: /, "")) as {
+    id?: string
+    type: string
+    properties: Record<string, unknown>
+  }
+}
+
 afterEach(async () => {
   await disposeAllInstances()
   await resetDatabase()
@@ -55,5 +67,21 @@ describe("event HttpApi", () => {
     const response = await app().request(EventPaths.event, { headers })
 
     expect(await readFirstEvent(response)).toMatchObject({ type: "server.connected", properties: {} })
+  })
+
+  test("keeps the event stream open after the initial event", async () => {
+    await using tmp = await tmpdir({ git: true, config: { formatter: false, lsp: false } })
+    const response = await app().request(EventPaths.event, { headers: { "x-opencode-directory": tmp.path } })
+    if (!response.body) throw new Error("missing response body")
+
+    const reader = response.body.getReader()
+    expect(await readEvent(reader)).toMatchObject({ type: "server.connected", properties: {} })
+    const next = await Promise.race([
+      reader.read().then((result) => (result.done ? "closed" : "event")),
+      new Promise<"open">((resolve) => setTimeout(() => resolve("open"), 250)),
+    ])
+    await reader.cancel()
+
+    expect(next).toBe("open")
   })
 })
