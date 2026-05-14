@@ -9,6 +9,7 @@ import type { WorkspaceID } from "@/control-plane/schema"
 import { EventID } from "./schema"
 import { Context, Effect, Layer, Schema as EffectSchema } from "effect"
 import type { DeepMutable } from "@opencode-ai/core/schema"
+import { Event as CoreEvent } from "@opencode-ai/core/event"
 import { serviceUse } from "@/effect/service-use"
 import { InstanceState } from "@/effect/instance-state"
 import { RuntimeFlags } from "@/effect/runtime-flags"
@@ -211,7 +212,6 @@ export const use = serviceUse(Service)
 export const registry = new Map<string, Definition>()
 let projectors: Map<Definition, ProjectorFunc> | undefined
 const versions = new Map<string, number>()
-const external = new Map<string, { type: string; version: number; schema: EffectSchema.Top }>()
 let frozen = false
 let convertEvent: ConvertEvent
 
@@ -275,10 +275,6 @@ export function define<
   registry.set(versionedType(def.type, def.version), def)
 
   return def
-}
-
-export function defineExternal(input: { type: string; version: number; schema: EffectSchema.Top }) {
-  external.set(versionedType(input.type, input.version), input)
 }
 
 export function project<Def extends Definition>(
@@ -374,16 +370,20 @@ export function effectPayloads() {
         }).annotate({ identifier: `SyncEvent.${type}` }),
       )
       .toArray(),
-    ...external.entries().map(([type, def]) =>
-      EffectSchema.Struct({
-        type: EffectSchema.Literal("sync"),
-        name: EffectSchema.Literal(type),
-        id: EffectSchema.String,
-        seq: EffectSchema.Finite,
-        aggregateID: EffectSchema.String,
-        data: def.schema,
-      }).annotate({ identifier: `SyncEvent.${type}` }),
-    ),
+    ...CoreEvent.registry
+      .values()
+      .filter((definition) => definition.version !== undefined)
+      .map((definition) =>
+        EffectSchema.Struct({
+          type: EffectSchema.Literal("sync"),
+          name: EffectSchema.Literal(versionedType(definition.type, definition.version!)),
+          id: EffectSchema.String,
+          seq: EffectSchema.Finite,
+          aggregateID: EffectSchema.String,
+          data: definition.schema,
+        }).annotate({ identifier: `SyncEvent.${definition.type}` }),
+      )
+      .toArray(),
   ]
 }
 

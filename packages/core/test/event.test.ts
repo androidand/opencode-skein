@@ -80,20 +80,9 @@ describe("Event", () => {
     }),
   )
 
-  it.effect("notifies bridges for definitions and publications", () =>
-    Effect.gen(function* () {
-      const events = yield* Event.Service
-      const seen: unknown[] = []
-      const remove = Event.installBridge({
-        define: (definition) => seen.push(["define", definition.type]),
-        publish: (definition, event) => Effect.sync(() => seen.push(["publish", definition.type, event.type])),
-      })
-
-      yield* events.publish(Message, { text: "hello" })
-      remove()
-
-      expect(seen).toContainEqual(["define", "test.message"])
-      expect(seen).toContainEqual(["publish", "test.message", "test.message"])
+  it.effect("stores definitions in the exported registry", () =>
+    Effect.sync(() => {
+      expect(Event.registry.get(Message.type)).toBe(Message)
     }),
   )
 

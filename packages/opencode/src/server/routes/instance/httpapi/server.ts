@@ -44,6 +44,7 @@ import { SessionSummary } from "@/session/summary"
 import { Todo } from "@/session/todo"
 import { SessionShare } from "@/share/session"
 import { ShareNext } from "@/share/share-next"
+import { EventLegacy } from "@/event-legacy"
 import { Skill } from "@/skill"
 import { Snapshot } from "@/snapshot"
 import { SyncEvent } from "@/sync"
@@ -216,6 +217,7 @@ export function createRoutes(corsOptions?: CorsOptions) {
       ShareNext.defaultLayer,
       Snapshot.defaultLayer,
       SyncEvent.defaultLayer,
+      EventLegacy.defaultLayer,
       Skill.defaultLayer,
       Todo.defaultLayer,
       ToolRegistry.defaultLayer,

@@ -56,6 +56,7 @@ import { Npm } from "@opencode-ai/core/npm"
 import { memoMap } from "@opencode-ai/core/effect/memo-map"
 import { DataMigration } from "@/data-migration"
 import { BackgroundJob } from "@/background/job"
+import { EventLegacy } from "@/event-legacy"
 
 export const AppLayer = Layer.mergeAll(
   Npm.defaultLayer,
@@ -109,6 +110,7 @@ export const AppLayer = Layer.mergeAll(
   ShareNext.defaultLayer,
   SessionShare.defaultLayer,
   SyncEvent.defaultLayer,
+  EventLegacy.defaultLayer,
   DataMigration.defaultLayer,
 ).pipe(Layer.provideMerge(InstanceLayer.layer), Layer.provideMerge(Observability.layer))
 

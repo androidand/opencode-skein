@@ -31,13 +31,7 @@ export type Definition<Type extends string = string, Data = unknown> = Schema.Sc
 export type Payload<D extends Definition = Definition> = Schema.Schema.Type<D>
 export type Data<D extends Definition> = Payload<D>["data"]
 
-const registry = new Map<string, Definition>()
-const bridges = new Set<Bridge>()
-
-export interface Bridge {
-  readonly define?: (definition: Definition) => void
-  readonly publish?: (definition: Definition, event: Payload) => Effect.Effect<void>
-}
+export const registry = new Map<string, Definition>()
 
 export function define<const Type extends string, Fields extends Schema.Struct.Fields>(input: {
   readonly type: Type
@@ -60,18 +54,11 @@ export function define<const Type extends string, Fields extends Schema.Struct.F
     schema: Data,
   })
   registry.set(input.type, definition)
-  for (const bridge of bridges) bridge.define?.(definition as Definition)
   return definition as Definition<Type, Schema.Schema.Type<Schema.Struct<Fields>>>
 }
 
 export function definitions() {
   return registry.values().toArray()
-}
-
-export function installBridge(bridge: Bridge) {
-  bridges.add(bridge)
-  for (const definition of registry.values()) bridge.define?.(definition)
-  return () => bridges.delete(bridge)
 }
 
 export interface PublishOptions<D extends Definition> {
@@ -120,12 +107,6 @@ export const layer = Layer.effect(
         const pubsub = typed.get(event.type)
         if (pubsub) yield* PubSub.publish(pubsub, event as Payload)
         yield* PubSub.publish(all, event as Payload)
-        const definition = registry.get(event.type)
-        if (definition) {
-          yield* Effect.forEach(bridges, (bridge) => bridge.publish?.(definition, event as Payload) ?? Effect.void, {
-            discard: true,
-          }).pipe(Effect.ignore)
-        }
         return event
       })
     }

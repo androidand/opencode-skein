@@ -1,12 +1,9 @@
 import { Bus as ProjectBus } from "@/bus"
-import { BusEvent } from "@/bus/bus-event"
 import { GlobalBus } from "@/bus/global"
 import { SyncEvent } from "@/sync"
 import { Event } from "@opencode-ai/core/event"
 import "@opencode-ai/core/catalog"
-import { Effect } from "effect"
-
-const normal = new Map<string, BusEvent.Definition>()
+import { Effect, Layer, Stream } from "effect"
 
 function emitNormal(event: Event.Payload) {
   GlobalBus.emit("event", {
@@ -20,39 +17,40 @@ function emitNormal(event: Event.Payload) {
   })
 }
 
-Event.installBridge({
-  define(definition) {
-    if (definition.version !== undefined) {
-      SyncEvent.defineExternal({ type: definition.type, version: definition.version, schema: definition.schema })
-      return
-    }
-    if (normal.has(definition.type)) return
-    normal.set(definition.type, BusEvent.define(definition.type, definition.schema))
-  },
+export const layer = Layer.effectDiscard(
+  Effect.gen(function* () {
+    const events = yield* Event.Service
+    const bus = yield* ProjectBus.Service
 
-  publish(definition, event) {
-    if (definition.version !== undefined) {
-      const version = definition.version
-      return Effect.sync(() => {
-        GlobalBus.emit("event", {
-          directory: event.instance?.directory,
-          workspace: event.instance?.workspaceID,
-          payload: {
-            type: "sync",
-            name: SyncEvent.versionedType(definition.type, version),
-            id: event.id,
-            seq: 0,
-            aggregateID: event.id,
-            data: event.data,
-          },
-        })
+    yield* events.subscribeAll().pipe(Stream.runForEach(republish(bus)), Effect.forkScoped)
+  }),
+)
+
+export const defaultLayer = layer.pipe(Layer.provideMerge(Event.defaultLayer), Layer.provide(ProjectBus.defaultLayer))
+
+const republish = (bus: ProjectBus.Interface) => (event: Event.Payload) => {
+  const definition = Event.registry.get(event.type)
+  if (!definition) return Effect.void
+  if (definition.version !== undefined) {
+    return Effect.sync(() => {
+      GlobalBus.emit("event", {
+        directory: event.instance?.directory,
+        workspace: event.instance?.workspaceID,
+        payload: {
+          type: "sync",
+          name: SyncEvent.versionedType(definition.type, definition.version!),
+          id: event.id,
+          seq: 0,
+          aggregateID: event.id,
+          data: event.data,
+        },
       })
-    }
+    })
+  }
 
-    const legacy = normal.get(definition.type)
-    if (!legacy) return Effect.sync(() => emitNormal(event))
-    return Effect.tryPromise(() => ProjectBus.publish(legacy, event.data, { id: event.id })).pipe(
-      Effect.catch(() => Effect.sync(() => emitNormal(event))),
-    )
-  },
-})
+  return bus.publish({ type: definition.type, properties: definition.schema }, event.data, { id: event.id }).pipe(
+    Effect.catch(() => Effect.sync(() => emitNormal(event))),
+  )
+}
+
+export * as EventLegacy from "./event-legacy"
