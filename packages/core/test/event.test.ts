@@ -60,16 +60,6 @@ describe("Event", () => {
     }),
   )
 
-  it.effect("can publish globally from an instance context", () =>
-    Effect.gen(function* () {
-      const events = yield* Event.Service
-      const event = yield* events.publish(GlobalMessage, { text: "hello" }, { instance: false })
-
-      expect(event).not.toHaveProperty("instance")
-      expect(event.type).toBe("test.global")
-    }),
-  )
-
   it.effect("publishes definition version", () =>
     Effect.gen(function* () {
       const events = yield* Event.Service

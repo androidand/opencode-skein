@@ -64,7 +64,6 @@ export function definitions() {
 export interface PublishOptions<D extends Definition> {
   readonly id?: ID
   readonly metadata?: Record<string, unknown>
-  readonly instance?: InstanceRef | false
 }
 
 export interface Interface {
@@ -117,9 +116,7 @@ export const layer = Layer.effect(
       options?: PublishOptions<D>,
     ) {
       return Effect.gen(function* () {
-        const instance = options?.instance === false
-          ? undefined
-          : (options?.instance ?? Option.getOrUndefined(yield* Effect.serviceOption(Instance.Service)))
+        const instance = Option.getOrUndefined(yield* Effect.serviceOption(Instance.Service))
         const event = {
           id: options?.id ?? ID.create(),
           ...(options?.metadata ? { metadata: options.metadata } : {}),
