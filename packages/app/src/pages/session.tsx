@@ -92,13 +92,9 @@ function createSessionHistoryLoader(input: SessionHistoryWindowInput) {
     shift: false,
   })
 
-  const userMessages = createMemo(
-    () => input.visibleUserMessages(),
-    emptyUserMessages,
-    {
-      equals: same,
-    },
-  )
+  const userMessages = createMemo(() => input.visibleUserMessages(), emptyUserMessages, {
+    equals: same,
+  })
 
   const cancelShiftReset = () => {
     if (shiftFrame === undefined) return
@@ -1692,20 +1688,23 @@ export default function Page() {
         >
           <div class="flex-1 min-h-0 overflow-hidden">
             <Switch>
+              <Match when={params.id && mobileChanges()}>
+                <div class="relative h-full overflow-hidden">
+                  {reviewContent({
+                    diffStyle: "unified",
+                    classes: {
+                      root: "pb-8",
+                      header: "px-4",
+                      container: "px-4",
+                    },
+                    loadingClass: "px-4 py-4 text-text-weak",
+                    emptyClass: "h-full pb-64 -mt-4 flex flex-col items-center justify-center text-center gap-6",
+                  })}
+                </div>
+              </Match>
               <Match when={params.id}>
-                <Show when={!store.deferRender && messagesReady()}>
+                <Show when={messagesReady()}>
                   <MessageTimeline
-                    mobileChanges={mobileChanges()}
-                    mobileFallback={reviewContent({
-                      diffStyle: "unified",
-                      classes: {
-                        root: "pb-8",
-                        header: "px-4",
-                        container: "px-4",
-                      },
-                      loadingClass: "px-4 py-4 text-text-weak",
-                      emptyClass: "h-full pb-64 -mt-4 flex flex-col items-center justify-center text-center gap-6",
-                    })}
                     actions={actions}
                     scroll={ui.scroll}
                     onResumeScroll={resumeScroll}
