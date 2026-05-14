@@ -11,6 +11,8 @@ import { ProjectID } from "@/project/schema"
 import { SessionEvent } from "@opencode-ai/core/session-event"
 import { V2Schema } from "@opencode-ai/core/v2-schema"
 import { optionalOmitUndefined } from "@opencode-ai/core/schema"
+import { Event as CoreEvent } from "@opencode-ai/core/event"
+import { EventPublish } from "@/event-publish"
 import { SyncEvent } from "@/sync"
 import { ModelV2 } from "@opencode-ai/core/model"
 import { ProviderV2 } from "@opencode-ai/core/provider"
@@ -125,6 +127,7 @@ export class Service extends Context.Service<Service, Interface>()("@opencode/v2
 export const layer = Layer.effect(
   Service,
   Effect.gen(function* () {
+    const events = yield* CoreEvent.Service
     const sync = yield* SyncEvent.Service
     const decodeMessage = Schema.decodeUnknownSync(SessionMessage.Message)
 
@@ -292,14 +295,14 @@ export const layer = Layer.effect(
       shell: Effect.fn("V2Session.shell")(function* (_input) {}),
       skill: Effect.fn("V2Session.skill")(function* (_input) {}),
       switchAgent: Effect.fn("V2Session.switchAgent")(function* (input) {
-        yield* sync.run(SessionEvent.AgentSwitched, {
+        yield* EventPublish.publish(events, sync, SessionEvent.AgentSwitched, {
           sessionID: input.sessionID,
           timestamp: DateTime.makeUnsafe(Date.now()),
           agent: input.agent,
         })
       }),
       switchModel: Effect.fn("V2Session.switchModel")(function* (input) {
-        yield* sync.run(SessionEvent.ModelSwitched, {
+        yield* EventPublish.publish(events, sync, SessionEvent.ModelSwitched, {
           sessionID: input.sessionID,
           timestamp: DateTime.makeUnsafe(Date.now()),
           model: input.model,
@@ -332,8 +335,8 @@ export const layer = Layer.effect(
 
     return result
   }),
-)
+).pipe(Layer.provide(CoreEvent.defaultLayer), Layer.provide(SyncEvent.defaultLayer))
 
-export const defaultLayer = layer.pipe(Layer.provide(SyncEvent.defaultLayer))
+export const defaultLayer = layer
 
 export * as SessionV2 from "./session"

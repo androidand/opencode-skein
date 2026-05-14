@@ -51,6 +51,8 @@ import { TaskTool, type TaskPromptOps } from "@/tool/task"
 import { SessionRunState } from "./run-state"
 import { EffectBridge } from "@/effect/bridge"
 import { RuntimeFlags } from "@/effect/runtime-flags"
+import { Event as CoreEvent } from "@opencode-ai/core/event"
+import { EventPublish } from "@/event-publish"
 import { SyncEvent } from "@/sync"
 import { SessionEvent } from "@opencode-ai/core/session-event"
 import { ModelV2 } from "@opencode-ai/core/model"
@@ -202,6 +204,7 @@ export const layer = Layer.effect(
     const sys = yield* SystemPrompt.Service
     const llm = yield* LLM.Service
     const references = yield* Reference.Service
+    const events = yield* CoreEvent.Service
     const sync = yield* SyncEvent.Service
     const flags = yield* RuntimeFlags.Service
     const runner = Effect.fn("SessionPrompt.runner")(function* () {
@@ -958,7 +961,7 @@ NOTE: At any point in time through this workflow you should feel free to ask the
             }
             yield* sessions.updatePart(part)
             if (flags.experimentalEventSystem) {
-              yield* sync.run(SessionEvent.Shell.Started, {
+              yield* EventPublish.publish(events, sync, SessionEvent.Shell.Started, {
                 sessionID: input.sessionID,
                 timestamp: DateTime.makeUnsafe(started),
                 callID,
@@ -981,7 +984,7 @@ NOTE: At any point in time through this workflow you should feel free to ask the
               }
               const completed = Date.now()
               if (flags.experimentalEventSystem) {
-                yield* sync.run(SessionEvent.Shell.Ended, {
+                yield* EventPublish.publish(events, sync, SessionEvent.Shell.Ended, {
                   sessionID: input.sessionID,
                   timestamp: DateTime.makeUnsafe(completed),
                   callID: part.callID,
@@ -1131,7 +1134,7 @@ NOTE: At any point in time through this workflow you should feel free to ask the
       }
 
       if (current?.agent !== info.agent) {
-        yield* sync.run(SessionEvent.AgentSwitched, {
+        yield* EventPublish.publish(events, sync, SessionEvent.AgentSwitched, {
           sessionID: input.sessionID,
           timestamp: DateTime.makeUnsafe(info.time.created),
           agent: info.agent,
@@ -1142,7 +1145,7 @@ NOTE: At any point in time through this workflow you should feel free to ask the
         current.model.id !== info.model.modelID ||
         (current.model.variant === "default" ? undefined : current.model.variant) !== info.model.variant
       ) {
-        yield* sync.run(SessionEvent.ModelSwitched, {
+        yield* EventPublish.publish(events, sync, SessionEvent.ModelSwitched, {
           sessionID: input.sessionID,
           timestamp: DateTime.makeUnsafe(info.time.created),
           model: {
@@ -1574,7 +1577,7 @@ NOTE: At any point in time through this workflow you should feel free to ask the
       )
       // TODO(v2): Temporary dual-write while migrating session messages to v2 events.
       if (flags.experimentalEventSystem) {
-        yield* sync.run(SessionEvent.Prompted, {
+        yield* EventPublish.publish(events, sync, SessionEvent.Prompted, {
           sessionID: input.sessionID,
           timestamp: DateTime.makeUnsafe(info.time.created),
           prompt: {
@@ -1588,7 +1591,7 @@ NOTE: At any point in time through this workflow you should feel free to ask the
       for (const text of nextPrompt.synthetic) {
         // TODO(v2): Temporary dual-write while migrating session messages to v2 events.
         if (flags.experimentalEventSystem) {
-          yield* sync.run(SessionEvent.Synthetic, {
+          yield* EventPublish.publish(events, sync, SessionEvent.Synthetic, {
             sessionID: input.sessionID,
             timestamp: DateTime.makeUnsafe(info.time.created),
             text,
@@ -1997,7 +2000,7 @@ NOTE: At any point in time through this workflow you should feel free to ask the
       resolvePromptParts,
     })
   }),
-)
+).pipe(Layer.provide(CoreEvent.defaultLayer), Layer.provide(SyncEvent.defaultLayer))
 
 export const defaultLayer = Layer.suspend(() =>
   layer.pipe(
@@ -2027,7 +2030,6 @@ export const defaultLayer = Layer.suspend(() =>
         Reference.defaultLayer,
         Bus.layer,
         CrossSpawnSpawner.defaultLayer,
-        SyncEvent.defaultLayer,
         RuntimeFlags.defaultLayer,
       ),
     ),

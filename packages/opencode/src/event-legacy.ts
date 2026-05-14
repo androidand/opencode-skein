@@ -22,18 +22,35 @@ export const layer = Layer.effectDiscard(
   Effect.gen(function* () {
     const events = yield* Event.Service
     const bus = yield* ProjectBus.Service
+    const sync = yield* SyncEvent.Service
 
-    yield* events.subscribeAll().pipe(Stream.runForEach(republish(bus)), Effect.forkScoped)
+    yield* events.subscribeAll().pipe(Stream.runForEach(republish(bus, sync)), Effect.forkScoped)
   }),
 )
 
-export const defaultLayer = layer.pipe(Layer.provideMerge(Event.defaultLayer), Layer.provide(ProjectBus.defaultLayer))
+export const defaultLayer: Layer.Layer<never> = layer.pipe(
+  Layer.provideMerge(Event.defaultLayer),
+  Layer.provideMerge(SyncEvent.defaultLayer),
+  Layer.provide(ProjectBus.defaultLayer),
+) as unknown as Layer.Layer<never>
 
-const republish = (bus: ProjectBus.Interface) => (event: Event.Payload) => {
+const republish = (bus: ProjectBus.Interface, sync: SyncEvent.Interface) => (event: Event.Payload) => {
   const definition = Event.registry.get(event.type)
   if (!definition) return Effect.void
-  if (definition.version !== undefined) {
-    return Effect.sync(() => {
+
+  const publishNormal = bus.publish({ type: definition.type, properties: definition.schema }, event.data, { id: event.id }).pipe(
+    Effect.catch(() => Effect.sync(() => emitNormal(event))),
+  )
+  if (definition.version === undefined) return publishNormal
+
+  return Effect.gen(function* () {
+    const existing = syncMetadata(event)
+    const persisted = existing
+      ? undefined
+      : yield* sync.run(definition, event.data, { id: event.id, publish: false }).pipe(Effect.option)
+    yield* publishNormal
+    yield* Effect.sync(() => {
+      const syncEvent = existing ?? (persisted?._tag === "Some" ? persisted.value : undefined)
       GlobalBus.emit("event", {
         directory: event.instance?.directory,
         workspace: event.instance?.workspaceID,
@@ -41,17 +58,21 @@ const republish = (bus: ProjectBus.Interface) => (event: Event.Payload) => {
           type: "sync",
           name: SyncEvent.versionedType(definition.type, definition.version!),
           id: event.id,
-          seq: 0,
-          aggregateID: aggregateID(definition, event),
+          seq: syncEvent?.seq ?? 0,
+          aggregateID: syncEvent?.aggregateID ?? aggregateID(definition, event),
           data: event.data,
         },
       })
     })
-  }
+  })
+}
 
-  return bus.publish({ type: definition.type, properties: definition.schema }, event.data, { id: event.id }).pipe(
-    Effect.catch(() => Effect.sync(() => emitNormal(event))),
-  )
+function syncMetadata(event: Event.Payload) {
+  const metadata = event.metadata?.sync
+  if (typeof metadata !== "object" || metadata === null) return
+  if (!("seq" in metadata) || !("aggregateID" in metadata)) return
+  if (typeof metadata.seq !== "number" || typeof metadata.aggregateID !== "string") return
+  return metadata
 }
 
 function aggregateID(definition: Event.Definition, event: Event.Payload) {

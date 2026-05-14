@@ -19,6 +19,8 @@ import { isOverflow as overflow, usable } from "./overflow"
 import { makeRuntime } from "@/effect/run-service"
 import { serviceUse } from "@/effect/service-use"
 import { RuntimeFlags } from "@/effect/runtime-flags"
+import { Event as CoreEvent } from "@opencode-ai/core/event"
+import { EventPublish } from "@/event-publish"
 import { SyncEvent } from "@/sync"
 import { SessionEvent } from "@opencode-ai/core/session-event"
 
@@ -220,7 +222,6 @@ export const layer: Layer.Layer<
   | Plugin.Service
   | SessionProcessor.Service
   | Provider.Service
-  | SyncEvent.Service
   | RuntimeFlags.Service
 > = Layer.effect(
   Service,
@@ -232,6 +233,7 @@ export const layer: Layer.Layer<
     const plugin = yield* Plugin.Service
     const processors = yield* SessionProcessor.Service
     const provider = yield* Provider.Service
+    const events = yield* CoreEvent.Service
     const sync = yield* SyncEvent.Service
     const flags = yield* RuntimeFlags.Service
 
@@ -577,7 +579,7 @@ export const layer: Layer.Layer<
           },
         )
         if (flags.experimentalEventSystem) {
-          yield* sync.run(SessionEvent.Compaction.Ended, {
+          yield* EventPublish.publish(events, sync, SessionEvent.Compaction.Ended, {
             sessionID: input.sessionID,
             timestamp: DateTime.makeUnsafe(Date.now()),
             text: summary ?? "",
@@ -613,7 +615,7 @@ export const layer: Layer.Layer<
         overflow: input.overflow,
       })
       if (flags.experimentalEventSystem) {
-        yield* sync.run(SessionEvent.Compaction.Started, {
+        yield* EventPublish.publish(events, sync, SessionEvent.Compaction.Started, {
           sessionID: input.sessionID,
           timestamp: DateTime.makeUnsafe(Date.now()),
           reason: input.auto ? "auto" : "manual",
@@ -628,7 +630,18 @@ export const layer: Layer.Layer<
       create,
     })
   }),
-)
+).pipe(Layer.provide(CoreEvent.defaultLayer), Layer.provide(SyncEvent.defaultLayer)) as unknown as Layer.Layer<
+  Service,
+  never,
+  | Bus.Service
+  | Config.Service
+  | Session.Service
+  | Agent.Service
+  | Plugin.Service
+  | SessionProcessor.Service
+  | Provider.Service
+  | RuntimeFlags.Service
+>
 
 export const defaultLayer = Layer.suspend(() =>
   layer.pipe(
@@ -639,7 +652,6 @@ export const defaultLayer = Layer.suspend(() =>
     Layer.provide(Plugin.defaultLayer),
     Layer.provide(Bus.layer),
     Layer.provide(Config.defaultLayer),
-    Layer.provide(SyncEvent.defaultLayer),
     Layer.provide(RuntimeFlags.defaultLayer),
   ),
 )

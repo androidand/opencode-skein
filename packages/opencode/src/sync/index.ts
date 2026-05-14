@@ -61,8 +61,8 @@ export interface Interface {
   readonly run: <Def extends AnyDefinition>(
     def: Def,
     data: Event<Def>["data"],
-    options?: { publish?: boolean },
-  ) => Effect.Effect<void>
+    options?: { id?: string; publish?: boolean },
+  ) => Effect.Effect<Event<Def>>
   readonly replay: (event: SerializedEvent, options?: { publish: boolean; ownerID?: string }) => Effect.Effect<void>
   readonly replayAll: (
     events: SerializedEvent[],
@@ -163,9 +163,9 @@ export const layer = Layer.effect(Service)(
       // Note that this is an "immediate" transaction which is critical.
       // We need to make sure we can safely read and write with nothing
       // else changing the data from under us
-      Database.transaction(
+      return Database.transaction(
         (tx) => {
-          const id = EventID.ascending()
+          const id = options?.id ?? EventID.ascending()
           const row = tx
             .select({ seq: EventSequenceTable.seq })
             .from(EventSequenceTable)
@@ -175,6 +175,7 @@ export const layer = Layer.effect(Service)(
 
           const event = { id, seq, aggregateID: agg, data }
           process(def, event, { publish, context, experimentalWorkspaces: flags.experimentalWorkspaces })
+          return event
         },
         {
           behavior: "immediate",
@@ -211,7 +212,7 @@ export const layer = Layer.effect(Service)(
   }),
 )
 
-export const defaultLayer = layer.pipe(Layer.provide(RuntimeFlags.defaultLayer))
+export const defaultLayer: Layer.Layer<Service> = layer.pipe(Layer.provide(RuntimeFlags.defaultLayer))
 
 export const use = serviceUse(Service)
 
@@ -339,11 +340,8 @@ function process<Def extends AnyDefinition>(
         const result = convertEvent(def.type, event.data)
         const publish = (data: unknown) =>
           ProjectBus.publish({ type: def.type, properties: properties(def) }, data as Properties<Def>, { id: event.id })
-        if (result instanceof Promise) {
-          void result.then(publish)
-        } else {
-          void publish(result)
-        }
+        if (result instanceof Promise) void result.then(publish)
+        else void publish(result)
 
         GlobalBus.emit("event", {
           directory: options.context.instance.directory,
