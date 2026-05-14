@@ -211,6 +211,7 @@ export const use = serviceUse(Service)
 export const registry = new Map<string, Definition>()
 let projectors: Map<Definition, ProjectorFunc> | undefined
 const versions = new Map<string, number>()
+const external = new Map<string, { type: string; version: number; schema: EffectSchema.Top }>()
 let frozen = false
 let convertEvent: ConvertEvent
 
@@ -274,6 +275,10 @@ export function define<
   registry.set(versionedType(def.type, def.version), def)
 
   return def
+}
+
+export function defineExternal(input: { type: string; version: number; schema: EffectSchema.Top }) {
+  external.set(versionedType(input.type, input.version), input)
 }
 
 export function project<Def extends Definition>(
@@ -355,19 +360,31 @@ function process<Def extends Definition>(
 }
 
 export function effectPayloads() {
-  return registry
-    .entries()
-    .map(([type, def]) =>
+  return [
+    ...registry
+      .entries()
+      .map(([type, def]) =>
+        EffectSchema.Struct({
+          type: EffectSchema.Literal("sync"),
+          name: EffectSchema.Literal(type),
+          id: EffectSchema.String,
+          seq: EffectSchema.Finite,
+          aggregateID: EffectSchema.Literal(def.aggregate),
+          data: def.schema,
+        }).annotate({ identifier: `SyncEvent.${type}` }),
+      )
+      .toArray(),
+    ...external.entries().map(([type, def]) =>
       EffectSchema.Struct({
         type: EffectSchema.Literal("sync"),
         name: EffectSchema.Literal(type),
         id: EffectSchema.String,
         seq: EffectSchema.Finite,
-        aggregateID: EffectSchema.Literal(def.aggregate),
+        aggregateID: EffectSchema.String,
         data: def.schema,
       }).annotate({ identifier: `SyncEvent.${type}` }),
-    )
-    .toArray()
+    ),
+  ]
 }
 
 export * as SyncEvent from "."
