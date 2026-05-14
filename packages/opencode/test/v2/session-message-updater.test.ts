@@ -4,7 +4,7 @@ import { SessionID } from "../../src/session/schema"
 import { EventV2 } from "../../src/v2/event"
 import { ModelV2 } from "@opencode-ai/core/model"
 import { ProviderV2 } from "@opencode-ai/core/provider"
-import { SessionEvent } from "../../src/v2/session-event"
+import { SessionEvent } from "@opencode-ai/core/session-event"
 import { SessionMessageUpdater } from "../../src/v2/session-message-updater"
 
 test("step snapshots carry over to assistant messages", () => {

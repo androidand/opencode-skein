@@ -31,7 +31,6 @@ export function effectPayloads() {
       .toArray(),
     ...Event.registry
       .values()
-      .filter((definition) => definition.version === undefined)
       .map((definition) =>
         Schema.Struct({
           id: Schema.String,

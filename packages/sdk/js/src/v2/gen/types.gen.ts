@@ -49,6 +49,8 @@ export type Event =
   | EventSessionCreated
   | EventSessionUpdated
   | EventSessionDeleted
+  | EventServerConnected
+  | EventGlobalDisposed
   | EventSessionNextAgentSwitched
   | EventSessionNextModelSwitched
   | EventSessionNextPrompted
@@ -75,8 +77,6 @@ export type Event =
   | EventSessionNextCompactionStarted
   | EventSessionNextCompactionDelta
   | EventSessionNextCompactionEnded
-  | EventServerConnected
-  | EventGlobalDisposed
   | EventCatalogModelUpdated
 
 export type OAuth = {
@@ -834,6 +834,8 @@ export type GlobalEvent = {
     | EventSessionCreated
     | EventSessionUpdated
     | EventSessionDeleted
+    | EventServerConnected
+    | EventGlobalDisposed
     | EventSessionNextAgentSwitched
     | EventSessionNextModelSwitched
     | EventSessionNextPrompted
@@ -860,8 +862,6 @@ export type GlobalEvent = {
     | EventSessionNextCompactionStarted
     | EventSessionNextCompactionDelta
     | EventSessionNextCompactionEnded
-    | EventServerConnected
-    | EventGlobalDisposed
     | EventCatalogModelUpdated
     | SyncEventMessageUpdated
     | SyncEventMessageRemoved
@@ -2010,7 +2010,7 @@ export type SyncEventSessionNextAgentSwitched = {
   name: "session.next.agent.switched.1"
   id: string
   seq: number
-  aggregateID: "sessionID"
+  aggregateID: string
   data: {
     timestamp: number
     sessionID: string
@@ -2023,7 +2023,7 @@ export type SyncEventSessionNextModelSwitched = {
   name: "session.next.model.switched.1"
   id: string
   seq: number
-  aggregateID: "sessionID"
+  aggregateID: string
   data: {
     timestamp: number
     sessionID: string
@@ -2040,7 +2040,7 @@ export type SyncEventSessionNextPrompted = {
   name: "session.next.prompted.1"
   id: string
   seq: number
-  aggregateID: "sessionID"
+  aggregateID: string
   data: {
     timestamp: number
     sessionID: string
@@ -2053,7 +2053,7 @@ export type SyncEventSessionNextSynthetic = {
   name: "session.next.synthetic.1"
   id: string
   seq: number
-  aggregateID: "sessionID"
+  aggregateID: string
   data: {
     timestamp: number
     sessionID: string
@@ -2066,7 +2066,7 @@ export type SyncEventSessionNextShellStarted = {
   name: "session.next.shell.started.1"
   id: string
   seq: number
-  aggregateID: "sessionID"
+  aggregateID: string
   data: {
     timestamp: number
     sessionID: string
@@ -2080,7 +2080,7 @@ export type SyncEventSessionNextShellEnded = {
   name: "session.next.shell.ended.1"
   id: string
   seq: number
-  aggregateID: "sessionID"
+  aggregateID: string
   data: {
     timestamp: number
     sessionID: string
@@ -2094,7 +2094,7 @@ export type SyncEventSessionNextStepStarted = {
   name: "session.next.step.started.1"
   id: string
   seq: number
-  aggregateID: "sessionID"
+  aggregateID: string
   data: {
     timestamp: number
     sessionID: string
@@ -2113,7 +2113,7 @@ export type SyncEventSessionNextStepEnded = {
   name: "session.next.step.ended.1"
   id: string
   seq: number
-  aggregateID: "sessionID"
+  aggregateID: string
   data: {
     timestamp: number
     sessionID: string
@@ -2137,7 +2137,7 @@ export type SyncEventSessionNextStepFailed = {
   name: "session.next.step.failed.1"
   id: string
   seq: number
-  aggregateID: "sessionID"
+  aggregateID: string
   data: {
     timestamp: number
     sessionID: string
@@ -2150,7 +2150,7 @@ export type SyncEventSessionNextTextStarted = {
   name: "session.next.text.started.1"
   id: string
   seq: number
-  aggregateID: "sessionID"
+  aggregateID: string
   data: {
     timestamp: number
     sessionID: string
@@ -2162,7 +2162,7 @@ export type SyncEventSessionNextTextDelta = {
   name: "session.next.text.delta.1"
   id: string
   seq: number
-  aggregateID: "sessionID"
+  aggregateID: string
   data: {
     timestamp: number
     sessionID: string
@@ -2175,7 +2175,7 @@ export type SyncEventSessionNextTextEnded = {
   name: "session.next.text.ended.1"
   id: string
   seq: number
-  aggregateID: "sessionID"
+  aggregateID: string
   data: {
     timestamp: number
     sessionID: string
@@ -2188,7 +2188,7 @@ export type SyncEventSessionNextReasoningStarted = {
   name: "session.next.reasoning.started.1"
   id: string
   seq: number
-  aggregateID: "sessionID"
+  aggregateID: string
   data: {
     timestamp: number
     sessionID: string
@@ -2201,7 +2201,7 @@ export type SyncEventSessionNextReasoningDelta = {
   name: "session.next.reasoning.delta.1"
   id: string
   seq: number
-  aggregateID: "sessionID"
+  aggregateID: string
   data: {
     timestamp: number
     sessionID: string
@@ -2215,7 +2215,7 @@ export type SyncEventSessionNextReasoningEnded = {
   name: "session.next.reasoning.ended.1"
   id: string
   seq: number
-  aggregateID: "sessionID"
+  aggregateID: string
   data: {
     timestamp: number
     sessionID: string
@@ -2229,7 +2229,7 @@ export type SyncEventSessionNextToolInputStarted = {
   name: "session.next.tool.input.started.1"
   id: string
   seq: number
-  aggregateID: "sessionID"
+  aggregateID: string
   data: {
     timestamp: number
     sessionID: string
@@ -2243,7 +2243,7 @@ export type SyncEventSessionNextToolInputDelta = {
   name: "session.next.tool.input.delta.1"
   id: string
   seq: number
-  aggregateID: "sessionID"
+  aggregateID: string
   data: {
     timestamp: number
     sessionID: string
@@ -2257,7 +2257,7 @@ export type SyncEventSessionNextToolInputEnded = {
   name: "session.next.tool.input.ended.1"
   id: string
   seq: number
-  aggregateID: "sessionID"
+  aggregateID: string
   data: {
     timestamp: number
     sessionID: string
@@ -2271,7 +2271,7 @@ export type SyncEventSessionNextToolCalled = {
   name: "session.next.tool.called.1"
   id: string
   seq: number
-  aggregateID: "sessionID"
+  aggregateID: string
   data: {
     timestamp: number
     sessionID: string
@@ -2294,7 +2294,7 @@ export type SyncEventSessionNextToolProgress = {
   name: "session.next.tool.progress.1"
   id: string
   seq: number
-  aggregateID: "sessionID"
+  aggregateID: string
   data: {
     timestamp: number
     sessionID: string
@@ -2311,7 +2311,7 @@ export type SyncEventSessionNextToolSuccess = {
   name: "session.next.tool.success.1"
   id: string
   seq: number
-  aggregateID: "sessionID"
+  aggregateID: string
   data: {
     timestamp: number
     sessionID: string
@@ -2334,7 +2334,7 @@ export type SyncEventSessionNextToolFailed = {
   name: "session.next.tool.failed.1"
   id: string
   seq: number
-  aggregateID: "sessionID"
+  aggregateID: string
   data: {
     timestamp: number
     sessionID: string
@@ -2354,7 +2354,7 @@ export type SyncEventSessionNextRetried = {
   name: "session.next.retried.1"
   id: string
   seq: number
-  aggregateID: "sessionID"
+  aggregateID: string
   data: {
     timestamp: number
     sessionID: string
@@ -2368,7 +2368,7 @@ export type SyncEventSessionNextCompactionStarted = {
   name: "session.next.compaction.started.1"
   id: string
   seq: number
-  aggregateID: "sessionID"
+  aggregateID: string
   data: {
     timestamp: number
     sessionID: string
@@ -2381,7 +2381,7 @@ export type SyncEventSessionNextCompactionDelta = {
   name: "session.next.compaction.delta.1"
   id: string
   seq: number
-  aggregateID: "sessionID"
+  aggregateID: string
   data: {
     timestamp: number
     sessionID: string
@@ -2394,7 +2394,7 @@ export type SyncEventSessionNextCompactionEnded = {
   name: "session.next.compaction.ended.1"
   id: string
   seq: number
-  aggregateID: "sessionID"
+  aggregateID: string
   data: {
     timestamp: number
     sessionID: string
@@ -2745,6 +2745,22 @@ export type EventSessionDeleted = {
   properties: {
     sessionID: string
     info: Session
+  }
+}
+
+export type EventServerConnected = {
+  id: string
+  type: "server.connected"
+  properties: {
+    [key: string]: unknown
+  }
+}
+
+export type EventGlobalDisposed = {
+  id: string
+  type: "global.disposed"
+  properties: {
+    [key: string]: unknown
   }
 }
 
@@ -3126,22 +3142,6 @@ export type EventSessionNextCompactionEnded = {
     sessionID: string
     text: string
     include?: string
-  }
-}
-
-export type EventServerConnected = {
-  id: string
-  type: "server.connected"
-  properties: {
-    [key: string]: unknown
-  }
-}
-
-export type EventGlobalDisposed = {
-  id: string
-  type: "global.disposed"
-  properties: {
-    [key: string]: unknown
   }
 }
 

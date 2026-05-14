@@ -15,7 +15,11 @@ export const InstanceRef = Schema.Struct({
 }).annotate({ identifier: "Event.Instance" })
 export type InstanceRef = Instance.Ref
 
-export type Definition<Type extends string = string, Data = unknown> = Schema.Schema<{
+export type Definition<
+  Type extends string = string,
+  Data = unknown,
+  DataSchema extends Schema.Schema<Data> = Schema.Schema<Data>,
+> = Schema.Schema<{
   readonly id: ID
   readonly metadata?: Record<string, unknown>
   readonly type: Type
@@ -25,7 +29,11 @@ export type Definition<Type extends string = string, Data = unknown> = Schema.Sc
 }> & {
   readonly type: Type
   readonly version?: number
-  readonly schema: Schema.Schema<Data>
+  readonly aggregate?: string
+  readonly schema: DataSchema
+  readonly fields: {
+    readonly data: DataSchema
+  }
 }
 
 export type Payload<D extends Definition = Definition> = Schema.Schema.Type<D>
@@ -36,8 +44,9 @@ export const registry = new Map<string, Definition>()
 export function define<const Type extends string, Fields extends Schema.Struct.Fields>(input: {
   readonly type: Type
   readonly version?: number
+  readonly aggregate?: string
   readonly schema: Fields
-}): Definition<Type, Schema.Schema.Type<Schema.Struct<Fields>>> {
+}): Definition<Type, Schema.Schema.Type<Schema.Struct<Fields>>, Schema.Struct<Fields>> {
   const Data = Schema.Struct(input.schema)
   const Payload = Schema.Struct({
     id: ID,
@@ -51,10 +60,11 @@ export function define<const Type extends string, Fields extends Schema.Struct.F
   const definition = Object.assign(Payload, {
     type: input.type,
     ...(input.version === undefined ? {} : { version: input.version }),
+    ...(input.aggregate === undefined ? {} : { aggregate: input.aggregate }),
     schema: Data,
   })
   registry.set(input.type, definition)
-  return definition as Definition<Type, Schema.Schema.Type<Schema.Struct<Fields>>>
+  return definition as Definition<Type, Schema.Schema.Type<Schema.Struct<Fields>>, Schema.Struct<Fields>>
 }
 
 export function definitions() {

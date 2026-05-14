@@ -20,7 +20,7 @@ import { makeRuntime } from "@/effect/run-service"
 import { serviceUse } from "@/effect/service-use"
 import { RuntimeFlags } from "@/effect/runtime-flags"
 import { SyncEvent } from "@/sync"
-import { SessionEvent } from "@/v2/session-event"
+import { SessionEvent } from "@opencode-ai/core/session-event"
 
 const log = Log.create({ service: "session.compaction" })
 
@@ -577,7 +577,7 @@ export const layer: Layer.Layer<
           },
         )
         if (flags.experimentalEventSystem) {
-          yield* sync.run(SessionEvent.Compaction.Ended.Sync, {
+          yield* sync.run(SessionEvent.Compaction.Ended, {
             sessionID: input.sessionID,
             timestamp: DateTime.makeUnsafe(Date.now()),
             text: summary ?? "",
@@ -613,7 +613,7 @@ export const layer: Layer.Layer<
         overflow: input.overflow,
       })
       if (flags.experimentalEventSystem) {
-        yield* sync.run(SessionEvent.Compaction.Started.Sync, {
+        yield* sync.run(SessionEvent.Compaction.Started, {
           sessionID: input.sessionID,
           timestamp: DateTime.makeUnsafe(Date.now()),
           reason: input.auto ? "auto" : "manual",

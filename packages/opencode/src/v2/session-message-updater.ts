@@ -1,5 +1,5 @@
 import { produce, type WritableDraft } from "immer"
-import { SessionEvent } from "./session-event"
+import { SessionEvent } from "@opencode-ai/core/session-event"
 import { SessionMessage } from "./session-message"
 
 export type MemoryState = {

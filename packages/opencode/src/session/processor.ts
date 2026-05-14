@@ -22,7 +22,7 @@ import { errorMessage } from "@/util/error"
 import * as Log from "@opencode-ai/core/util/log"
 import { isRecord } from "@/util/record"
 import { SyncEvent } from "@/sync"
-import { SessionEvent } from "@/v2/session-event"
+import { SessionEvent } from "@opencode-ai/core/session-event"
 import { ModelV2 } from "@opencode-ai/core/model"
 import { ProviderV2 } from "@opencode-ai/core/provider"
 import * as DateTime from "effect/DateTime"
@@ -236,7 +236,7 @@ export const layer: Layer.Layer<
             if (value.id in ctx.reasoningMap) return
             // TODO(v2): Temporary dual-write while migrating session messages to v2 events.
             if (flags.experimentalEventSystem) {
-              yield* sync.run(SessionEvent.Reasoning.Started.Sync, {
+              yield* sync.run(SessionEvent.Reasoning.Started, {
                 sessionID: ctx.sessionID,
                 reasoningID: value.id,
                 timestamp: DateTime.makeUnsafe(Date.now()),
@@ -271,7 +271,7 @@ export const layer: Layer.Layer<
             if (!(value.id in ctx.reasoningMap)) return
             // TODO(v2): Temporary dual-write while migrating session messages to v2 events.
             if (flags.experimentalEventSystem) {
-              yield* sync.run(SessionEvent.Reasoning.Ended.Sync, {
+              yield* sync.run(SessionEvent.Reasoning.Ended, {
                 sessionID: ctx.sessionID,
                 reasoningID: value.id,
                 text: ctx.reasoningMap[value.id].text,
@@ -292,7 +292,7 @@ export const layer: Layer.Layer<
             }
             // TODO(v2): Temporary dual-write while migrating session messages to v2 events.
             if (flags.experimentalEventSystem) {
-              yield* sync.run(SessionEvent.Tool.Input.Started.Sync, {
+              yield* sync.run(SessionEvent.Tool.Input.Started, {
                 sessionID: ctx.sessionID,
                 callID: value.id,
                 name: value.toolName,
@@ -323,7 +323,7 @@ export const layer: Layer.Layer<
           case "tool-input-end": {
             // TODO(v2): Temporary dual-write while migrating session messages to v2 events.
             if (flags.experimentalEventSystem) {
-              yield* sync.run(SessionEvent.Tool.Input.Ended.Sync, {
+              yield* sync.run(SessionEvent.Tool.Input.Ended, {
                 sessionID: ctx.sessionID,
                 callID: value.id,
                 text: "",
@@ -340,7 +340,7 @@ export const layer: Layer.Layer<
             const toolCall = yield* readToolCall(value.toolCallId)
             // TODO(v2): Temporary dual-write while migrating session messages to v2 events.
             if (flags.experimentalEventSystem) {
-              yield* sync.run(SessionEvent.Tool.Called.Sync, {
+              yield* sync.run(SessionEvent.Tool.Called, {
                 sessionID: ctx.sessionID,
                 callID: value.toolCallId,
                 tool: value.toolName,
@@ -426,7 +426,7 @@ export const layer: Layer.Layer<
             }
             // TODO(v2): Temporary dual-write while migrating session messages to v2 events.
             if (flags.experimentalEventSystem) {
-              yield* sync.run(SessionEvent.Tool.Success.Sync, {
+              yield* sync.run(SessionEvent.Tool.Success, {
                 sessionID: ctx.sessionID,
                 callID: value.toolCallId,
                 structured: output.metadata,
@@ -456,7 +456,7 @@ export const layer: Layer.Layer<
             const toolCall = yield* readToolCall(value.toolCallId)
             // TODO(v2): Temporary dual-write while migrating session messages to v2 events.
             if (flags.experimentalEventSystem) {
-              yield* sync.run(SessionEvent.Tool.Failed.Sync, {
+              yield* sync.run(SessionEvent.Tool.Failed, {
                 sessionID: ctx.sessionID,
                 callID: value.toolCallId,
                 error: {
@@ -481,7 +481,7 @@ export const layer: Layer.Layer<
             if (!ctx.assistantMessage.summary) {
               // TODO(v2): Temporary dual-write while migrating session messages to v2 events.
               if (flags.experimentalEventSystem) {
-                yield* sync.run(SessionEvent.Step.Started.Sync, {
+                yield* sync.run(SessionEvent.Step.Started, {
                   sessionID: ctx.sessionID,
                   agent: input.assistantMessage.agent,
                   model: {
@@ -513,7 +513,7 @@ export const layer: Layer.Layer<
             if (!ctx.assistantMessage.summary) {
               // TODO(v2): Temporary dual-write while migrating session messages to v2 events.
               if (flags.experimentalEventSystem) {
-                yield* sync.run(SessionEvent.Step.Ended.Sync, {
+                yield* sync.run(SessionEvent.Step.Ended, {
                   sessionID: ctx.sessionID,
                   finish: value.finishReason,
                   cost: usage.cost,
@@ -570,7 +570,7 @@ export const layer: Layer.Layer<
             if (!ctx.assistantMessage.summary) {
               // TODO(v2): Temporary dual-write while migrating session messages to v2 events.
               if (flags.experimentalEventSystem) {
-                yield* sync.run(SessionEvent.Text.Started.Sync, {
+                yield* sync.run(SessionEvent.Text.Started, {
                   sessionID: ctx.sessionID,
                   timestamp: DateTime.makeUnsafe(Date.now()),
                 })
@@ -617,7 +617,7 @@ export const layer: Layer.Layer<
             if (!ctx.assistantMessage.summary) {
               // TODO(v2): Temporary dual-write while migrating session messages to v2 events.
               if (flags.experimentalEventSystem) {
-                yield* sync.run(SessionEvent.Text.Ended.Sync, {
+                yield* sync.run(SessionEvent.Text.Ended, {
                   sessionID: ctx.sessionID,
                   text: ctx.currentText.text,
                   timestamp: DateTime.makeUnsafe(Date.now()),
@@ -713,7 +713,7 @@ export const layer: Layer.Layer<
         if (!ctx.assistantMessage.summary) {
           // TODO(v2): Temporary dual-write while migrating session messages to v2 events.
           if (flags.experimentalEventSystem) {
-            yield* sync.run(SessionEvent.Step.Failed.Sync, {
+            yield* sync.run(SessionEvent.Step.Failed, {
               sessionID: ctx.sessionID,
               error: {
                 type: "unknown",
@@ -767,7 +767,7 @@ export const layer: Layer.Layer<
                 set: (info) => {
                   // TODO(v2): Temporary dual-write while migrating session messages to v2 events.
                   const event = flags.experimentalEventSystem
-                    ? sync.run(SessionEvent.Retried.Sync, {
+                    ? sync.run(SessionEvent.Retried, {
                         sessionID: ctx.sessionID,
                         attempt: info.attempt,
                         error: {

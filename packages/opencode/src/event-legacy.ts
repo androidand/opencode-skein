@@ -3,6 +3,7 @@ import { GlobalBus } from "@/bus/global"
 import { SyncEvent } from "@/sync"
 import { Event } from "@opencode-ai/core/event"
 import "@opencode-ai/core/catalog"
+import "@opencode-ai/core/session-event"
 import { Effect, Layer, Stream } from "effect"
 
 function emitNormal(event: Event.Payload) {
@@ -41,7 +42,7 @@ const republish = (bus: ProjectBus.Interface) => (event: Event.Payload) => {
           name: SyncEvent.versionedType(definition.type, definition.version!),
           id: event.id,
           seq: 0,
-          aggregateID: event.id,
+          aggregateID: aggregateID(definition, event),
           data: event.data,
         },
       })
@@ -51,6 +52,12 @@ const republish = (bus: ProjectBus.Interface) => (event: Event.Payload) => {
   return bus.publish({ type: definition.type, properties: definition.schema }, event.data, { id: event.id }).pipe(
     Effect.catch(() => Effect.sync(() => emitNormal(event))),
   )
+}
+
+function aggregateID(definition: Event.Definition, event: Event.Payload) {
+  if (!definition.aggregate) return event.id
+  const value = (event.data as Record<string, unknown>)[definition.aggregate]
+  return typeof value === "string" ? value : event.id
 }
 
 export * as EventLegacy from "./event-legacy"

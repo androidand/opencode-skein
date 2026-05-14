@@ -8,7 +8,7 @@ import { SessionMessage } from "./session-message"
 import type { Prompt } from "@opencode-ai/core/session-prompt"
 import { EventV2 } from "./event"
 import { ProjectID } from "@/project/schema"
-import { SessionEvent } from "./session-event"
+import { SessionEvent } from "@opencode-ai/core/session-event"
 import { V2Schema } from "@opencode-ai/core/v2-schema"
 import { optionalOmitUndefined } from "@opencode-ai/core/schema"
 import { SyncEvent } from "@/sync"
@@ -292,14 +292,14 @@ export const layer = Layer.effect(
       shell: Effect.fn("V2Session.shell")(function* (_input) {}),
       skill: Effect.fn("V2Session.skill")(function* (_input) {}),
       switchAgent: Effect.fn("V2Session.switchAgent")(function* (input) {
-        yield* sync.run(SessionEvent.AgentSwitched.Sync, {
+        yield* sync.run(SessionEvent.AgentSwitched, {
           sessionID: input.sessionID,
           timestamp: DateTime.makeUnsafe(Date.now()),
           agent: input.agent,
         })
       }),
       switchModel: Effect.fn("V2Session.switchModel")(function* (input) {
-        yield* sync.run(SessionEvent.ModelSwitched.Sync, {
+        yield* sync.run(SessionEvent.ModelSwitched, {
           sessionID: input.sessionID,
           timestamp: DateTime.makeUnsafe(Date.now()),
           model: input.model,
