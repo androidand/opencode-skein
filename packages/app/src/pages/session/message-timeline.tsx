@@ -1,4 +1,4 @@
-import { createEffect, createMemo, createSignal, For, Index, on, onCleanup, Show, mapArray, type JSX } from "solid-js"
+import { createEffect, createMemo, createSignal, For, Index, on, onCleanup, Show, mapArray, type Accessor, type JSX } from "solid-js"
 import { createStore, produce } from "solid-js/store"
 import { Dynamic } from "solid-js/web"
 import { useNavigate } from "@solidjs/router"
@@ -74,6 +74,7 @@ type MessageComment = {
 
 const emptyMessages: MessageType[] = []
 const emptyParts: PartType[] = []
+const emptyTools: ToolPart[] = []
 const emptyAssistantMessages: AssistantMessage[] = []
 const idle = { type: "idle" as const }
 
@@ -98,6 +99,7 @@ type TimelineRow =
   | { key: string; type: "bottom-spacer" }
 
 type FramedTimelineRow = Exclude<TimelineRow, { type: "bottom-spacer" }>
+type TimelineRowByType<T extends TimelineRow["type"]> = Extract<TimelineRow, { type: T }>
 
 function sameKeys(a: readonly string[] | undefined, b: readonly string[] | undefined) {
   if (a === b) return true
@@ -1168,46 +1170,75 @@ export function MessageTimeline(props: {
   const partByRef = (messageID: string, partID: string) =>
     (sync.data.part[messageID] ?? emptyParts).find((part) => part.id === partID)
 
-  const renderAssistantPartGroup = (row: Extract<TimelineRow, { type: "assistant-part" }>) => {
-    if (row.group.type === "context") {
-      const parts = row.group.refs
-        .map((ref) => partByRef(ref.messageID, ref.partID))
-        .filter((part): part is ToolPart => part?.type === "tool")
+  const renderAssistantPartGroup = (row: Accessor<TimelineRowByType<"assistant-part">>) => {
+    if (row().group.type === "context") {
+      const parts = createMemo(() => {
+        const group = row().group
+        if (group.type !== "context") return emptyTools
+        return group.refs
+          .map((ref) => partByRef(ref.messageID, ref.partID))
+          .filter((part): part is ToolPart => part?.type === "tool")
+      })
 
-      return <ContextToolGroup parts={parts} busy={workingTurn(row.userMessageID) && row.lastAssistantPart} />
+      return <ContextToolGroup parts={parts()} busy={workingTurn(row().userMessageID) && row().lastAssistantPart} />
     }
 
-    const message = messageByID().get(row.group.ref.messageID)
-    const part = partByRef(row.group.ref.messageID, row.group.ref.partID)
-    if (!message || !part) return null
+    const message = createMemo(() => {
+      const group = row().group
+      if (group.type !== "part") return
+      return messageByID().get(group.ref.messageID)
+    })
+    const part = createMemo(() => {
+      const group = row().group
+      if (group.type !== "part") return
+      return partByRef(group.ref.messageID, group.ref.partID)
+    })
 
     return (
-      <MessagePart
-        part={part}
-        message={message}
-        showAssistantCopyPartID={assistantCopyPartID(row.userMessageID)}
-        turnDurationMs={turnDurationMs(row.userMessageID)}
-        defaultOpen={partDefaultOpen(part, settings.general.shellToolPartsExpanded(), settings.general.editToolPartsExpanded())}
-        deferToolContent={false}
-      />
+      <Show when={message()}>
+        {(message) => (
+          <Show when={part()}>
+            {(part) => (
+              <MessagePart
+                part={part()}
+                message={message()}
+                showAssistantCopyPartID={assistantCopyPartID(row().userMessageID)}
+                turnDurationMs={turnDurationMs(row().userMessageID)}
+                defaultOpen={partDefaultOpen(part(), settings.general.shellToolPartsExpanded(), settings.general.editToolPartsExpanded())}
+                deferToolContent={false}
+              />
+            )}
+          </Show>
+        )}
+      </Show>
     )
   }
 
-  function TimelineRowFrame(input: { row: FramedTimelineRow; children: JSX.Element }) {
-    const anchor = () => input.row.type === "comment-strip" || (input.row.type === "user-message" && input.row.anchor)
+  function TimelineRowFrame(input: { row: Accessor<FramedTimelineRow>; children: JSX.Element }) {
+    const anchor = () => {
+      const row = input.row()
+      return row.type === "comment-strip" || (row.type === "user-message" && row.anchor)
+    }
+    const previousUserMessage = () => {
+      const row = input.row()
+      return (row.type === "comment-strip" || row.type === "user-message") && row.previousUserMessage
+    }
+    const previousAssistantPart = () => {
+      const row = input.row()
+      return row.type === "assistant-part" && row.previousAssistantPart
+    }
 
     return (
       <div
-        id={anchor() ? props.anchor(input.row.userMessageID) : undefined}
-        data-message-id={input.row.userMessageID}
-        data-timeline-row={input.row.type}
+        id={anchor() ? props.anchor(input.row().userMessageID) : undefined}
+        data-message-id={input.row().userMessageID}
+        data-timeline-row={input.row().type}
         classList={{
           "min-w-0 w-full max-w-full": true,
           "md:max-w-200 2xl:max-w-[1000px]": props.centered,
           "md:mx-auto": props.centered,
-          "pt-6":
-            (input.row.type === "comment-strip" || input.row.type === "user-message") && input.row.previousUserMessage,
-          "pt-3": input.row.type === "assistant-part" && input.row.previousAssistantPart,
+          "pt-6": previousUserMessage(),
+          "pt-3": previousAssistantPart(),
         }}
       >
         <div data-component="session-turn" class="min-w-0 w-full relative" style={{ height: "auto" }}>
@@ -1217,15 +1248,17 @@ export function MessageTimeline(props: {
     )
   }
 
-  const renderTimelineRow = (row: TimelineRow) => {
-    switch (row.type) {
-      case "comment-strip":
+  const renderTimelineRow = (row: Accessor<TimelineRow>) => {
+    switch (row().type) {
+      case "comment-strip": {
+        const commentStripRow = row as Accessor<TimelineRowByType<"comment-strip">>
+        const comments = createMemo(() => messageComments(sync.data.part[commentStripRow().userMessageID] ?? emptyParts))
         return (
-          <TimelineRowFrame row={row}>
+          <TimelineRowFrame row={commentStripRow}>
             <div class="w-full px-4 md:px-5 pb-2">
               <div class="ml-auto max-w-[82%] overflow-x-auto no-scrollbar">
                 <div class="flex w-max min-w-full justify-end gap-2">
-                  <Index each={messageComments(sync.data.part[row.userMessageID] ?? emptyParts)}>
+                  <Index each={comments()}>
                     {(commentAccessor: () => MessageComment) => {
                       const comment = createMemo(() => commentAccessor())
                       return (
@@ -1259,78 +1292,98 @@ export function MessageTimeline(props: {
             </div>
           </TimelineRowFrame>
         )
+      }
       case "user-message": {
-        const message = messageByID().get(row.userMessageID)
-        if (!message || message.role !== "user") return null
+        const userRow = row as Accessor<TimelineRowByType<"user-message">>
+        const message = createMemo(() => {
+          const message = messageByID().get(userRow().userMessageID)
+          if (message?.role === "user") return message
+        })
         return (
-          <TimelineRowFrame row={row}>
-            <div data-slot="session-turn-message-container" class="w-full px-4 md:px-5">
-              <div data-slot="session-turn-message-content" aria-live="off">
-                <Message message={message} parts={sync.data.part[row.userMessageID] ?? emptyParts} actions={props.actions} />
-              </div>
-            </div>
+          <TimelineRowFrame row={userRow}>
+            <Show when={message()}>
+              {(message) => (
+                <div data-slot="session-turn-message-container" class="w-full px-4 md:px-5">
+                  <div data-slot="session-turn-message-content" aria-live="off">
+                    <Message message={message()} parts={sync.data.part[userRow().userMessageID] ?? emptyParts} actions={props.actions} />
+                  </div>
+                </div>
+              )}
+            </Show>
           </TimelineRowFrame>
         )
       }
-      case "turn-divider":
+      case "turn-divider": {
+        const dividerRow = row as Accessor<TimelineRowByType<"turn-divider">>
         return (
-          <TimelineRowFrame row={row}>
+          <TimelineRowFrame row={dividerRow}>
             <div data-slot="session-turn-message-container" class="w-full px-4 md:px-5">
               <div data-slot="session-turn-compaction">
                 <MessageDivider
-                  label={language.t(row.label === "compaction" ? "ui.messagePart.compaction" : "ui.message.interrupted")}
+                  label={language.t(dividerRow().label === "compaction" ? "ui.messagePart.compaction" : "ui.message.interrupted")}
                 />
               </div>
             </div>
           </TimelineRowFrame>
         )
-      case "assistant-part":
+      }
+      case "assistant-part": {
+        const assistantRow = row as Accessor<TimelineRowByType<"assistant-part">>
         return (
-          <TimelineRowFrame row={row}>
+          <TimelineRowFrame row={assistantRow}>
             <div data-slot="session-turn-message-container" class="w-full px-4 md:px-5">
-              <div data-slot="session-turn-assistant-content" aria-hidden={workingTurn(row.userMessageID)}>
-                {renderAssistantPartGroup(row)}
+              <div data-slot="session-turn-assistant-content" aria-hidden={workingTurn(assistantRow().userMessageID)}>
+                {renderAssistantPartGroup(assistantRow)}
               </div>
             </div>
           </TimelineRowFrame>
         )
-      case "thinking":
+      }
+      case "thinking": {
+        const thinkingRow = row as Accessor<TimelineRowByType<"thinking">>
         return (
-          <TimelineRowFrame row={row}>
+          <TimelineRowFrame row={thinkingRow}>
             <div data-slot="session-turn-message-container" class="w-full px-4 md:px-5">
               <TimelineThinkingRow
-                reasoningHeading={row.reasoningHeading}
+                reasoningHeading={thinkingRow().reasoningHeading}
                 showReasoningSummaries={settings.general.showReasoningSummaries()}
               />
             </div>
           </TimelineRowFrame>
         )
-      case "retry":
+      }
+      case "retry": {
+        const retryRow = row as Accessor<TimelineRowByType<"retry">>
         return (
-          <TimelineRowFrame row={row}>
+          <TimelineRowFrame row={retryRow}>
             <div data-slot="session-turn-message-container" class="w-full px-4 md:px-5">
-              <SessionRetry status={sessionStatus()} show={activeMessageID() === row.userMessageID} />
+              <SessionRetry status={sessionStatus()} show={activeMessageID() === retryRow().userMessageID} />
             </div>
           </TimelineRowFrame>
         )
-      case "diff-summary":
+      }
+      case "diff-summary": {
+        const diffSummaryRow = row as Accessor<TimelineRowByType<"diff-summary">>
         return (
-          <TimelineRowFrame row={row}>
+          <TimelineRowFrame row={diffSummaryRow}>
             <div data-slot="session-turn-message-container" class="w-full px-4 md:px-5">
-              <TimelineDiffSummaryRow diffs={row.diffs} />
+              <TimelineDiffSummaryRow diffs={diffSummaryRow().diffs} />
             </div>
           </TimelineRowFrame>
         )
-      case "error":
+      }
+      case "error": {
+        const errorRow = row as Accessor<TimelineRowByType<"error">>
         return (
-          <TimelineRowFrame row={row}>
+          <TimelineRowFrame row={errorRow}>
             <div data-slot="session-turn-message-container" class="w-full px-4 md:px-5">
               <Card variant="error" class="error-card">
-                {row.text}
+                {errorRow().text}
               </Card>
             </div>
           </TimelineRowFrame>
         )
+      }
       case "bottom-spacer":
         return <div data-timeline-row="bottom-spacer" aria-hidden="true" class="h-16" />
     }
@@ -1339,7 +1392,7 @@ export function MessageTimeline(props: {
   function TimelineRowView(props: { rowKey: string }) {
     const row = createMemo(() => timelineRowByKey().get(props.rowKey))
 
-    return <Show when={row()} keyed>{(item) => renderTimelineRow(item)}</Show>
+    return <Show when={row()}>{(item) => renderTimelineRow(item)}</Show>
   }
 
   return (
