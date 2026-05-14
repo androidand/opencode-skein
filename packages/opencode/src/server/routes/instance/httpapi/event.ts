@@ -1,8 +1,4 @@
 import { Bus } from "@/bus"
-import type { WorkspaceID } from "@/control-plane/schema"
-import { InstanceRef, WorkspaceRef } from "@/effect/instance-ref"
-import { InstanceState } from "@/effect/instance-state"
-import type { InstanceContext } from "@/project/instance"
 import * as Log from "@opencode-ai/core/util/log"
 import { Effect, Schema } from "effect"
 import * as Stream from "effect/Stream"
@@ -43,35 +39,38 @@ function eventData(data: unknown): Sse.Event {
   }
 }
 
-function eventResponse(bus: Bus.Interface, refs: { instance: InstanceContext; workspace?: WorkspaceID }) {
-  const events = bus.subscribeAll().pipe(
-    Stream.provideService(InstanceRef, refs.instance),
-    Stream.provideService(WorkspaceRef, refs.workspace),
-    Stream.takeUntil((event) => event.type === Bus.InstanceDisposed.type),
-  )
-  const heartbeat = Stream.tick("10 seconds").pipe(
-    Stream.drop(1),
-    Stream.map(() => ({ id: Bus.createID(), type: "server.heartbeat", properties: {} })),
-  )
+function eventResponse(bus: Bus.Interface) {
+  return Effect.gen(function* () {
+    const context = yield* Effect.context()
 
-  log.info("event connected")
-  return HttpServerResponse.stream(
-    Stream.make({ id: Bus.createID(), type: "server.connected", properties: {} }).pipe(
-      Stream.concat(events.pipe(Stream.merge(heartbeat, { haltStrategy: "left" }))),
-      Stream.map(eventData),
-      Stream.pipeThroughChannel(Sse.encode()),
-      Stream.encodeText,
-      Stream.ensuring(Effect.sync(() => log.info("event disconnected"))),
-    ),
-    {
-      contentType: "text/event-stream",
-      headers: {
-        "Cache-Control": "no-cache, no-transform",
-        "X-Accel-Buffering": "no",
-        "X-Content-Type-Options": "nosniff",
+    const events = bus.subscribeAll().pipe(
+      Stream.provideContext(context),
+      Stream.takeUntil((event) => event.type === Bus.InstanceDisposed.type),
+    )
+    const heartbeat = Stream.tick("10 seconds").pipe(
+      Stream.drop(1),
+      Stream.map(() => ({ id: Bus.createID(), type: "server.heartbeat", properties: {} })),
+    )
+
+    log.info("event connected")
+    return HttpServerResponse.stream(
+      Stream.make({ id: Bus.createID(), type: "server.connected", properties: {} }).pipe(
+        Stream.concat(events.pipe(Stream.merge(heartbeat, { haltStrategy: "left" }))),
+        Stream.map(eventData),
+        Stream.pipeThroughChannel(Sse.encode()),
+        Stream.encodeText,
+        Stream.ensuring(Effect.sync(() => log.info("event disconnected"))),
+      ),
+      {
+        contentType: "text/event-stream",
+        headers: {
+          "Cache-Control": "no-cache, no-transform",
+          "X-Accel-Buffering": "no",
+          "X-Content-Type-Options": "nosniff",
+        },
       },
-    },
-  )
+    )
+  })
 }
 
 export const eventHandlers = HttpApiBuilder.group(EventApi, "event", (handlers) =>
@@ -80,10 +79,7 @@ export const eventHandlers = HttpApiBuilder.group(EventApi, "event", (handlers) 
     return handlers.handleRaw(
       "subscribe",
       Effect.fn("EventHttpApi.subscribe")(function* () {
-        return eventResponse(bus, {
-          instance: yield* InstanceState.context,
-          workspace: yield* InstanceState.workspaceID,
-        })
+        return yield* eventResponse(bus)
       }),
     )
   }),
