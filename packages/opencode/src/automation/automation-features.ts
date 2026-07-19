@@ -46,7 +46,7 @@ const defaultConfig: AutomationFeaturesConfig = {
     cooldownPeriod: 30 * 1000,
   },
   patternDetection: {
-    enabled: false,
+    enabled: true,
     maxRepetitions: 5,
     timeWindow: 5 * 60 * 1000,
     similarityThreshold: 0.7,

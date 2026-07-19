@@ -56,6 +56,8 @@ import { reply, TestLLMServer } from "../lib/llm-server"
 import { RuntimeFlags } from "@/effect/runtime-flags"
 import { ProviderV2 } from "@opencode-ai/core/provider"
 import { ModelV2 } from "@opencode-ai/core/model"
+import { similarity as outputSimilarity } from "@/loop/loop"
+import { PatternDetection } from "@/pattern-detection/pattern-detection"
 
 const summary = Layer.succeed(
   SessionSummary.Service,
@@ -182,6 +184,7 @@ function makePrompt(input?: { processor?: "blocking" }) {
     status,
     Database.defaultLayer,
     EventV2Bridge.defaultLayer,
+    PatternDetection.defaultLayer,
   ).pipe(Layer.provideMerge(infra))
   const question = Question.layer.pipe(Layer.provideMerge(deps))
   const todo = Todo.layer.pipe(Layer.provideMerge(deps))
@@ -2323,4 +2326,56 @@ noLLMServer.instance(
       }
     }),
   30_000,
+)
+
+// Regression tests: loop detection
+
+noLLMServer.instance(
+  "bigram loop detection: identical text produces similarity >= 0.92 threshold",
+  () =>
+    Effect.gen(function* () {
+      // Regression: verify the bigram similarity function still works correctly
+      // after PatternDetection was wired into the prompt loop
+      const sameText = "Thinking... I need to continue working on this task."
+      const sim = outputSimilarity(sameText, sameText)
+      expect(sim).toBeGreaterThanOrEqual(0.92)
+
+      // Near-identical text should also exceed threshold
+      const nearIdentical = "Thinking... I need to continue working on this task"
+      const sim2 = outputSimilarity(sameText, nearIdentical)
+      expect(sim2).toBeGreaterThanOrEqual(0.92)
+
+      // Different text should not exceed threshold
+      const different = "I have completed the task and am ready to move on."
+      const sim3 = outputSimilarity(sameText, different)
+      expect(sim3).toBeLessThan(0.92)
+    }),
+)
+
+noLLMServer.instance(
+  "PatternDetection does not trigger on varying tool usage",
+  () =>
+    Effect.gen(function* () {
+      // Regression: verify PatternDetection doesn't false-positive on
+      // legitimate varying tool sequences
+      const pd = yield* PatternDetection.Service
+
+      // Update config for faster testing
+      yield* pd.updateConfig({
+        maxRepetitions: 3,
+        timeWindow: 60_000,
+        similarityThreshold: 0.7,
+      })
+
+      // Varying tool usage should NOT trigger pattern detection
+      const varyingToolUsages = ["read", "bash", "write", "read,bash", "glob", "read,write"]
+      for (const toolUsage of varyingToolUsages) {
+        const detected = yield* pd.detectPattern(
+          `Processing step ${varyingToolUsages.indexOf(toolUsage) + 1} of the task`,
+          toolUsage,
+        )
+        expect(detected).toBe(false)
+      }
+    }),
+  { config: cfg },
 )

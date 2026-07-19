@@ -61,11 +61,34 @@ import { SessionTable } from "@opencode-ai/core/session/sql"
 import { SessionReminders } from "./reminders"
 import { SessionTools } from "./tools"
 import { LLMEvent } from "@opencode-ai/llm"
-import { similarity as outputSimilarity } from "@/loop/loop"
 import { PatternDetection } from "@/pattern-detection/pattern-detection"
 
 // @ts-ignore
 globalThis.AI_SDK_LOG_WARNINGS = false
+
+// fork: bigram similarity for loop detection — cheap, dependency-free,
+// and forgiving of small formatting drift between otherwise-repeated
+// iteration output. 1 = identical, 0 = nothing in common.
+function normalize(text: string) {
+  return text.trim().toLowerCase().replace(/\s+/g, " ")
+}
+function bigrams(text: string) {
+  const grams = new Set<string>()
+  for (let i = 0; i < text.length - 1; i++) grams.add(text.slice(i, i + 2))
+  return grams
+}
+function outputSimilarity(a: string, b: string): number {
+  const na = normalize(a)
+  const nb = normalize(b)
+  if (na === nb) return 1
+  if (!na || !nb) return 0
+  const ga = bigrams(na)
+  const gb = bigrams(nb)
+  if (ga.size === 0 || gb.size === 0) return 0
+  let intersection = 0
+  for (const gram of ga) if (gb.has(gram)) intersection++
+  return (2 * intersection) / (ga.size + gb.size)
+}
 
 // fork: loop detection — if consecutive assistant turns produce near-identical
 // output with no tool calls, the agent is stuck in a text loop (e.g. endlessly
