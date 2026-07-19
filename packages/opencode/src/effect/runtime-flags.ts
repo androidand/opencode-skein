@@ -53,6 +53,36 @@ export class Service extends ConfigService.Service<Service>()("@opencode/Runtime
   experimentalNativeLlm: bool("OPENCODE_EXPERIMENTAL_NATIVE_LLM"),
   experimentalWebSockets: bool("OPENCODE_EXPERIMENTAL_WEBSOCKETS"),
   client: Config.string("OPENCODE_CLIENT").pipe(Config.withDefault("cli")),
+  // CLI/TUI feature flags
+  showTtfD: bool("OPENCODE_SHOW_TTFD"),
+  autoHeapSnapshot: bool("OPENCODE_AUTO_HEAP_SNAPSHOT"),
+  alwaysNotifyUpdate: bool("OPENCODE_ALWAYS_NOTIFY_UPDATE"),
+  disableAutoupdate: bool("OPENCODE_DISABLE_AUTOUPDATE"),
+  disableProjectConfig: bool("OPENCODE_DISABLE_PROJECT_CONFIG"),
+  disableAutocompact: bool("OPENCODE_DISABLE_AUTOCOMPACT"),
+  disablePrune: bool("OPENCODE_DISABLE_PRUNE"),
+  disableTerminalTitle: bool("OPENCODE_DISABLE_TERMINAL_TITLE"),
+  disableModelsFetch: bool("OPENCODE_DISABLE_MODELS_FETCH"),
+  disableMouse: bool("OPENCODE_DISABLE_MOUSE"),
+  // Server/auth
+  serverPassword: Config.string("OPENCODE_SERVER_PASSWORD").pipe(Config.option),
+  serverUsername: Config.string("OPENCODE_SERVER_USERNAME").pipe(Config.withDefault("opencode")),
+  // Config paths
+  config: Config.string("OPENCODE_CONFIG").pipe(Config.option),
+  configDir: Config.string("OPENCODE_CONFIG_DIR").pipe(Config.option),
+  configContent: Config.string("OPENCODE_CONFIG_CONTENT").pipe(Config.option),
+  tuiConfig: Config.string("OPENCODE_TUI_CONFIG").pipe(Config.option),
+  permission: Config.string("OPENCODE_PERMISSION").pipe(Config.option),
+  // Git/tooling
+  gitBashPath: Config.string("OPENCODE_GIT_BASH_PATH").pipe(Config.option),
+  fakeVcs: Config.string("OPENCODE_FAKE_VCS").pipe(Config.option),
+  // Workspace
+  workspaceId: Config.string("OPENCODE_WORKSPACE_ID").pipe(Config.option),
+  // Plugin
+  pluginMetaFile: Config.string("OPENCODE_PLUGIN_META_FILE").pipe(Config.option),
+  // Observability
+  otlpEndpoint: Config.string("OTEL_EXPORTER_OTLP_ENDPOINT").pipe(Config.option),
+  otlpHeaders: Config.string("OTEL_EXPORTER_OTLP_HEADERS").pipe(Config.option),
 }) {}
 
 export type Info = Context.Service.Shape<typeof Service>

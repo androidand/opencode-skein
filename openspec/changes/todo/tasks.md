@@ -19,8 +19,7 @@
   - Search CLI handler output paths (src/cli/commands/*.ts, src/cli/cmd/run/*.surface.ts) and TUI error surfaces for patterns like `String(error)` or `error.toString()` on Effect-failures.
   - For each occurrence: ensure the error's schema fields (e.g. `reason`, `ref`) are rendered, or route through a typed error renderer.
   - Validation: `cd packages/opencode && npm run build` — compiles; run the CLI with a known typed failure and verify structured fields appear (not `Error: Name`).
-
-- [ ] `RF-5` Sweep `Flag.*` reads in CLI/TUI/config/observability (20+ files still import flag.ts).
+- [x] `RF-5` Sweep `Flag.*` reads in CLI/TUI/config/observability (20+ files still import flag.ts).
   - `git grep -l 'Flag\.' -- '*.ts'` to get current inventory (~20 files).
   - Per callsite: route through `RuntimeFlags`, accept as env/config boundary, or migrate to typed `Config`. No Flag imports left in opencode package code (test fixtures and core-only env reads OK).
   - Validation: `cd packages/opencode && npm run build` — compiles; `git grep 'from.*flag/flag' -- 'packages/opencode/**/*.ts'` returns 0.

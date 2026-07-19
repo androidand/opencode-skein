@@ -72,6 +72,63 @@ export function cliErrorMessage(input: unknown): string | undefined {
     const name = isRecord(input.data) ? field(input.data, "name") : undefined
     return `MCP server "${name}" failed. Note, opencode does not support MCP authentication yet.`
   }
+
+  const auth = configData(input, "ProviderAuthError")
+  if (auth) {
+    const provider = field(auth, "providerID")
+    return provider
+      ? `Authentication failed for provider "${provider}". Check your credentials and configuration.`
+      : "Authentication failed. Check your credentials and configuration."
+  }
+
+  const aborted = configData(input, "MessageAbortedError")
+  if (aborted) return field(aborted, "message") ?? "Message was aborted."
+
+  const outputLen = configData(input, "MessageOutputLengthError")
+  if (outputLen) {
+    return "Response was too long and was truncated. Try narrowing your request or using a larger model."
+  }
+
+  const structured = configData(input, "StructuredOutputError")
+  if (structured) {
+    const retries = field(structured, "retries")
+    const message = field(structured, "message")
+    return message ?? (retries ? `Structured output failed (attempt ${retries}).` : "Structured output failed.")
+  }
+
+  const ctxOverflow = configData(input, "ContextOverflowError")
+  if (ctxOverflow) {
+    const message = field(ctxOverflow, "message")
+    return message ?? "Conversation exceeded context window. Try a new session or clear history."
+  }
+
+  const contentFilter = configData(input, "ContentFilterError")
+  if (contentFilter) {
+    const message = field(contentFilter, "message")
+    return message ?? "Response was filtered by content safety settings."
+  }
+
+  const apiErr = configData(input, "APIError")
+  if (apiErr) {
+    const statusCode = field(apiErr, "statusCode")
+    const message = field(apiErr, "message")
+    const retryable = apiErr.isRetryable === true
+    const parts = [`API request failed`]
+    if (statusCode) parts.push(`(HTTP ${statusCode})`)
+    if (message) parts.push(`: ${message}`)
+    if (retryable) parts.push("This request may succeed if retried.")
+    return parts.join("")
+  }
+
+  const configRemote = configData(input, "ConfigRemoteAuthError")
+  if (configRemote) {
+    const url = field(configRemote, "url")
+    const remote = field(configRemote, "remote")
+    return remote
+      ? `Authentication failed with remote server "${remote}" at ${url}.`
+      : `Authentication failed with remote server at ${url}.`
+  }
+
   return undefined
 }
 
