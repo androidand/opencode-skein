@@ -1,37 +1,38 @@
-import { BusEvent } from "@/bus/bus-event"
-import { Bus } from "@/bus"
-import * as Session from "./session"
+import { LayerNode } from "@opencode-ai/core/effect/layer-node"
+import { SessionV1 } from "@opencode-ai/core/v1/session"
+import { ConfigV1 } from "@opencode-ai/core/v1/config/config"
+import { Session } from "./session"
 import { SessionID, MessageID, PartID } from "./schema"
 import { Provider } from "@/provider/provider"
 import { MessageV2 } from "./message-v2"
 import { Token } from "@/util/token"
-import * as Log from "@opencode-ai/core/util/log"
 import { SessionProcessor } from "./processor"
 import { Agent } from "@/agent/agent"
 import { Plugin } from "@/plugin"
 import { Config } from "@/config/config"
 import { NotFoundError } from "@/storage/storage"
-import { ModelID, ProviderID } from "@/provider/schema"
-import { Effect, Layer, Context, Schema } from "effect"
+
+import { Effect, Layer, Context } from "effect"
 import * as DateTime from "effect/DateTime"
 import { InstanceState } from "@/effect/instance-state"
 import { isOverflow as overflow, usable } from "./overflow"
-import { makeRuntime } from "@/effect/run-service"
-import { serviceUse } from "@/effect/service-use"
+import { serviceUse } from "@opencode-ai/core/effect/service-use"
 import { RuntimeFlags } from "@/effect/runtime-flags"
-import { EventV2 } from "@opencode-ai/core/event"
 import { EventV2Bridge } from "@/event-v2-bridge"
-import { SessionEvent } from "@opencode-ai/core/session-event"
-
-const log = Log.create({ service: "session.compaction" })
+import { SessionEvent } from "@opencode-ai/core/session/event"
+import { SessionMessage } from "@opencode-ai/core/session/message"
+import { ProviderV2 } from "@opencode-ai/core/provider"
+import { ModelV2 } from "@opencode-ai/core/model"
+import { EventV2 } from "@opencode-ai/core/event"
+import { buildPrompt } from "@opencode-ai/core/session/compaction"
 
 export const Event = {
-  Compacted: BusEvent.define(
-    "session.compacted",
-    Schema.Struct({
+  Compacted: EventV2.define({
+    type: "session.compacted",
+    schema: {
       sessionID: SessionID,
-    }),
-  ),
+    },
+  }),
 }
 
 export const PRUNE_MINIMUM = 20_000
@@ -41,42 +42,6 @@ const PRUNE_PROTECTED_TOOLS = ["skill"]
 const DEFAULT_TAIL_TURNS = 2
 const MIN_PRESERVE_RECENT_TOKENS = 2_000
 const MAX_PRESERVE_RECENT_TOKENS = 8_000
-const SUMMARY_TEMPLATE = `Output exactly the Markdown structure shown inside <template> and keep the section order unchanged. Do not include the <template> tags in your response.
-<template>
-## Goal
-- [single-sentence task summary]
-
-## Constraints & Preferences
-- [user constraints, preferences, specs, or "(none)"]
-
-## Progress
-### Done
-- [completed work or "(none)"]
-
-### In Progress
-- [current work or "(none)"]
-
-### Blocked
-- [blockers or "(none)"]
-
-## Key Decisions
-- [decision and why, or "(none)"]
-
-## Next Steps
-- [ordered next actions or "(none)"]
-
-## Critical Context
-- [important technical facts, errors, open questions, or "(none)"]
-
-## Relevant Files
-- [file or directory path: why it matters, or "(none)"]
-</template>
-
-Rules:
-- Keep every section, even when empty.
-- Use terse bullets, not prose paragraphs.
-- Preserve exact file paths, commands, error strings, and identifiers when known.
-- Do not mention the summary process or that context was compacted.`
 type Turn = {
   start: number
   end: number
@@ -94,9 +59,9 @@ type CompletedCompaction = {
   summary: string | undefined
 }
 
-function summaryText(message: MessageV2.WithParts) {
+function summaryText(message: SessionV1.WithParts) {
   const text = message.parts
-    .filter((part): part is MessageV2.TextPart => part.type === "text")
+    .filter((part): part is SessionV1.TextPart => part.type === "text")
     .map((part) => part.text.trim())
     .filter(Boolean)
     .join("\n\n")
@@ -104,7 +69,7 @@ function summaryText(message: MessageV2.WithParts) {
   return text || undefined
 }
 
-function completedCompactions(messages: MessageV2.WithParts[]) {
+function completedCompactions(messages: SessionV1.WithParts[]) {
   const users = new Map<MessageID, number>()
   for (let i = 0; i < messages.length; i++) {
     const msg = messages[i]
@@ -122,27 +87,14 @@ function completedCompactions(messages: MessageV2.WithParts[]) {
   })
 }
 
-function buildPrompt(input: { previousSummary?: string; context: string[] }) {
-  const anchor = input.previousSummary
-    ? [
-        "Update the anchored summary below using the conversation history above.",
-        "Preserve still-true details, remove stale details, and merge in the new facts.",
-        "<previous-summary>",
-        input.previousSummary,
-        "</previous-summary>",
-      ].join("\n")
-    : "Create a new anchored summary from the conversation history above."
-  return [anchor, SUMMARY_TEMPLATE, ...input.context].join("\n\n")
-}
-
-function preserveRecentBudget(input: { cfg: Config.Info; model: Provider.Model }) {
+function preserveRecentBudget(input: { cfg: ConfigV1.Info; model: Provider.Model }) {
   return (
     input.cfg.compaction?.preserve_recent_tokens ??
     Math.min(MAX_PRESERVE_RECENT_TOKENS, Math.max(MIN_PRESERVE_RECENT_TOKENS, Math.floor(usable(input) * 0.25)))
   )
 }
 
-function turns(messages: MessageV2.WithParts[]) {
+function turns(messages: SessionV1.WithParts[]) {
   const result: Turn[] = []
   for (let i = 0; i < messages.length; i++) {
     const msg = messages[i]
@@ -161,11 +113,11 @@ function turns(messages: MessageV2.WithParts[]) {
 }
 
 function splitTurn(input: {
-  messages: MessageV2.WithParts[]
+  messages: SessionV1.WithParts[]
   turn: Turn
   model: Provider.Model
   budget: number
-  estimate: (input: { messages: MessageV2.WithParts[]; model: Provider.Model }) => Effect.Effect<number>
+  estimate: (input: { messages: SessionV1.WithParts[]; model: Provider.Model }) => Effect.Effect<number>
 }) {
   return Effect.gen(function* () {
     if (input.budget <= 0) return undefined
@@ -187,13 +139,17 @@ function splitTurn(input: {
 
 export interface Interface {
   readonly isOverflow: (input: {
-    tokens: MessageV2.Assistant["tokens"]
+    tokens: SessionV1.Assistant["tokens"]
     model: Provider.Model
+    // fork: the messages about to be sent. When provided, isOverflow also
+    // estimates the *outgoing* prompt and triggers if it approaches the budget —
+    // catching growth (tool results, file reads) the last turn's `tokens` missed.
+    messages?: SessionV1.WithParts[]
   }) => Effect.Effect<boolean>
   readonly prune: (input: { sessionID: SessionID }) => Effect.Effect<void>
   readonly process: (input: {
     parentID: MessageID
-    messages: MessageV2.WithParts[]
+    messages: SessionV1.WithParts[]
     sessionID: SessionID
     auto: boolean
     overflow?: boolean
@@ -201,7 +157,7 @@ export interface Interface {
   readonly create: (input: {
     sessionID: SessionID
     agent: string
-    model: { providerID: ProviderID; modelID: ModelID }
+    model: { providerID: ProviderV2.ID; modelID: ModelV2.ID }
     auto: boolean
     overflow?: boolean
   }) => Effect.Effect<void>
@@ -214,7 +170,6 @@ export const use = serviceUse(Service)
 export const layer = Layer.effect(
   Service,
   Effect.gen(function* () {
-    const bus = yield* Bus.Service
     const config = yield* Config.Service
     const session = yield* Session.Service
     const agents = yield* Agent.Service
@@ -225,19 +180,30 @@ export const layer = Layer.effect(
     const flags = yield* RuntimeFlags.Service
 
     const isOverflow = Effect.fn("SessionCompaction.isOverflow")(function* (input: {
-      tokens: MessageV2.Assistant["tokens"]
+      tokens: SessionV1.Assistant["tokens"]
       model: Provider.Model
+      messages?: SessionV1.WithParts[]
     }) {
-      return overflow({
-        cfg: yield* config.get(),
-        tokens: input.tokens,
-        model: input.model,
-        outputTokenMax: flags.outputTokenMax,
-      })
+      const cfg = yield* config.get()
+      // Lagging indicator: the last completed assistant turn's reported usage.
+      if (overflow({ cfg, tokens: input.tokens, model: input.model, outputTokenMax: flags.outputTokenMax })) return true
+      // fork: leading indicator. The reported usage above is a turn behind — a
+      // single large tool result or file read can grow the *next* prompt past
+      // the model's max_safe_ctx before any turn ever measured it (the cause of
+      // mid-session "context exceeded" 413s on local backends). Estimate the
+      // assembled outgoing prompt and compact pre-emptively when it nears budget.
+      if (input.messages?.length && cfg.compaction?.auto !== false) {
+        const budget = usable({ cfg, model: input.model, outputTokenMax: flags.outputTokenMax })
+        if (budget > 0) {
+          const size = yield* estimate({ messages: input.messages, model: input.model })
+          if (size >= budget) return true
+        }
+      }
+      return false
     })
 
     const estimate = Effect.fn("SessionCompaction.estimate")(function* (input: {
-      messages: MessageV2.WithParts[]
+      messages: SessionV1.WithParts[]
       model: Provider.Model
     }) {
       const msgs = yield* MessageV2.toModelMessagesEffect(input.messages, input.model)
@@ -245,8 +211,8 @@ export const layer = Layer.effect(
     })
 
     const select = Effect.fn("SessionCompaction.select")(function* (input: {
-      messages: MessageV2.WithParts[]
-      cfg: Config.Info
+      messages: SessionV1.WithParts[]
+      cfg: ConfigV1.Info
       model: Provider.Model
     }) {
       const limit = input.cfg.compaction?.tail_turns ?? DEFAULT_TAIL_TURNS
@@ -284,7 +250,9 @@ export const layer = Layer.effect(
           estimate,
         })
         if (split) keep = split
-        else if (!keep) log.info("tail fallback", { budget, size, total })
+        else if (!keep) {
+          yield* Effect.logInfo("tail fallback", { budget, size, total })
+        }
         break
       }
 
@@ -300,7 +268,7 @@ export const layer = Layer.effect(
     const prune = Effect.fn("SessionCompaction.prune")(function* (input: { sessionID: SessionID }) {
       const cfg = yield* config.get()
       if (!cfg.compaction?.prune) return
-      log.info("pruning")
+      yield* Effect.logInfo("pruning")
 
       const msgs = yield* session
         .messages({ sessionID: input.sessionID })
@@ -309,7 +277,7 @@ export const layer = Layer.effect(
 
       let total = 0
       let pruned = 0
-      const toPrune: MessageV2.ToolPart[] = []
+      const toPrune: SessionV1.ToolPart[] = []
       let turns = 0
 
       loop: for (let msgIndex = msgs.length - 1; msgIndex >= 0; msgIndex--) {
@@ -331,7 +299,7 @@ export const layer = Layer.effect(
         }
       }
 
-      log.info("found", { pruned, total })
+      yield* Effect.logInfo("found", { pruned, total })
       if (pruned > PRUNE_MINIMUM) {
         for (const part of toPrune) {
           if (part.state.status === "completed") {
@@ -339,13 +307,13 @@ export const layer = Layer.effect(
             yield* session.updatePart(part)
           }
         }
-        log.info("pruned", { count: toPrune.length })
+        yield* Effect.logInfo("pruned", { count: toPrune.length })
       }
     })
 
     const processCompaction = Effect.fn("SessionCompaction.process")(function* (input: {
       parentID: MessageID
-      messages: MessageV2.WithParts[]
+      messages: SessionV1.WithParts[]
       sessionID: SessionID
       auto: boolean
       overflow?: boolean
@@ -355,13 +323,13 @@ export const layer = Layer.effect(
         throw new Error(`Compaction parent must be a user message: ${input.parentID}`)
       }
       const userMessage = parent.info
-      const compactionPart = parent.parts.find((part): part is MessageV2.CompactionPart => part.type === "compaction")
+      const compactionPart = parent.parts.find((part): part is SessionV1.CompactionPart => part.type === "compaction")
 
       let messages = input.messages
       let replay:
         | {
-            info: MessageV2.User
-            parts: MessageV2.Part[]
+            info: SessionV1.User
+            parts: SessionV1.Part[]
           }
         | undefined
       if (input.overflow) {
@@ -409,8 +377,20 @@ export const layer = Layer.effect(
         stripMedia: true,
         toolOutputMaxChars: TOOL_OUTPUT_MAX_CHARS,
       })
+      const tailIndex = selected.tail_start_id
+        ? history.findIndex((message) => message.info.id === selected.tail_start_id)
+        : -1
+      const recent =
+        tailIndex < 0
+          ? ""
+          : JSON.stringify(
+              yield* MessageV2.toModelMessagesEffect(history.slice(tailIndex), model, {
+                stripMedia: true,
+                toolOutputMaxChars: TOOL_OUTPUT_MAX_CHARS,
+              }),
+            )
       const ctx = yield* InstanceState.context
-      const msg: MessageV2.Assistant = {
+      const msg: SessionV1.Assistant = {
         id: MessageID.ascending(),
         role: "assistant",
         parentID: input.parentID,
@@ -442,7 +422,7 @@ export const layer = Layer.effect(
         sessionID: input.sessionID,
         model,
       })
-      const result = yield* processor.process({
+      let result = yield* processor.process({
         user: userMessage,
         agent,
         sessionID: input.sessionID,
@@ -457,16 +437,84 @@ export const layer = Layer.effect(
         ],
         model,
       })
+      // The message carrying the summary — swapped to the retry processor's
+      // message when the first pass overflows (processor.message is a getter;
+      // it cannot be reassigned).
+      let activeMessage = processor.message
 
       if (result === "compact") {
-        processor.message.error = new MessageV2.ContextOverflowError({
-          message: replay
-            ? "Conversation history too large to compact - exceeds model context limit"
-            : "Session too large to compact - context exceeds model limit even after stripping media",
-        }).toObject()
-        processor.message.finish = "error"
-        yield* session.updateMessage(processor.message)
-        return "stop"
+        // Compaction itself overflowed — retry with aggressive truncation
+        // (keep only the most recent user turn) so the session doesn't get stuck.
+        yield* Effect.logWarning("compaction overflow, retrying with aggressive truncation", {
+          sessionID: input.sessionID,
+        })
+
+        // Find the last user message with actual content for minimal context
+        const lastUserMsg = input.messages.findLast(
+          (m) => m.info.role === "user" && !m.parts.some((p) => p.type === "compaction"),
+        )
+        const minimalHead = lastUserMsg ? [lastUserMsg] : []
+
+        const minimalModelMsgs = yield* MessageV2.toModelMessagesEffect(minimalHead, model, {
+          stripMedia: true,
+          toolOutputMaxChars: TOOL_OUTPUT_MAX_CHARS,
+        })
+
+        // Create a fresh processor for the retry
+        const retryMsg: SessionV1.Assistant = {
+          ...msg,
+          id: MessageID.ascending(),
+        }
+        yield* session.updateMessage(retryMsg)
+        const retryProcessor = yield* processors.create({
+          assistantMessage: retryMsg,
+          sessionID: input.sessionID,
+          model,
+        })
+        const retryResult = yield* retryProcessor.process({
+          user: userMessage,
+          agent,
+          sessionID: input.sessionID,
+          tools: {},
+          system: [],
+          messages: [
+            ...minimalModelMsgs,
+            {
+              role: "user",
+              content: [{ type: "text", text: nextPrompt }],
+            },
+          ],
+          model,
+        })
+
+        if (retryResult === "compact") {
+          // Even minimal context overflows — write a hardcoded summary
+          // so the auto-continue path can still run.
+          yield* Effect.logWarning("compaction retry also overflowed, using minimal summary", {
+            sessionID: input.sessionID,
+          })
+          retryProcessor.message.error = undefined
+          retryProcessor.message.finish = "stop"
+          yield* session.updateMessage(retryProcessor.message)
+
+          // Write a minimal summary part so the session has something to continue from
+          yield* session.updatePart({
+            id: PartID.ascending(),
+            messageID: retryMsg.id,
+            sessionID: input.sessionID,
+            type: "text",
+            text: "Context exceeded. The conversation was too large to summarize automatically.",
+            time: { start: Date.now(), end: Date.now() },
+          })
+
+          // Don't return "stop" — let the auto-continue path below handle recovery
+          activeMessage = retryProcessor.message
+          result = "continue"
+        } else {
+          // Retry succeeded — swap in the retry processor's result
+          activeMessage = retryProcessor.message
+          result = retryResult
+        }
       }
 
       if (compactionPart && selected.tail_start_id && compactionPart.tail_start_id !== selected.tail_start_id) {
@@ -539,7 +587,7 @@ export const layer = Layer.effect(
               (input.overflow
                 ? "The previous request exceeded the provider's size limit due to large media attachments. The conversation was compacted and media files were removed from context. If the user was asking about attached images or files, explain that the attachments were too large to process and suggest they try again with smaller or fewer files.\n\n"
                 : "") +
-              "Continue if you have next steps, or stop and ask for clarification if you are unsure how to proceed."
+              "Continue if you have next steps, or stop and ask for clarification if you are unsure how to proceed. Focus only on the active user request and the compacted summary above. Avoid restarting broad exploration; use the minimum additional tools needed, then answer."
             yield* session.updatePart({
               id: PartID.ascending(),
               messageID: continueMsg.id,
@@ -560,25 +608,28 @@ export const layer = Layer.effect(
         }
       }
 
-      if (processor.message.error) return "stop"
+      if (activeMessage.error) return "stop"
       if (result === "continue") {
         const summary = summaryText(
           (yield* session.messages({ sessionID: input.sessionID }).pipe(Effect.orDie)).find(
-            (item) => item.info.id === msg.id,
+            (item) => item.info.id === activeMessage.id,
           ) ?? {
-            info: msg,
+            info: activeMessage,
             parts: [],
           },
         )
         if (flags.experimentalEventSystem) {
-          yield* events.publish(SessionEvent.Compaction.Ended, {
-            sessionID: input.sessionID,
-            timestamp: DateTime.makeUnsafe(Date.now()),
-            text: summary ?? "",
-            include: selected.tail_start_id,
-          })
+          if (summary)
+            yield* events.publish(SessionEvent.Compaction.Ended, {
+              sessionID: input.sessionID,
+              messageID: SessionMessage.ID.make(input.parentID),
+              timestamp: DateTime.makeUnsafe(Date.now()),
+              reason: input.auto ? "auto" : "manual",
+              text: summary ?? "",
+              recent,
+            })
         }
-        yield* bus.publish(Event.Compacted, { sessionID: input.sessionID })
+        yield* events.publish(Event.Compacted, { sessionID: input.sessionID })
       }
       return result
     })
@@ -586,7 +637,7 @@ export const layer = Layer.effect(
     const create = Effect.fn("SessionCompaction.create")(function* (input: {
       sessionID: SessionID
       agent: string
-      model: { providerID: ProviderID; modelID: ModelID }
+      model: { providerID: ProviderV2.ID; modelID: ModelV2.ID }
       auto: boolean
       overflow?: boolean
     }) {
@@ -609,6 +660,7 @@ export const layer = Layer.effect(
       if (flags.experimentalEventSystem) {
         yield* events.publish(SessionEvent.Compaction.Started, {
           sessionID: input.sessionID,
+          messageID: SessionMessage.ID.make(msg.id),
           timestamp: DateTime.makeUnsafe(Date.now()),
           reason: input.auto ? "auto" : "manual",
         })
@@ -631,21 +683,21 @@ export const defaultLayer = Layer.suspend(() =>
     Layer.provide(SessionProcessor.defaultLayer),
     Layer.provide(Agent.defaultLayer),
     Layer.provide(Plugin.defaultLayer),
-    Layer.provide(Bus.layer),
     Layer.provide(Config.defaultLayer),
     Layer.provide(RuntimeFlags.defaultLayer),
     Layer.provide(EventV2Bridge.defaultLayer),
   ),
 )
 
-const { runPromise } = makeRuntime(Service, defaultLayer)
-
-export async function isOverflow(input: { tokens: MessageV2.Assistant["tokens"]; model: Provider.Model }) {
-  return runPromise((svc) => svc.isOverflow(input))
-}
-
-export async function prune(input: { sessionID: SessionID }) {
-  return runPromise((svc) => svc.prune(input))
-}
+export const node = LayerNode.make(layer, [
+  Config.node,
+  Session.node,
+  Agent.node,
+  Plugin.node,
+  SessionProcessor.node,
+  Provider.node,
+  EventV2Bridge.node,
+  RuntimeFlags.node,
+])
 
 export * as SessionCompaction from "./compaction"

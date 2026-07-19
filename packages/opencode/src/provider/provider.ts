@@ -1,18 +1,28 @@
+import { LayerNode } from "@opencode-ai/core/effect/layer-node"
 import os from "os"
 import fuzzysort from "fuzzysort"
 import { Config } from "@/config/config"
 import { mapValues, mergeDeep, omit, pickBy, sortBy } from "remeda"
 import { NoSuchModelError, type Provider as SDK } from "ai"
-import * as Log from "@opencode-ai/core/util/log"
 import { Npm } from "@opencode-ai/core/npm"
 import { Hash } from "@opencode-ai/core/util/hash"
 import { Plugin } from "../plugin"
+import { serviceUse } from "@opencode-ai/core/effect/service-use"
 import { type LanguageModelV3 } from "@ai-sdk/provider"
-import * as ModelsDev from "@opencode-ai/core/models"
+import { ModelsDev } from "@opencode-ai/core/models-dev"
 import { Auth } from "../auth"
 import { Env } from "../env"
 import { InstallationVersion } from "@opencode-ai/core/installation/version"
 import { iife } from "@/util/iife"
+import { ThemeState } from "@opencode-ai/core/local/theme-state"
+import { SkeinLoading } from "@/local/skein-loading"
+// fork: control-plane client used to auto-lower ctx on a local "context too large" 413.
+import { createClient as createLocalClient, createConfig as createLocalConfig } from "@/local/llama-skein/gen/client"
+import { LlamaSkeinClient } from "@/local/llama-skein/gen/sdk.gen"
+
+// Tracks baseURL::modelId combos that have already had a loading-theme header sent.
+// The header is only useful on the first request (model cold-start); skip it after.
+const _loadingThemeSent = new Set<string>()
 import { Global } from "@opencode-ai/core/global"
 import path from "path"
 import { pathToFileURL } from "url"
@@ -20,21 +30,38 @@ import { Effect, Layer, Context, Schema, Types } from "effect"
 import { EffectBridge } from "@/effect/bridge"
 import { InstanceState } from "@/effect/instance-state"
 import { EffectPromise } from "@/effect/promise"
-import { AppFileSystem } from "@opencode-ai/core/filesystem"
+import { FSUtil } from "@opencode-ai/core/fs-util"
 import { isRecord } from "@/util/record"
 import { optionalOmitUndefined } from "@opencode-ai/core/schema"
-import * as ProviderTransform from "./transform"
-import { ModelID, ProviderID } from "./schema"
+import { ProviderTransform } from "./transform"
+import { ProviderV2 } from "@opencode-ai/core/provider"
+import { ModelV2 } from "@opencode-ai/core/model"
 import { ModelStatus } from "./model-status"
 import { RuntimeFlags } from "@/effect/runtime-flags"
+import { ProviderError } from "./error"
+// fork: legacy logger shim (upstream removed core/util/log in #31310)
+import * as Log from "@opencode-ai/core/util/log"
 
 const log = Log.create({ service: "provider" })
 
-function shouldUseCopilotResponsesApi(modelID: string): boolean {
-  const match = /^gpt-(\d+)/.exec(modelID)
-  if (!match) return false
-  return Number(match[1]) >= 5 && !modelID.startsWith("gpt-5-mini")
-}
+const OPENAI_HEADER_TIMEOUT_DEFAULT = 10_000
+// fork: local/llama-skein providers (@ai-sdk/openai-compatible) got NO
+// default header timeout at all, so a backend that accepted a request and
+// then silently died (e.g. a model load crash) left the fetch waiting for
+// response headers forever — no error, no timeout, nothing for the caller
+// (including a Task subagent) to react to. 180s tolerates a cold load of a
+// large model (llama-skein's own healthCheckTimeout defaults to 120s) with
+// margin, while still turning a truly-dead connection into a clear timeout
+// error instead of an indefinite hang. A user-configured headerTimeout for
+// that provider always wins — this is only the fallback.
+const LOCAL_PROVIDER_HEADER_TIMEOUT_DEFAULT = 180_000
+// fork: SSE stream chunk timeout for local providers — if no chunk arrives
+// within this window, the stream is aborted. Catches a model that accepted
+// the request and started streaming but then hung (e.g. endlessly generating
+// "Thinking..." tokens with no actual output). 120s is generous for a slow
+// local model but catches truly stuck streams. User-configured chunkTimeout
+// always wins.
+const LOCAL_PROVIDER_CHUNK_TIMEOUT_DEFAULT = 120_000
 
 function wrapSSE(res: Response, ms: number, ctl: AbortController) {
   if (typeof ms !== "number" || ms <= 0) return res
@@ -46,7 +73,7 @@ function wrapSSE(res: Response, ms: number, ctl: AbortController) {
     async pull(ctrl) {
       const part = await new Promise<Awaited<ReturnType<typeof reader.read>>>((resolve, reject) => {
         const id = setTimeout(() => {
-          const err = new Error("SSE read timed out")
+          const err = new ProviderError.ResponseStreamError("SSE read timed out")
           ctl.abort(err)
           void reader.cancel(err)
           reject(err)
@@ -82,6 +109,97 @@ function wrapSSE(res: Response, ms: number, ctl: AbortController) {
     status: res.status,
     statusText: res.statusText,
   })
+}
+
+// fork (skein-duey): llama-skein streams model-load "loading theme" flavor as
+// reasoning_content SSE deltas tagged with a top-level `skein_loading: true`.
+// opencode persisted those as reasoning, ballooning the session DB to GBs and
+// filling the disk. They are pure UI flavor — show live, never store.
+//
+// The Vercel ai-sdk discards unknown TOP-LEVEL fields, so `skein_loading` is only
+// visible on the RAW SSE chunk. We strip those events HERE, before the ai-sdk, so
+// they never enter the reasoning/message/persistence path at all. `onLoading`
+// receives the flavor text for transient live display (which never persists).
+export function stripSkeinLoading(res: Response, onLoading?: (text: string) => void): Response {
+  if (!res.body) return res
+  if (!res.headers.get("content-type")?.includes("text/event-stream")) return res
+
+  const decoder = new TextDecoder()
+  const encoder = new TextEncoder()
+  let buffer = ""
+
+  // Returns the flavor text when `line` is a `data:` event carrying
+  // skein_loading:true, else null (= pass the line through untouched).
+  const loadingText = (line: string): string | null => {
+    const trimmed = line.trimStart()
+    if (!trimmed.startsWith("data:")) return null
+    const payload = trimmed.slice(trimmed.indexOf("data:") + "data:".length).trim()
+    if (payload === "" || payload === "[DONE]") return null
+    if (!payload.includes("skein_loading")) return null // cheap pre-filter before JSON.parse
+    try {
+      const obj = JSON.parse(payload) as {
+        skein_loading?: boolean
+        choices?: Array<{ delta?: { reasoning_content?: string; content?: string } }>
+      }
+      if (obj?.skein_loading !== true) return null
+      const delta = obj.choices?.[0]?.delta
+      const text = delta?.reasoning_content ?? delta?.content ?? ""
+      return typeof text === "string" ? text : ""
+    } catch {
+      return null // unparseable — never drop content we don't understand
+    }
+  }
+
+  const transform = new TransformStream<Uint8Array, Uint8Array>({
+    transform(chunk, ctrl) {
+      buffer += decoder.decode(chunk, { stream: true })
+      let out = ""
+      let nl: number
+      while ((nl = buffer.indexOf("\n")) !== -1) {
+        const line = buffer.slice(0, nl + 1) // keep the newline for byte-exact passthrough
+        buffer = buffer.slice(nl + 1)
+        const text = loadingText(line)
+        if (text !== null) {
+          if (text && onLoading) onLoading(text)
+          continue // DROP: never reaches the ai-sdk / persistence
+        }
+        out += line
+      }
+      if (out) ctrl.enqueue(encoder.encode(out))
+    },
+    flush(ctrl) {
+      if (!buffer) return
+      const text = loadingText(buffer)
+      if (text !== null) {
+        if (text && onLoading) onLoading(text)
+      } else {
+        ctrl.enqueue(encoder.encode(buffer))
+      }
+      buffer = ""
+    },
+  })
+
+  return new Response(res.body.pipeThrough(transform), {
+    headers: new Headers(res.headers),
+    status: res.status,
+    statusText: res.statusText,
+  })
+}
+
+function timeoutController(ms: number) {
+  const ctl = new AbortController()
+  const id = setTimeout(() => ctl.abort(new ProviderError.HeaderTimeoutError(ms)), ms)
+  return {
+    signal: ctl.signal,
+    clear: () => clearTimeout(id),
+  }
+}
+
+function googleVertexAnthropicBaseURL(project: string | undefined, location: string | undefined) {
+  if (!project) return
+  if (location !== "eu" && location !== "us") return
+  // Continental multi-regions require Regional Endpoint Platform domains.
+  return `https://aiplatform.${location}.rep.googleapis.com/v1/projects/${project}/locations/${location}/publishers/anthropic/models`
 }
 
 type BundledSDK = {
@@ -134,10 +252,6 @@ type CustomDep = {
   get: (key: string) => Effect.Effect<string | undefined>
 }
 
-function useLanguageModel(sdk: any) {
-  return sdk.responses === undefined && sdk.chat === undefined
-}
-
 function selectAzureLanguageModel(sdk: any, modelID: string, useChat: boolean) {
   if (useChat && sdk.chat) return sdk.chat(modelID)
   if (sdk.responses) return sdk.responses(modelID)
@@ -186,7 +300,7 @@ function custom(dep: CustomDep): Record<string, CustomLoader> {
         async getModel(sdk: any, modelID: string, _options?: Record<string, any>) {
           return sdk.responses(modelID)
         },
-        options: {},
+        options: { headerTimeout: OPENAI_HEADER_TIMEOUT_DEFAULT },
       }),
     xai: () =>
       Effect.succeed({
@@ -200,8 +314,10 @@ function custom(dep: CustomDep): Record<string, CustomLoader> {
       Effect.succeed({
         autoload: false,
         async getModel(sdk: any, modelID: string, _options?: Record<string, any>) {
-          if (useLanguageModel(sdk)) return sdk.languageModel(modelID)
-          return shouldUseCopilotResponsesApi(modelID) ? sdk.responses(modelID) : sdk.chat(modelID)
+          if (sdk.responses === undefined && sdk.chat === undefined) return sdk.languageModel(modelID)
+          const match = /^gpt-(\d+)/.exec(modelID)
+          if (match && Number(match[1]) >= 5 && !modelID.startsWith("gpt-5-mini")) return sdk.responses(modelID)
+          return sdk.chat(modelID)
         },
         options: {},
       }),
@@ -484,9 +600,9 @@ function custom(dep: CustomDep): Record<string, CustomLoader> {
           location,
           fetch: async (input: RequestInfo | URL, init?: RequestInit) => {
             const { GoogleAuth } = await import("google-auth-library")
-            const auth = new GoogleAuth()
-            const client = await auth.getApplicationDefault()
-            const token = await client.credential.getAccessToken()
+            const auth = new GoogleAuth({ scopes: ["https://www.googleapis.com/auth/cloud-platform"] })
+            const client = await auth.getClient()
+            const token = await client.getAccessToken()
 
             const headers = new Headers(init?.headers)
             headers.set("Authorization", `Bearer ${token.token}`)
@@ -506,11 +622,13 @@ function custom(dep: CustomDep): Record<string, CustomLoader> {
       const location = env["GOOGLE_CLOUD_LOCATION"] ?? env["VERTEX_LOCATION"] ?? "global"
       const autoload = Boolean(project)
       if (!autoload) return { autoload: false }
+      const baseURL = googleVertexAnthropicBaseURL(project, location)
       return {
         autoload: true,
         options: {
           project,
           location,
+          ...(baseURL && { baseURL }),
         },
         async getModel(sdk: any, modelID) {
           const id = String(modelID).trim()
@@ -562,11 +680,7 @@ function custom(dep: CustomDep): Record<string, CustomLoader> {
       const instanceUrl = (yield* dep.get("GITLAB_INSTANCE_URL")) || "https://gitlab.com"
 
       const auth = yield* dep.auth(input.id)
-      const apiKey = yield* Effect.sync(() => {
-        if (auth?.type === "oauth") return auth.access
-        if (auth?.type === "api") return auth.key
-        return undefined
-      })
+      const apiKey = auth?.type === "oauth" ? auth.access : auth?.type === "api" ? auth.key : undefined
       const token = apiKey ?? (yield* dep.get("GITLAB_TOKEN"))
 
       const providerConfig = (yield* dep.config()).provider?.["gitlab"]
@@ -615,7 +729,6 @@ function custom(dep: CustomDep): Record<string, CustomLoader> {
         },
         async discoverModels(): Promise<Record<string, Model>> {
           if (!apiKey) {
-            log.info("gitlab model discovery skipped: no apiKey")
             return {}
           }
 
@@ -624,18 +737,9 @@ function custom(dep: CustomDep): Record<string, CustomLoader> {
             const getHeaders = (): Record<string, string> =>
               auth?.type === "api" ? { "PRIVATE-TOKEN": token } : { Authorization: `Bearer ${token}` }
 
-            log.info("gitlab model discovery starting", { instanceUrl })
             const result = await discoverWorkflowModels({ instanceUrl, getHeaders }, { workingDirectory: directory })
 
             if (!result.models.length) {
-              log.info("gitlab model discovery skipped: no models found", {
-                project: result.project
-                  ? {
-                      id: result.project.id,
-                      path: result.project.pathWithNamespace,
-                    }
-                  : null,
-              })
               return {}
             }
 
@@ -643,8 +747,8 @@ function custom(dep: CustomDep): Record<string, CustomLoader> {
             for (const m of result.models) {
               if (!input.models[m.id]) {
                 models[m.id] = {
-                  id: ModelID.make(m.id),
-                  providerID: ProviderID.make("gitlab"),
+                  id: ModelV2.ID.make(m.id),
+                  providerID: ProviderV2.ID.make("gitlab"),
                   name: `Agent Platform (${m.name})`,
                   family: "",
                   api: {
@@ -684,13 +788,8 @@ function custom(dep: CustomDep): Record<string, CustomLoader> {
               }
             }
 
-            log.info("gitlab model discovery complete", {
-              count: Object.keys(models).length,
-              models: Object.keys(models),
-            })
             return models
           } catch (e) {
-            log.warn("gitlab model discovery failed", { error: e })
             return {}
           }
         },
@@ -714,12 +813,7 @@ function custom(dep: CustomDep): Record<string, CustomLoader> {
           },
         }
 
-      const apiKey = yield* Effect.gen(function* () {
-        const envToken = env["CLOUDFLARE_API_KEY"]
-        if (envToken) return envToken
-        if (auth?.type === "api") return auth.key
-        return undefined
-      })
+      const apiKey = env["CLOUDFLARE_API_KEY"] || (auth?.type === "api" ? auth.key : undefined)
 
       return {
         autoload: !!apiKey,
@@ -765,12 +859,8 @@ function custom(dep: CustomDep): Record<string, CustomLoader> {
       }
 
       // Get API token from env or auth - required for authenticated gateways
-      const apiToken = yield* Effect.gen(function* () {
-        const envToken = env["CLOUDFLARE_API_TOKEN"] || env["CF_AIG_TOKEN"]
-        if (envToken) return envToken
-        if (auth?.type === "api") return auth.key
-        return undefined
-      })
+      const apiToken =
+        env["CLOUDFLARE_API_TOKEN"] || env["CF_AIG_TOKEN"] || (auth?.type === "api" ? auth.key : undefined)
 
       if (!apiToken) {
         throw new Error(
@@ -808,7 +898,7 @@ function custom(dep: CustomDep): Record<string, CustomLoader> {
         apiKey: apiToken,
         ...(Object.values(opts).some((v) => v !== undefined) ? { options: opts } : {}),
       })
-      const unified = createUnified()
+      const unified = createUnified({ apiKey: apiToken })
 
       return {
         autoload: true,
@@ -838,6 +928,106 @@ function custom(dep: CustomDep): Record<string, CustomLoader> {
           },
         },
       }),
+    "snowflake-cortex": Effect.fnUntraced(function* (input: Info) {
+      const env = yield* dep.env()
+      const auth = yield* dep.auth(input.id)
+
+      const account =
+        env["SNOWFLAKE_ACCOUNT"] ??
+        (auth?.type === "api" ? auth.metadata?.account : undefined) ??
+        (auth?.type === "oauth" ? auth.accountId : undefined) ??
+        input.options?.account
+
+      const envToken = env["SNOWFLAKE_CORTEX_TOKEN"] ?? env["SNOWFLAKE_CORTEX_PAT"]
+      const apiKeyToken = auth?.type === "api" ? auth.key : undefined
+      const oauthToken = auth?.type === "oauth" ? auth.access : undefined
+      const configToken = input.options?.token ?? input.options?.apiKey
+
+      const token = envToken ?? apiKeyToken ?? oauthToken ?? configToken
+
+      if (!account || !token) {
+        const missing = [!account && "SNOWFLAKE_ACCOUNT", !token && "SNOWFLAKE_CORTEX_TOKEN"].filter(Boolean).join(", ")
+        return {
+          autoload: false,
+          async getModel() {
+            throw new Error(
+              `Snowflake Cortex: missing credentials (${missing}). Provide a bearer token (OAuth, JWT, or PAT) via env var, opencode auth, or provider options.`,
+            )
+          },
+        }
+      }
+
+      const baseURL = `https://${account}.snowflakecomputing.com/api/v2/cortex/v1`
+
+      const options: Record<string, any> = { baseURL, apiKey: token }
+
+      // Only skip provider-level fetch when the token is from OAuth with no override.
+      // For OAuth tokens, the plugin auth loader's combined fetch handles
+      // OAuth refresh + snowflake transformations in one place.
+      // For env/config/API-key tokens, the provider fetch applies snowflake
+      // transformations directly.
+      const useOAuthHandler =
+        oauthToken !== undefined && envToken === undefined && apiKeyToken === undefined && configToken === undefined
+      if (!useOAuthHandler) {
+        options.fetch = async (url: RequestInfo | URL, init?: RequestInit) => {
+          if (init?.body && typeof init.body === "string") {
+            try {
+              const body = JSON.parse(init.body)
+              if ("max_tokens" in body) {
+                body.max_completion_tokens = body.max_tokens
+                delete body.max_tokens
+                init = { ...init, body: JSON.stringify(body) }
+              }
+            } catch {}
+          }
+
+          const response = await fetch(url, init)
+
+          if (!response.ok && response.status === 400) {
+            try {
+              const errorData = await response.clone().json()
+              const errorMessage = String(errorData.message || errorData.error || "")
+              if (errorMessage.toLowerCase().includes("conversation complete")) {
+                return new Response(
+                  JSON.stringify({
+                    choices: [{ finish_reason: "stop", message: { content: "", role: "assistant" } }],
+                  }),
+                  { status: 200, headers: new Headers({ "content-type": "application/json" }) },
+                )
+              }
+            } catch {}
+          }
+
+          if (response.body && response.headers.get("content-type")?.includes("text/event-stream")) {
+            const reader = response.body.getReader()
+            const encoder = new TextEncoder()
+            const decoder = new TextDecoder()
+            const stream = new ReadableStream({
+              async pull(ctrl) {
+                const { done, value } = await reader.read()
+                if (done) {
+                  ctrl.close()
+                  return
+                }
+                const text = decoder.decode(value, { stream: true })
+                ctrl.enqueue(encoder.encode(text.replace(/"role"\s*:\s*""/g, '"role":"assistant"')))
+              },
+              cancel() {
+                reader.cancel()
+              },
+            })
+            return new Response(stream, { headers: response.headers, status: response.status })
+          }
+
+          return response
+        }
+      }
+
+      return {
+        autoload: input.source === "config",
+        options,
+      }
+    }),
   }
 }
 
@@ -858,7 +1048,7 @@ const ProviderModalities = Schema.Struct({
 const ProviderInterleaved = Schema.Union([
   Schema.Boolean,
   Schema.Struct({
-    field: Schema.Literals(["reasoning_content", "reasoning_details"]),
+    field: Schema.Literals(["reasoning", "reasoning_content", "reasoning_details"]),
   }),
 ])
 
@@ -902,17 +1092,25 @@ const ProviderCost = Schema.Struct({
 })
 
 const ProviderLimit = Schema.Struct({
+  // For llama-skein local models `context` carries the backend's `max_safe_ctx`
+  // (the prompt budget to trim to), NOT the raw n_ctx — see discoverOpenAICompatibleModels.
   context: Schema.Finite,
   input: optionalOmitUndefined(Schema.Finite),
   output: Schema.Finite,
+  // fork: hard n_ctx (`configured_ctx`) when the value above is a safe budget below it.
+  // Optional + only set for local fit-aware providers; for display ("safe X of N").
+  contextMax: optionalOmitUndefined(Schema.Finite),
 })
 
 export const Model = Schema.Struct({
-  id: ModelID,
-  providerID: ProviderID,
+  id: ModelV2.ID,
+  providerID: ProviderV2.ID,
   api: ProviderApiInfo,
   name: Schema.String,
   family: optionalOmitUndefined(Schema.String),
+  // fork: on-disk weight size in bytes (llama-skein size_bytes), for showing a
+  // GB figure in the model picker to disambiguate quantizations. Local only.
+  sizeBytes: optionalOmitUndefined(Schema.Finite),
   capabilities: ProviderCapabilities,
   cost: ProviderCost,
   limit: ProviderLimit,
@@ -925,7 +1123,7 @@ export const Model = Schema.Struct({
 export type Model = Types.DeepMutable<Schema.Schema.Type<typeof Model>>
 
 export const Info = Schema.Struct({
-  id: ProviderID,
+  id: ProviderV2.ID,
   name: Schema.String,
   source: Schema.Literals(["env", "config", "custom", "api"]),
   env: Schema.Array(Schema.String),
@@ -965,8 +1163,8 @@ export function defaultModelIDs<T extends { models: Record<string, { id: string 
 }
 
 export class ModelNotFoundError extends Schema.TaggedErrorClass<ModelNotFoundError>()("ProviderModelNotFoundError", {
-  providerID: ProviderID,
-  modelID: ModelID,
+  providerID: ProviderV2.ID,
+  modelID: ModelV2.ID,
   suggestions: Schema.optional(Schema.Array(Schema.String)),
   cause: Schema.optional(Schema.Defect),
 }) {
@@ -976,7 +1174,7 @@ export class ModelNotFoundError extends Schema.TaggedErrorClass<ModelNotFoundErr
 }
 
 export class InitError extends Schema.TaggedErrorClass<InitError>()("ProviderInitError", {
-  providerID: ProviderID,
+  providerID: ProviderV2.ID,
   cause: Schema.optional(Schema.Defect),
 }) {
   static isInstance(input: unknown): input is InitError {
@@ -984,31 +1182,64 @@ export class InitError extends Schema.TaggedErrorClass<InitError>()("ProviderIni
   }
 }
 
-export type Error = ModelNotFoundError | InitError
+export class NoProvidersError extends Schema.TaggedErrorClass<NoProvidersError>()("ProviderNoProvidersError", {}) {
+  static isInstance(input: unknown): input is NoProvidersError {
+    return input instanceof NoProvidersError
+  }
+}
+
+export class NoModelsError extends Schema.TaggedErrorClass<NoModelsError>()("ProviderNoModelsError", {
+  providerID: ProviderV2.ID,
+}) {
+  static isInstance(input: unknown): input is NoModelsError {
+    return input instanceof NoModelsError
+  }
+}
+
+export type DefaultModelError = ModelNotFoundError | NoProvidersError | NoModelsError
+export type Error = ModelNotFoundError | InitError | NoProvidersError | NoModelsError
 
 export interface Interface {
-  readonly list: () => Effect.Effect<Record<ProviderID, Info>>
-  readonly getProvider: (providerID: ProviderID) => Effect.Effect<Info>
-  readonly getModel: (providerID: ProviderID, modelID: ModelID) => Effect.Effect<Model, ModelNotFoundError>
+  readonly list: () => Effect.Effect<Record<ProviderV2.ID, Info>>
+  readonly getProvider: (providerID: ProviderV2.ID) => Effect.Effect<Info>
+  readonly getModel: (
+    providerID: ProviderV2.ID,
+    modelID: ModelV2.ID,
+  ) => Effect.Effect<Model, ModelNotFoundError>
   readonly getLanguage: (model: Model) => Effect.Effect<LanguageModelV3, ModelNotFoundError>
   readonly closest: (
-    providerID: ProviderID,
+    providerID: ProviderV2.ID,
     query: string[],
-  ) => Effect.Effect<{ providerID: ProviderID; modelID: string } | undefined>
-  readonly getSmallModel: (providerID: ProviderID) => Effect.Effect<Model | undefined>
-  readonly defaultModel: () => Effect.Effect<{ providerID: ProviderID; modelID: ModelID }>
+  ) => Effect.Effect<{ providerID: ProviderV2.ID; modelID: string } | undefined>
+  readonly getSmallModel: (providerID: ProviderV2.ID) => Effect.Effect<Model | undefined>
+  readonly defaultModel: () => Effect.Effect<
+    { providerID: ProviderV2.ID; modelID: ModelV2.ID },
+    DefaultModelError
+  >
+  /**
+   * fork: update a model's cached context limit after a deliberate ctx-size
+   * change (local providers). Keeps the sidebar's context window in sync
+   * without a full re-discovery.
+   */
+  readonly setModelContextLimit: (
+    providerID: ProviderV2.ID,
+    modelID: ModelV2.ID,
+    context: number,
+  ) => Effect.Effect<boolean>
 }
 
 interface State {
   models: Map<string, LanguageModelV3>
-  providers: Record<ProviderID, Info>
-  catalog: Record<ProviderID, Info>
+  providers: Record<ProviderV2.ID, Info>
+  catalog: Record<ProviderV2.ID, Info>
   sdk: Map<string, BundledSDK>
   modelLoaders: Record<string, CustomModelLoader>
   varsLoaders: Record<string, CustomVarsLoader>
 }
 
 export class Service extends Context.Service<Service, Interface>()("@opencode/Provider") {}
+
+export const use = serviceUse(Service)
 
 function cost(c: ModelsDev.Model["cost"]): Model["cost"] {
   const result: Model["cost"] = {
@@ -1045,8 +1276,8 @@ function cost(c: ModelsDev.Model["cost"]): Model["cost"] {
 
 function fromModelsDevModel(provider: ModelsDev.Provider, model: ModelsDev.Model): Model {
   const base: Model = {
-    id: ModelID.make(model.id),
-    providerID: ProviderID.make(provider.id),
+    id: ModelV2.ID.make(model.id),
+    providerID: ProviderV2.ID.make(provider.id),
     name: model.name,
     family: model.family,
     api: {
@@ -1103,7 +1334,7 @@ export function fromModelsDevProvider(provider: ModelsDev.Provider): Info {
       const base = fromModelsDevModel(provider, model)
       models[id] = {
         ...base,
-        id: ModelID.make(id),
+        id: ModelV2.ID.make(id),
         name: `${model.name} ${mode[0].toUpperCase()}${mode.slice(1)}`,
         cost: opts.cost ? mergeDeep(base.cost, cost(opts.cost)) : base.cost,
         options: opts.provider?.body
@@ -1119,7 +1350,7 @@ export function fromModelsDevProvider(provider: ModelsDev.Provider): Info {
     }
   }
   return {
-    id: ProviderID.make(provider.id),
+    id: ProviderV2.ID.make(provider.id),
     source: "custom",
     name: provider.name,
     env: [...(provider.env ?? [])],
@@ -1134,6 +1365,89 @@ function openAICompatibleDiscoveryEnabled(provider: NonNullable<Config.Info["pro
   return provider.discoverModels ?? provider.models === undefined
 }
 
+/**
+ * fork: recover from a local backend rejecting a request because the model's
+ * configured context is too large to load (llama-skein returns HTTP 413 with
+ * `{ error: { type: "context_too_large", max_ctx } }`). Lowers the model's ctx
+ * to the reported safe maximum via the control plane. Returns true if the
+ * caller should retry the request. Never throws.
+ */
+async function adjustLocalContextOnOverflow(baseURL: string, requestBody: string, res: Response): Promise<boolean> {
+  try {
+    const peek = (await res.clone().json()) as { error?: { type?: string; max_ctx?: number } }
+    if (peek?.error?.type !== "context_too_large") return false
+    const maxCtx = Number(peek.error.max_ctx)
+    if (!Number.isFinite(maxCtx) || maxCtx <= 0) return false
+    let modelID: string | undefined
+    try {
+      modelID = JSON.parse(requestBody)?.model
+    } catch {
+      return false
+    }
+    if (!modelID) return false
+    const ctrlBase = baseURL.replace(/\/+$/, "").replace(/\/v1$/, "")
+    const client = new LlamaSkeinClient({ client: createLocalClient(createLocalConfig({ baseUrl: ctrlBase })) })
+    // The 413's max_ctx is often the model's NATIVE ceiling, which on a
+    // VRAM-constrained host does not load (this is what set z4 to 393216 >
+    // trained 262144 and OOM'd on reload). Cap the new ctx at max_fit_ctx — the
+    // largest hard n_ctx that fits this host's VRAM, capped at the trained
+    // context. (fit_level can't gate this: fit trusts any configured/hypothetical
+    // ctx and reports "perfect"/"marginal", never "no", so it would always pass.)
+    const probe = await client.getModelFit({ model: modelID }).catch(() => null)
+    const maxFit = probe?.data?.max_fit_ctx ?? 0
+    if (maxFit <= 0) return false // can't determine a safe ceiling — surface the overflow
+    const target = Math.min(maxCtx, maxFit)
+    if (target <= 0) return false
+    const patch = await client.patchConfigModel({ id: modelID, configModelPatchRequest: { ctx_size: target } })
+    return !patch.error
+  } catch {
+    return false
+  }
+}
+
+/**
+ * fork: pull each local llama-skein backend's `/api/fit` report so we can size a
+ * model's context window to its `max_safe_ctx` — the prompt budget that already
+ * reserves output + a tokenizer-mismatch margin below the hard n_ctx. Using this
+ * instead of the raw `context_length` is what stops the "context exceeded" 413s
+ * (the model's own /models endpoint reports n_ctx, with no headroom).
+ *
+ * `controlBase` is the control-plane root (baseURL minus the `/v1` suffix). For a
+ * non-llama-skein backend `/api/fit` simply errors → empty map → callers fall
+ * back to the existing context_length behaviour. Never throws.
+ */
+async function fetchLocalModelFit(
+  controlBase: string,
+  signal?: AbortSignal,
+): Promise<Map<string, { maxSafeCtx: number; configuredCtx?: number }>> {
+  const out = new Map<string, { maxSafeCtx: number; configuredCtx?: number }>()
+  try {
+    const client = new LlamaSkeinClient({ client: createLocalClient(createLocalConfig({ baseUrl: controlBase })) })
+    // fork: bounded by the caller's discovery abort budget — a host that
+    // accepts TCP but never answers /api/fit (z4 mid rootfs-swap) must not
+    // stall model discovery; fit data is an enhancement, never worth waiting
+    // for longer than the model list itself.
+    const res = await client.getFitReport({ signal })
+    if (res.error || !res.data?.models) return out
+    for (const fit of res.data.models) {
+      // `max_safe_ctx` is the authoritative prompt ceiling whenever the engine
+      // could compute it (>0) — independent of `fit_level`. fit_level is a
+      // VRAM/placement verdict: "no" means the model won't fully fit VRAM (it
+      // still runs via CPU offload), NOT that the safe ctx is invalid. Honoring
+      // it only when fit_level≠"no" wrongly discarded a real ceiling and let the
+      // 413 through (qwopus-MTP: fit_level "no", max_safe_ctx 70942 < n_ctx
+      // 86016 — exactly the value that prevents the overflow). A genuine
+      // can't-compute yields max_safe_ctx 0, caught below → fall back.
+      const safe = numberFrom(fit.max_safe_ctx)
+      if (!safe) continue
+      out.set(fit.model, { maxSafeCtx: safe, configuredCtx: numberFrom(fit.configured_ctx) })
+    }
+  } catch {
+    // not a llama-skein backend, or unreachable — fall back silently.
+  }
+  return out
+}
+
 function mergeDiscoveredModel(existing: Model | undefined, discovered: Model): Model {
   if (!existing) return discovered
   return {
@@ -1144,23 +1458,36 @@ function mergeDiscoveredModel(existing: Model | undefined, discovered: Model): M
       ...existing.api,
     },
     limit: {
+      // fork: for openai-compatible/local providers the backend is authoritative
+      // about its *current* context (e.g. after a ctx-size change + reload), so
+      // prefer the freshly-discovered value. `discovered` already falls back to
+      // the existing context when the backend reports nothing, so this never
+      // regresses to 0.
       context: discovered.limit.context || existing.limit.context,
       input: existing.limit.input ?? discovered.limit.input,
-      output: discovered.limit.output || existing.limit.output,
+      output: existing.limit.output || discovered.limit.output,
+      // fork: prefer the freshly-discovered hard n_ctx; only fall back to the
+      // existing one. Cleared to undefined if neither side knows it.
+      contextMax: discovered.limit.contextMax ?? existing.limit.contextMax,
     },
   }
 }
 
 async function discoverOpenAICompatibleModels(input: {
-  providerID: ProviderID
+  providerID: ProviderV2.ID
   provider: NonNullable<Config.Info["provider"]>[string]
   existing: Info | undefined
 }): Promise<Record<string, Model>> {
   const base = String(input.provider.options?.baseURL ?? "").replace(/\/+$/, "")
   if (!base) return {}
   const url = `${base}/models`
+  // fork: control-plane root for /api/fit lives one level up from the openai-compatible
+  // `/v1` path. Fetched in parallel under the same 2s abort budget as the
+  // /models fetch; empty for non-llama-skein backends or on timeout.
+  const controlBase = base.replace(/\/v1$/, "")
   const controller = new AbortController()
   const timer = setTimeout(() => controller.abort(), 2000)
+  const fitPromise = fetchLocalModelFit(controlBase, controller.signal)
   const apiKey = typeof input.provider.options?.apiKey === "string" ? input.provider.options.apiKey : undefined
   return fetch(url, {
     signal: controller.signal,
@@ -1170,8 +1497,9 @@ async function discoverOpenAICompatibleModels(input: {
       if (!response.ok) return null
       return response.json() as Promise<{ data?: Array<Record<string, unknown>> }>
     })
-    .then((body) => {
+    .then(async (body) => {
       if (!body) return {}
+      const fitByModel = await fitPromise
       const discovered: Record<string, Model> = {}
       for (const item of body.data ?? []) {
         const rawID = item.id
@@ -1180,13 +1508,27 @@ async function discoverOpenAICompatibleModels(input: {
         const existingModel = input.existing?.models[modelID]
         const name =
           typeof item.name === "string" && item.name.trim() ? item.name.trim() : (existingModel?.name ?? modelID)
-        const context =
+        // fork: a llama-skein /api/fit `max_safe_ctx` is the authoritative trim
+        // target — prefer it over the model's self-reported raw n_ctx. When fit
+        // is unavailable (non-llama-skein, fit_level "no", unreachable) fall back
+        // to the reported context_length chain so a model is never blocked.
+        const fit = fitByModel.get(modelID)
+        const reportedContext =
           numberFrom(item.context_length) ?? numberFrom(item.max_context_length) ?? existingModel?.limit.context ?? 0
+        const context = fit?.maxSafeCtx ?? reportedContext
+        // contextMax is the enforced hard n_ctx used as the display ceiling.
+        // Prefer fit's configured_ctx; when fit is unavailable fall back to the
+        // backend's self-reported context_length (the fork emits this straight
+        // from --ctx-size) — NOT existingModel.limit.context, which may carry a
+        // models.dev catalog native (the ~467k that masked the real 3072 wall).
+        const contextMax =
+          fit?.configuredCtx ?? numberFrom(item.context_length) ?? numberFrom(item.max_context_length) ?? undefined
         const output = numberFrom(item.max_output_tokens) ?? existingModel?.limit.output ?? 0
         discovered[modelID] = {
-          id: ModelID.make(modelID),
+          id: ModelV2.ID.make(modelID),
           providerID: input.providerID,
           name,
+          sizeBytes: numberFrom(item.size_bytes) ?? existingModel?.sizeBytes,
           api: {
             id: existingModel?.api.id ?? modelID,
             url: input.provider.api ?? existingModel?.api.url ?? "",
@@ -1200,10 +1542,17 @@ async function discoverOpenAICompatibleModels(input: {
             context,
             input: existingModel?.limit.input,
             output,
+            ...(contextMax ? { contextMax } : {}),
           },
           capabilities: {
             temperature: existingModel?.capabilities.temperature ?? true,
-            reasoning: existingModel?.capabilities.reasoning ?? false,
+            // fork: honor a llama-skein-advertised `reasoning` flag from
+            // /v1/models so reasoning models (which stream reasoning_content
+            // first) render their thinking instead of appearing frozen. A
+            // hand-configured capability still wins over discovery.
+            reasoning:
+              existingModel?.capabilities.reasoning ??
+              (typeof item.reasoning === "boolean" ? item.reasoning : false),
             attachment: existingModel?.capabilities.attachment ?? false,
             toolcall: existingModel?.capabilities.toolcall ?? true,
             input: existingModel?.capabilities.input ?? {
@@ -1257,7 +1606,7 @@ function suggestionModelIDs(provider: Info | undefined, enableExperimentalModels
   })
 }
 
-function modelSuggestions(provider: Info | undefined, modelID: ModelID, enableExperimentalModels: boolean) {
+function modelSuggestions(provider: Info | undefined, modelID: ModelV2.ID, enableExperimentalModels: boolean) {
   const available = suggestionModelIDs(provider, enableExperimentalModels)
   const fuzzy = fuzzysort.go(modelID, available, { limit: 3, threshold: -10000 }).map((m) => m.target)
   if (fuzzy.length) return fuzzy
@@ -1282,7 +1631,7 @@ function modelSuggestions(provider: Info | undefined, modelID: ModelID, enableEx
 export const layer = Layer.effect(
   Service,
   Effect.gen(function* () {
-    const fs = yield* AppFileSystem.Service
+    const fs = yield* FSUtil.Service
     const config = yield* Config.Service
     const auth = yield* Auth.Service
     const env = yield* Env.Service
@@ -1292,14 +1641,13 @@ export const layer = Layer.effect(
 
     const state = yield* InstanceState.make<State>(() =>
       Effect.gen(function* () {
-        using _ = log.time("state")
         const bridge = yield* EffectBridge.make()
         const cfg = yield* config.get()
         const modelsDev = yield* modelsDevSvc.get()
         const catalog = mapValues(modelsDev, fromModelsDevProvider)
         const database = mapValues(catalog, toPublicInfo)
 
-        const providers: Record<ProviderID, Info> = {} as Record<ProviderID, Info>
+        const providers: Record<ProviderV2.ID, Info> = {} as Record<ProviderV2.ID, Info>
         const languages = new Map<string, LanguageModelV3>()
         const modelLoaders: {
           [providerID: string]: CustomModelLoader
@@ -1318,9 +1666,7 @@ export const layer = Layer.effect(
           get: (key: string) => env.get(key),
         }
 
-        log.info("init")
-
-        function mergeProvider(providerID: ProviderID, provider: Partial<Info>) {
+        function mergeProvider(providerID: ProviderV2.ID, provider: Partial<Info>) {
           const existing = providers[providerID]
           if (existing) {
             // @ts-expect-error
@@ -1341,7 +1687,7 @@ export const layer = Layer.effect(
         const disabled = new Set(cfg.disabled_providers ?? [])
         const enabled = cfg.enabled_providers ? new Set(cfg.enabled_providers) : null
 
-        function isProviderAllowed(providerID: ProviderID): boolean {
+        function isProviderAllowed(providerID: ProviderV2.ID): boolean {
           if (enabled && !enabled.has(providerID)) return false
           if (disabled.has(providerID)) return false
           return true
@@ -1352,7 +1698,7 @@ export const layer = Layer.effect(
           const models = p?.models
           if (!p || !models) continue
 
-          const providerID = ProviderID.make(p.id)
+          const providerID = ProviderV2.ID.make(p.id)
           if (disabled.has(providerID)) continue
 
           const provider = database[providerID]
@@ -1366,7 +1712,7 @@ export const layer = Layer.effect(
                 id,
                 {
                   ...model,
-                  id: ModelID.make(id),
+                  id: ModelV2.ID.make(id),
                   providerID,
                 },
               ]),
@@ -1378,7 +1724,7 @@ export const layer = Layer.effect(
         for (const [providerID, provider] of configProviders) {
           const existing = database[providerID]
           const parsed: Info = {
-            id: ProviderID.make(providerID),
+            id: ProviderV2.ID.make(providerID),
             name: provider.name ?? existing?.name ?? providerID,
             env: provider.env ?? existing?.env ?? [],
             options: mergeDeep(existing?.options ?? {}, provider.options ?? {}),
@@ -1401,7 +1747,7 @@ export const layer = Layer.effect(
               return existingModel?.name ?? modelID
             })
             const parsedModel: Model = {
-              id: ModelID.make(modelID),
+              id: ModelV2.ID.make(modelID),
               api: {
                 id: apiID,
                 npm: apiNpm,
@@ -1409,7 +1755,8 @@ export const layer = Layer.effect(
               },
               status: model.status ?? existingModel?.status ?? "active",
               name,
-              providerID: ProviderID.make(providerID),
+              sizeBytes: existingModel?.sizeBytes,
+              providerID: ProviderV2.ID.make(providerID),
               capabilities: {
                 temperature: model.temperature ?? existingModel?.capabilities.temperature ?? false,
                 reasoning: model.reasoning ?? existingModel?.capabilities.reasoning ?? false,
@@ -1471,7 +1818,7 @@ export const layer = Layer.effect(
         // load env
         const envs = yield* env.all()
         for (const [id, provider] of Object.entries(database)) {
-          const providerID = ProviderID.make(id)
+          const providerID = ProviderV2.ID.make(id)
           if (disabled.has(providerID)) continue
           const apiKey = provider.env.map((item) => envs[item]).find(Boolean)
           if (!apiKey) continue
@@ -1484,7 +1831,7 @@ export const layer = Layer.effect(
         // load apikeys
         const auths = yield* auth.all().pipe(Effect.orDie)
         for (const [id, provider] of Object.entries(auths)) {
-          const providerID = ProviderID.make(id)
+          const providerID = ProviderV2.ID.make(id)
           if (disabled.has(providerID)) continue
           if (provider.type === "api") {
             mergeProvider(providerID, {
@@ -1497,7 +1844,7 @@ export const layer = Layer.effect(
         // plugin auth loader - database now has entries for config providers
         for (const plugin of plugins) {
           if (!plugin.auth) continue
-          const providerID = ProviderID.make(plugin.auth.provider)
+          const providerID = ProviderV2.ID.make(plugin.auth.provider)
           if (disabled.has(providerID)) continue
 
           const stored = yield* auth.get(providerID).pipe(Effect.orDie)
@@ -1516,11 +1863,10 @@ export const layer = Layer.effect(
         }
 
         for (const [id, fn] of Object.entries(custom(dep))) {
-          const providerID = ProviderID.make(id)
+          const providerID = ProviderV2.ID.make(id)
           if (disabled.has(providerID)) continue
           const data = database[providerID]
           if (!data) {
-            log.error("Provider does not exist in model list " + providerID)
             continue
           }
           const result = yield* fn(data)
@@ -1536,7 +1882,7 @@ export const layer = Layer.effect(
 
         // load config - re-apply with updated data
         for (const [id, provider] of configProviders) {
-          const providerID = ProviderID.make(id)
+          const providerID = ProviderV2.ID.make(id)
           const partial: Partial<Info> = { source: "config" }
           if (provider.env) partial.env = provider.env
           if (provider.name) partial.name = provider.name
@@ -1545,7 +1891,7 @@ export const layer = Layer.effect(
         }
 
         const toDiscover = configProviders.flatMap(([id, provider]) => {
-          const providerID = ProviderID.make(id)
+          const providerID = ProviderV2.ID.make(id)
           if (!isProviderAllowed(providerID)) return []
           if (!openAICompatibleDiscoveryEnabled(provider)) return []
           const target = providers[providerID]
@@ -1567,7 +1913,7 @@ export const layer = Layer.effect(
           })
         }
 
-        const gitlab = ProviderID.make("gitlab")
+        const gitlab = ProviderV2.ID.make("gitlab")
         if (discoveryLoaders[gitlab] && providers[gitlab] && isProviderAllowed(gitlab)) {
           yield* Effect.promise(async () => {
             try {
@@ -1577,14 +1923,12 @@ export const layer = Layer.effect(
                   providers[gitlab].models[modelID] = model
                 }
               }
-            } catch (e) {
-              log.warn("state discovery error", { id: "gitlab", error: e })
-            }
+            } catch (e) {}
           })
         }
 
         for (const [id, provider] of Object.entries(providers)) {
-          const providerID = ProviderID.make(id)
+          const providerID = ProviderV2.ID.make(id)
           if (!isProviderAllowed(providerID)) {
             delete providers[providerID]
             continue
@@ -1598,10 +1942,10 @@ export const layer = Layer.effect(
               // These chat aliases are invalid for the special handling in the
               // built-in providers below, but custom providers may support them.
               (modelID === "gpt-5-chat-latest" &&
-                (providerID === ProviderID.openai ||
-                  providerID === ProviderID.githubCopilot ||
-                  providerID === ProviderID.openrouter)) ||
-              (providerID === ProviderID.openrouter && modelID === "openai/gpt-5-chat")
+                (providerID === ProviderV2.ID.openai ||
+                  providerID === ProviderV2.ID.githubCopilot ||
+                  providerID === ProviderV2.ID.openrouter)) ||
+              (providerID === ProviderV2.ID.openrouter && modelID === "openai/gpt-5-chat")
             )
               delete provider.models[modelID]
             if (model.status === "alpha" && !runtimeFlags.enableExperimentalModels) delete provider.models[modelID]
@@ -1630,8 +1974,6 @@ export const layer = Layer.effect(
             delete providers[providerID]
             continue
           }
-
-          log.info("found", { providerID })
         }
 
         return {
@@ -1649,11 +1991,20 @@ export const layer = Layer.effect(
 
     async function resolveSDK(model: Model, s: State, envs: Record<string, string | undefined>) {
       try {
-        using _ = log.time("getSDK", {
-          providerID: model.providerID,
-        })
         const provider = s.providers[model.providerID]
         const options = { ...provider.options }
+
+        if (
+          model.providerID === "google-vertex" &&
+          model.api.npm === "@ai-sdk/google-vertex/anthropic" &&
+          !options.baseURL
+        ) {
+          const baseURL = googleVertexAnthropicBaseURL(
+            typeof options.project === "string" ? options.project : undefined,
+            typeof options.location === "string" ? options.location : undefined,
+          )
+          if (baseURL) options.baseURL = baseURL
+        }
 
         if (model.providerID === "google-vertex" && !model.api.npm.includes("@ai-sdk/openai-compatible")) {
           delete options.fetch
@@ -1703,46 +2054,92 @@ export const layer = Layer.effect(
         if (existing) return existing
 
         const customFetch = options["fetch"]
-        const chunkTimeout = options["chunkTimeout"]
+        // fork: default chunk timeout for local providers — catches a model
+        // that started streaming but then hung (e.g. endlessly "Thinking...")
+        const chunkTimeout =
+          options["chunkTimeout"] ??
+          (model.api.npm === "@ai-sdk/openai-compatible" ? LOCAL_PROVIDER_CHUNK_TIMEOUT_DEFAULT : undefined)
+        // fork: default local/llama-skein providers to a header timeout when
+        // the user hasn't set one (?? only falls through on null/undefined,
+        // so an explicit `headerTimeout: false` opt-out is preserved).
+        const headerTimeout =
+          options["headerTimeout"] ??
+          (model.api.npm === "@ai-sdk/openai-compatible" ? LOCAL_PROVIDER_HEADER_TIMEOUT_DEFAULT : undefined)
         delete options["chunkTimeout"]
+        delete options["headerTimeout"]
 
         options["fetch"] = async (input: any, init?: BunFetchRequestInit) => {
           const fetchFn = customFetch ?? fetch
           const opts = init ?? {}
+
+          // Inject X-Loading-Theme on the first request per model (cold-start only).
+          // Parse the model ID from the request body to key per baseURL::modelId.
+          if (
+            model.api.npm === "@ai-sdk/openai-compatible" &&
+            typeof options["baseURL"] === "string" &&
+            opts.method === "POST" &&
+            opts.body
+          ) {
+            const loadingTheme = ThemeState.get()
+            if (loadingTheme) {
+              try {
+                const body = JSON.parse(opts.body as string)
+                const modelKey = `${options["baseURL"]}::${body.model}`
+                if (!_loadingThemeSent.has(modelKey)) {
+                  opts.headers = { ...opts.headers, "X-Loading-Theme": loadingTheme }
+                  _loadingThemeSent.add(modelKey)
+                }
+              } catch {
+                // malformed body — skip header silently
+              }
+            }
+          }
+
           const chunkAbortCtl = typeof chunkTimeout === "number" && chunkTimeout > 0 ? new AbortController() : undefined
+          const headerTimeoutMs = headerTimeout === false ? undefined : headerTimeout
+          const headerTimeoutCtl = typeof headerTimeoutMs === "number" ? timeoutController(headerTimeoutMs) : undefined
           const signals: AbortSignal[] = []
 
           if (opts.signal) signals.push(opts.signal)
           if (chunkAbortCtl) signals.push(chunkAbortCtl.signal)
+          if (headerTimeoutCtl) signals.push(headerTimeoutCtl.signal)
           if (options["timeout"] !== undefined && options["timeout"] !== null && options["timeout"] !== false)
             signals.push(AbortSignal.timeout(options["timeout"]))
 
           const combined = signals.length === 0 ? null : signals.length === 1 ? signals[0] : AbortSignal.any(signals)
           if (combined) opts.signal = combined
 
-          // Strip openai itemId metadata following what codex does
-          if (
-            (model.api.npm === "@ai-sdk/openai" || model.api.npm === "@ai-sdk/azure") &&
-            opts.body &&
-            opts.method === "POST"
-          ) {
-            const body = JSON.parse(opts.body as string)
-            const keepIds = body.store === true
-            if (!keepIds && Array.isArray(body.input)) {
-              for (const item of body.input) {
-                if ("id" in item) {
-                  delete item.id
-                }
-              }
-              opts.body = JSON.stringify(body)
-            }
-          }
-
-          const res = await fetchFn(input, {
+          let res = await fetchFn(input, {
             ...opts,
             // @ts-ignore see here: https://github.com/oven-sh/bun/issues/16682
             timeout: false,
-          })
+          }).finally(() => headerTimeoutCtl?.clear())
+
+          // fork: if a local backend rejected the request because the configured
+          // context is too large to load, lower ctx to the safe max it reported
+          // and retry once — instead of stalling the conversation.
+          if (
+            res.status === 413 &&
+            model.api.npm === "@ai-sdk/openai-compatible" &&
+            typeof options["baseURL"] === "string" &&
+            opts.method === "POST" &&
+            typeof opts.body === "string" &&
+            (await adjustLocalContextOnOverflow(options["baseURL"] as string, opts.body, res))
+          ) {
+            res = await fetchFn(input, {
+              ...opts,
+              // @ts-ignore see here: https://github.com/oven-sh/bun/issues/16682
+              timeout: false,
+            }).finally(() => headerTimeoutCtl?.clear())
+          }
+
+          // fork (skein-duey): for llama-skein local providers, strip the
+          // skein_loading flavor deltas from the raw stream before the ai-sdk so
+          // they are never persisted as reasoning. Surface their text for live
+          // display via the transient loading channel (never stored).
+          if (model.api.npm === "@ai-sdk/openai-compatible") {
+            res = stripSkeinLoading(res, (text) => SkeinLoading.emit(text))
+          }
 
           if (!chunkAbortCtl) return res
           return wrapSSE(res, chunkTimeout, chunkAbortCtl)
@@ -1750,10 +2147,6 @@ export const layer = Layer.effect(
 
         const bundledLoader = BUNDLED_PROVIDERS[model.api.npm]
         if (bundledLoader) {
-          log.info("using bundled provider", {
-            providerID: model.providerID,
-            pkg: model.api.npm,
-          })
           const factory = await bundledLoader()
           const loaded = factory({
             name: model.providerID,
@@ -1763,15 +2156,14 @@ export const layer = Layer.effect(
           return loaded as SDK
         }
 
-        let installedPath: string
-        if (!model.api.npm.startsWith("file://")) {
+        const installedPath = await (async () => {
+          if (model.api.npm.startsWith("file://")) {
+            return model.api.npm
+          }
           const item = await Npm.add(model.api.npm)
           if (!item.entrypoint) throw new Error(`Package ${model.api.npm} has no import entrypoint`)
-          installedPath = item.entrypoint
-        } else {
-          log.info("loading local provider", { pkg: model.api.npm })
-          installedPath = model.api.npm
-        }
+          return item.entrypoint
+        })()
 
         // `installedPath` is a local entry path or an existing `file://` URL. Normalize
         // only path inputs so Node on Windows accepts the dynamic import.
@@ -1790,11 +2182,11 @@ export const layer = Layer.effect(
       }
     }
 
-    const getProvider = Effect.fn("Provider.getProvider")((providerID: ProviderID) =>
+    const getProvider = Effect.fn("Provider.getProvider")((providerID: ProviderV2.ID) =>
       InstanceState.use(state, (s) => s.providers[providerID]),
     )
 
-    const getModel = Effect.fn("Provider.getModel")(function* (providerID: ProviderID, modelID: ModelID) {
+    const getModel = Effect.fn("Provider.getModel")(function* (providerID: ProviderV2.ID, modelID: ModelV2.ID) {
       const s = yield* InstanceState.get(state)
       const provider = s.providers[providerID]
       if (!provider) {
@@ -1816,6 +2208,23 @@ export const layer = Layer.effect(
         return yield* new ModelNotFoundError({ providerID, modelID, suggestions })
       }
       return info
+    })
+
+    const setModelContextLimit = Effect.fn("Provider.setModelContextLimit")(function* (
+      providerID: ProviderV2.ID,
+      modelID: ModelV2.ID,
+      context: number,
+    ) {
+      return yield* InstanceState.use(state, (s) => {
+        const model = s.providers[providerID]?.models[modelID]
+        if (!model || !Number.isFinite(context) || context <= 0) return false
+        // Update contextMax too: it's the enforced hard n_ctx the sidebar shows.
+        // The user just set --ctx-size to this value, so it's the new ceiling.
+        // The next discovery re-reads it from the (now patched) backend, so it
+        // does not revert to a capacity number.
+        model.limit = { ...model.limit, context, contextMax: context }
+        return true
+      })
     })
 
     const getLanguage = Effect.fn("Provider.getLanguage")(function* (model: Model) {
@@ -1844,7 +2253,7 @@ export const layer = Layer.effect(
       )
     })
 
-    const closest = Effect.fn("Provider.closest")(function* (providerID: ProviderID, query: string[]) {
+    const closest = Effect.fn("Provider.closest")(function* (providerID: ProviderV2.ID, query: string[]) {
       const s = yield* InstanceState.get(state)
       const provider = s.providers[providerID]
       if (!provider) return undefined
@@ -1856,7 +2265,7 @@ export const layer = Layer.effect(
       return undefined
     })
 
-    const getSmallModel = Effect.fn("Provider.getSmallModel")(function* (providerID: ProviderID) {
+    const getSmallModel = Effect.fn("Provider.getSmallModel")(function* (providerID: ProviderV2.ID) {
       const cfg = yield* config.get()
 
       if (cfg.small_model) {
@@ -1870,7 +2279,7 @@ export const layer = Layer.effect(
       const provider = s.providers[providerID]
       if (!provider) return undefined
 
-      let priority = [
+      const defaultPriority = [
         "claude-haiku-4-5",
         "claude-haiku-4.5",
         "3-5-haiku",
@@ -1879,14 +2288,13 @@ export const layer = Layer.effect(
         "gemini-2.5-flash",
         "gpt-5-nano",
       ]
-      if (providerID.startsWith("opencode")) {
-        priority = ["gpt-5-nano"]
-      }
-      if (providerID.startsWith("github-copilot")) {
-        priority = ["gpt-5-mini", "claude-haiku-4.5", ...priority]
-      }
+      const priority = providerID.startsWith("opencode")
+        ? ["gpt-5-nano"]
+        : providerID.startsWith("github-copilot")
+          ? ["gpt-5-mini", "claude-haiku-4.5", ...defaultPriority]
+          : defaultPriority
       for (const item of priority) {
-        if (providerID === ProviderID.amazonBedrock) {
+        if (providerID === ProviderV2.ID.amazonBedrock) {
           const crossRegionPrefixes = ["global.", "us.", "eu."]
           const candidates = Object.keys(provider.models).filter((m) => m.includes(item))
 
@@ -1920,16 +2328,16 @@ export const layer = Layer.effect(
 
       const s = yield* InstanceState.get(state)
       const recent = yield* fs.readJson(path.join(Global.Path.state, "model.json")).pipe(
-        Effect.map((x): { providerID: ProviderID; modelID: ModelID }[] => {
+        Effect.map((x): { providerID: ProviderV2.ID; modelID: ModelV2.ID }[] => {
           if (!isRecord(x) || !Array.isArray(x.recent)) return []
           return x.recent.flatMap((item) => {
             if (!isRecord(item)) return []
             if (typeof item.providerID !== "string") return []
             if (typeof item.modelID !== "string") return []
-            return [{ providerID: ProviderID.make(item.providerID), modelID: ModelID.make(item.modelID) }]
+            return [{ providerID: ProviderV2.ID.make(item.providerID), modelID: ModelV2.ID.make(item.modelID) }]
           })
         }),
-        Effect.catch(() => Effect.succeed([] as { providerID: ProviderID; modelID: ModelID }[])),
+        Effect.catch(() => Effect.succeed([] as { providerID: ProviderV2.ID; modelID: ModelV2.ID }[])),
       )
       for (const entry of recent) {
         const provider = s.providers[entry.providerID]
@@ -1939,22 +2347,31 @@ export const layer = Layer.effect(
       }
 
       const provider = Object.values(s.providers).find((p) => !cfg.provider || Object.keys(cfg.provider).includes(p.id))
-      if (!provider) throw new Error("no providers found")
+      if (!provider) return yield* new NoProvidersError()
       const [model] = sort(Object.values(provider.models))
-      if (!model) throw new Error("no models found")
+      if (!model) return yield* new NoModelsError({ providerID: provider.id })
       return {
         providerID: provider.id,
         modelID: model.id,
       }
     })
 
-    return Service.of({ list, getProvider, getModel, getLanguage, closest, getSmallModel, defaultModel })
+    return Service.of({
+      list,
+      getProvider,
+      getModel,
+      getLanguage,
+      closest,
+      getSmallModel,
+      defaultModel,
+      setModelContextLimit,
+    })
   }),
 )
 
 export const defaultLayer = Layer.suspend(() =>
   layer.pipe(
-    Layer.provide(AppFileSystem.defaultLayer),
+    Layer.provide(FSUtil.defaultLayer),
     Layer.provide(Env.defaultLayer),
     Layer.provide(Config.defaultLayer),
     Layer.provide(Auth.defaultLayer),
@@ -1977,9 +2394,19 @@ export function sort<T extends { id: string }>(models: T[]) {
 export function parseModel(model: string) {
   const [providerID, ...rest] = model.split("/")
   return {
-    providerID: ProviderID.make(providerID),
-    modelID: ModelID.make(rest.join("/")),
+    providerID: ProviderV2.ID.make(providerID),
+    modelID: ModelV2.ID.make(rest.join("/")),
   }
 }
+
+export const node = LayerNode.make(layer, [
+  FSUtil.node,
+  Config.node,
+  Auth.node,
+  Env.node,
+  Plugin.node,
+  ModelsDev.node,
+  RuntimeFlags.node,
+])
 
 export * as Provider from "./provider"

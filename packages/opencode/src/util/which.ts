@@ -1,14 +1,17 @@
-import whichPkg from "which"
-import path from "path"
-import { Global } from "@opencode-ai/core/global"
-
-export function which(cmd: string, env?: NodeJS.ProcessEnv) {
-  const base = env?.PATH ?? env?.Path ?? process.env.PATH ?? process.env.Path ?? ""
-  const full = base ? base + path.delimiter + Global.Path.bin : Global.Path.bin
-  const result = whichPkg.sync(cmd, {
-    nothrow: true,
-    path: full,
-    pathExt: env?.PATHEXT ?? env?.PathExt ?? process.env.PATHEXT ?? process.env.PathExt,
-  })
-  return typeof result === "string" ? result : null
+/**
+ * Returns the full path to a binary on PATH, or null if not found.
+ * Uses Bun.which when available, falls back to a PATH scan.
+ */
+export function which(cmd: string): string | null {
+  if (typeof Bun !== "undefined" && typeof Bun.which === "function") {
+    return Bun.which(cmd) ?? null
+  }
+  // Node.js fallback
+  const { execSync } = require("child_process")
+  try {
+    const result = execSync(`command -v ${cmd} 2>/dev/null`, { encoding: "utf8" }).trim()
+    return result || null
+  } catch {
+    return null
+  }
 }

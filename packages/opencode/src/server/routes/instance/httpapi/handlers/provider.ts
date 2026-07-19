@@ -1,14 +1,17 @@
 import { ProviderAuth } from "@/provider/auth"
 import { Config } from "@/config/config"
-import { ModelsDev } from "@opencode-ai/core/models"
+import { ModelsDev } from "@opencode-ai/core/models-dev"
 import { Provider } from "@/provider/provider"
-import { ProviderID } from "@/provider/schema"
+
 import { mapValues } from "remeda"
 import { Effect, Schema } from "effect"
 import { HttpServerRequest, HttpServerResponse } from "effect/unstable/http"
 import { HttpApiBuilder } from "effect/unstable/httpapi"
 import { InstanceHttpApi } from "../api"
 import { ProviderAuthApiError } from "../groups/provider"
+import { ProviderV2 } from "@opencode-ai/core/provider"
+import { Auth } from "@/auth"
+import { BALANCE_PROBES } from "@/provider/balance"
 
 function mapProviderAuthError<A, R>(self: Effect.Effect<A, ProviderAuth.Error, R>) {
   return self.pipe(
@@ -35,6 +38,7 @@ export const providerHandlers = HttpApiBuilder.group(InstanceHttpApi, "provider"
     const cfg = yield* Config.Service
     const provider = yield* Provider.Service
     const svc = yield* ProviderAuth.Service
+    const authStore = yield* Auth.Service
 
     const list = Effect.fn("ProviderHttpApi.list")(function* () {
       const config = yield* cfg.get()
@@ -62,7 +66,7 @@ export const providerHandlers = HttpApiBuilder.group(InstanceHttpApi, "provider"
     })
 
     const authorize = Effect.fn("ProviderHttpApi.authorize")(function* (ctx: {
-      params: { providerID: ProviderID }
+      params: { providerID: ProviderV2.ID }
       payload: ProviderAuth.AuthorizeInput
     }) {
       return yield* mapProviderAuthError(
@@ -75,7 +79,7 @@ export const providerHandlers = HttpApiBuilder.group(InstanceHttpApi, "provider"
     })
 
     const authorizeRaw = Effect.fn("ProviderHttpApi.authorizeRaw")(function* (ctx: {
-      params: { providerID: ProviderID }
+      params: { providerID: ProviderV2.ID }
       request: HttpServerRequest.HttpServerRequest
     }) {
       const body = yield* Effect.orDie(ctx.request.text)
@@ -89,8 +93,27 @@ export const providerHandlers = HttpApiBuilder.group(InstanceHttpApi, "provider"
       return HttpServerResponse.jsonUnsafe(result ?? null)
     })
 
+    const balance = Effect.fn("ProviderHttpApi.balance")(function* (ctx: {
+      params: { providerID: ProviderV2.ID }
+    }) {
+      const providerID = ctx.params.providerID
+      const probe = BALANCE_PROBES[providerID]
+      if (!probe) return undefined
+      // Resolve the API key: stored auth (api-key login) first, then the
+      // provider's configured options.apiKey. Keys stay server-side.
+      const info = yield* authStore.get(providerID).pipe(Effect.orElseSucceed(() => undefined))
+      const fromAuth = info?.type === "api" ? info.key : undefined
+      const config = yield* cfg.get()
+      const fromConfig = (config.provider?.[providerID] as { options?: { apiKey?: string } } | undefined)?.options
+        ?.apiKey
+      const apiKey = fromAuth ?? fromConfig
+      if (!apiKey) return undefined
+      const result = yield* Effect.tryPromise(() => probe({ apiKey })).pipe(Effect.orElseSucceed(() => null))
+      return result ?? undefined
+    })
+
     const callback = Effect.fn("ProviderHttpApi.callback")(function* (ctx: {
-      params: { providerID: ProviderID }
+      params: { providerID: ProviderV2.ID }
       payload: ProviderAuth.CallbackInput
     }) {
       yield* mapProviderAuthError(
@@ -106,6 +129,7 @@ export const providerHandlers = HttpApiBuilder.group(InstanceHttpApi, "provider"
     return handlers
       .handle("list", list)
       .handle("auth", auth)
+      .handle("balance", balance)
       .handleRaw("authorize", authorizeRaw)
       .handle("callback", callback)
   }),
