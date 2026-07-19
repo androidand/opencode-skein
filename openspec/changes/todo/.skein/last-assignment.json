@@ -1,0 +1,13 @@
+{
+  "task": "`HTTP-2` Audit **one** route group (e.g. `session` at `src/server/routes/instance/httpapi/public.ts`) for explicit error contracts.",
+  "provider": "z4/llamaswap",
+  "role": "coder",
+  "reason": "score=570.0 quality=1.00 reliability=1.00 age=0.00 load=-0.0 attempts=-0.0 eligible=1 considered=1 selected=todo#0",
+  "skipped_reasons": {
+    "excluded_slug": 1,
+    "non_dispatchable_status:blocked": 27,
+    "non_dispatchable_status:published": 1,
+    "thin_plan_quality": 3
+  },
+  "at": "2026-07-19T00:21:50.721518Z"
+}

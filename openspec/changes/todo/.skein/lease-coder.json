@@ -1,0 +1,11 @@
+{
+  "slug": "todo",
+  "role": "coder",
+  "provider": "z4/llamaswap",
+  "host": "m3",
+  "pid": 65539,
+  "leased_at": "2026-07-19T00:21:50.722858Z",
+  "lease_ttl_seconds": 60,
+  "last_heartbeat": "2026-07-19T00:21:50.722858Z",
+  "cycle_count": 1
+}
