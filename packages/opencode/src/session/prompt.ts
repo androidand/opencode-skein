@@ -62,6 +62,7 @@ import { SessionReminders } from "./reminders"
 import { SessionTools } from "./tools"
 import { LLMEvent } from "@opencode-ai/llm"
 import { similarity as outputSimilarity } from "@/loop/loop"
+import { PatternDetection } from "@/pattern-detection/pattern-detection"
 
 // @ts-ignore
 globalThis.AI_SDK_LOG_WARNINGS = false
@@ -139,6 +140,7 @@ export const layer = Layer.effect(
     const flags = yield* RuntimeFlags.Service
     const database = yield* Database.Service
     const { db } = database
+    const pd = yield* PatternDetection.Service
     const ops = Effect.fn("SessionPrompt.ops")(function* () {
       return {
         cancel: (sessionID: SessionID) => cancel(sessionID),
@@ -1451,6 +1453,29 @@ export const layer = Layer.effect(
             } else {
               loopStreak = 0
             }
+            // fork: PatternDetection — detect tool-call loops that the text-only
+            // bigram check cannot see (runs regardless of whether there are tools)
+            {
+              const toolUsage = currentParts
+                .filter((p): p is SessionV1.ToolPart => p.type === "tool" && !isOrphanedInterruptedTool(p))
+                .map((p) => p.tool)
+                .join(",")
+              const isPattern = yield* pd.detectPattern(currentText, toolUsage || undefined)
+              if (isPattern) {
+                yield* Effect.logWarning("agent pattern loop detected — breaking", {
+                  "session.id": sessionID,
+                  step,
+                  toolUsage: toolUsage || "(none)",
+                })
+                handle.message.error = new NamedError.Unknown({
+                  message: "Agent appears stuck in a repetitive pattern — similar tool usage and output detected across multiple turns",
+                }).toObject()
+                handle.message.time.completed = Date.now()
+                yield* sessions.updateMessage(handle.message)
+                yield* events.publish(Session.Event.Error, { sessionID, error: handle.message.error })
+                break
+              }
+            }
             lastOutputText = currentText
           }
           continue
@@ -1642,6 +1667,7 @@ export const defaultLayer = Layer.suspend(() =>
         CrossSpawnSpawner.defaultLayer,
         RuntimeFlags.defaultLayer,
         EventV2Bridge.defaultLayer,
+        PatternDetection.defaultLayer,
       ),
     ),
   ),
