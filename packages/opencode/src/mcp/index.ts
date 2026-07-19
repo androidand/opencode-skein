@@ -18,7 +18,7 @@ import {
 } from "@modelcontextprotocol/sdk/types.js"
 import { Config } from "@/config/config"
 import { ConfigMCPV1 } from "@opencode-ai/core/v1/config/mcp"
-import { NamedError } from "@opencode-ai/core/util/error"
+
 import { InstallationVersion } from "@opencode-ai/core/installation/version"
 import { withTimeout } from "@/util/timeout"
 import { FSUtil } from "@opencode-ai/core/fs-util"
@@ -75,9 +75,9 @@ export const BrowserOpenFailed = EventV2.define({
   },
 })
 
-export const Failed = NamedError.create("MCPFailed", {
+export class Failed extends Schema.TaggedErrorClass<Failed>()("MCPFailed", {
   name: Schema.String,
-})
+}) {}
 
 export class NotFoundError extends Schema.TaggedErrorClass<NotFoundError>()("MCP.NotFoundError", {
   name: Schema.String,

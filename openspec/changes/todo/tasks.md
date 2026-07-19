@@ -3,7 +3,7 @@
 <!-- absorbed from: packages/opencode/specs/effect/todo.md -->
 <!-- Fixed: absorb truncated task descriptions; rebuilt from source -->
 
-- [ ] `HTTP-2` Audit **one** route group (e.g. `session` at `src/server/routes/instance/httpapi/public.ts`) for explicit error contracts.
+- [x] `HTTP-2` Audit **one** route group (e.g. `session` at `src/server/routes/instance/httpapi/public.ts`) for explicit error contracts.
   - Enumerate every `Error`-returning service call in that group's handlers.
   - Decide per-call: inline map (1→1 error→HTTP) or extract shared helper.
   - Write a short decision log at the top of the audit file explaining each choice.
