@@ -1,3 +1,64 @@
+/*
+ * ## Session Route Group — Error Contract Audit
+ *
+ * Audit of `src/server/routes/instance/httpapi/groups/session.ts` +
+ * `src/server/routes/instance/httpapi/handlers/session.ts`.
+ * Date: 2026-07-19
+ *
+ * ### Decision log per endpoint
+ *
+ * | Endpoint | Service call(s) | Error source | Mapping | Rationale |
+ * |---|---|---|---|---|
+ * | list | `session.list()` | Storage (StorageNotFoundError) | **None declared** — service doesn't throw for missing data (returns empty). **OK as-is.** |
+ * | status | `statusSvc.list()` | Internal state | **None declared** — in-memory lookup. **OK as-is.** |
+ * | get | `session.get()` | Storage | `mapStorageNotFound` → `ApiNotFoundError` (404). Matches `error: [BadRequest, ApiNotFoundError]`. |
+ * | children | `requireSession()` + `session.children()` | Storage + Internal | `requireSession` maps storage 404. `session.children` internal errors unhandled. |
+ * | todo | `requireSession()` + `todoSvc.get()` | Storage + Internal | Same pattern — storage mapped, internal errors not. |
+ * | diff | `summary.diff()` | Internal | **No error declared.** Should add `ApiNotFoundError` if session/message not found is possible. |
+ * | messages | `requireSession()` + `session.messages()` / `MessageV2.page()` | Storage | `mapStorageNotFound` applied. Correct. |
+ * | message | `MessageV2.get()` | Storage | `mapStorageNotFound` applied. Correct. |
+ * | create | `shareSvc.create()` | Internal + Storage | **No error declared.** Could propagate unknown errors as 500. |
+ * | createRaw | see create | Same as create | Handled via create helper. |
+ * | remove | `session.remove()` | Storage | `mapStorageNotFound` applied. Correct. |
+ * | update | `requireSession()` + setters + `requireSession()` | Storage | `requireSession` maps storage 404. Setters could throw. |
+ * | fork | `session.fork()` | Storage | `mapStorageNotFound` applied. Correct. |
+ * | forkRaw | see fork | Same as fork | Handled via fork helper. |
+ * | abort | `promptSvc.cancel()` | Internal | **No error declared.** Service doesn't throw for missing sessions. |
+ * | init | `requireSession()` + `promptSvc.command()` | Storage + Internal | `requireSession` maps 404. `promptSvc.command` errors mapped to 400 via inline `.pipe(Effect.mapError(...))`. Correct. |
+ * | share | `requireSession()` + `shareSvc.share()` | Storage + Network | `shareSvc.share` errors mapped to 500 via inline `.pipe(Effect.mapError(...))`. Correct — share failures are server-side. |
+ * | unshare | `requireSession()` + `shareSvc.unshare()` | Same as share | Same pattern — mapped to 500. Correct. |
+ * | summarize | `revertSvc.cleanup()` + `session.messages()` + `compactSvc.create()` + `promptSvc.loop()` | Storage + Internal | `session.messages` uses `mapStorageNotFound`. Other service calls have no explicit error mapping. |
+ * | prompt | `requireSession()` + `promptSvc.prompt()` | Storage + Internal | `promptSvc.prompt` errors mapped to 400 via inline `.pipe(Effect.mapError(...))`. Correct. |
+ * | promptAsync | `requireSession()` + `promptSvc.prompt()` (forked) | Storage + Internal | `requireSession` maps 404. Forked prompt catches `Cause` and publishes `NamedError.Unknown` event. The forked effect is fire-and-forget — any uncaught defect dies silently in the fork scope. **OK as-is** (no HTTP response affected). |
+ * | command | `requireSession()` + `promptSvc.command()` | Storage + Internal | `promptSvc.command` errors mapped to 400. Correct. |
+ * | shell | `requireSession()` + `promptSvc.shell()` | Storage + Busy | `mapBusy` maps `SessionBusyError` → 409. `requireSession` maps 404. Correct. |
+ * | revert | `requireSession()` + `revertSvc.revert()` | Storage + Busy | `mapBusy` applied. Correct. |
+ * | unrevert | `requireSession()` + `revertSvc.unrevert()` | Storage + Busy | `mapBusy` applied. Correct. |
+ * | permissionRespond | `requireSession()` + `permissionSvc.reply()` | Storage + Permission | `requireSession` maps 404. `permissionSvc.reply` catchTag maps `Permission.NotFoundError` → `PermissionNotFoundError`. Correct. |
+ * | deleteMessage | `requireSession()` + `runState.assertNotBusy()` + `session.removeMessage()` | Storage + Busy | `requireSession` maps 404. `mapBusy` maps busy errors. Correct. |
+ * | deletePart | `requireSession()` + `session.removePart()` | Storage | `requireSession` maps 404. Correct. |
+ * | updatePart | `requireSession()` + payload validation + `session.updatePart()` | Storage + Validation | Payload mismatch returns 400 inline. `requireSession` maps 404. Correct. |
+ *
+ * ### Summary of findings
+ *
+ * **Pattern: Inline mapping vs shared helpers**
+ * - `mapStorageNotFound` — shared helper for storage → 404. Used by 10 endpoints. **Recommended: keep.**
+ * - `mapBusy` — shared helper for busy → 409. Used by 4 endpoints. **Recommended: keep.**
+ * - Inline `.pipe(Effect.mapError(...))` — used by init, share, unshare, prompt, command. Each has different semantics (some are 400 client errors, some are 500 server errors). **Keep inline** — too context-specific for a shared helper.
+ * - `catchTag` — used by permissionRespond for specific error type. **Keep inline** — type-specific.
+ *
+ * **Gaps (unhandled service errors → potential 500 via errorLayer):**
+ * - `children`, `todo`, `diff` — service calls after `requireSession` have no error mapping
+ * - `create`, `createRaw` — `shareSvc.create()` has no error mapping
+ * - `update` — setters (`setTitle`, `setMetadata`, `setPermission`, `setArchived`) have no error mapping
+ * - `summarize` — `revertSvc.cleanup`, `compactSvc.create`, `promptSvc.loop` have no error mapping
+ * - `abort` — `promptSvc.cancel()` has no error mapping
+ *
+ * **NamedError.Unknown usage:** Only in `error.ts` middleware (catch-all 500) and `promptAsync` (fire-and-forget event publish). No unhandled `Cause.DieReason` reaches the HTTP layer — all defects are caught by `errorLayer` which wraps them in `NamedError.Unknown` 500 responses.
+ *
+ * **Effect.die usage in session handlers:** None found. All service errors are caught and mapped.
+ */
+
 import { PermissionV1 } from "@opencode-ai/core/v1/permission"
 import { Agent } from "@/agent/agent"
 import { SessionV1 } from "@opencode-ai/core/v1/session"
@@ -37,6 +98,7 @@ import {
 } from "../groups/session"
 import { PermissionNotFoundError } from "../errors"
 import * as SessionError from "./session-errors"
+
 
 const tryParseJson = (text: string) =>
   Effect.try({
