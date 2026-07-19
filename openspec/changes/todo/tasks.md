@@ -9,7 +9,7 @@
   - Write a short decision log at the top of the audit file explaining each choice.
   - Validation: `cd packages/opencode && npm run build` — compiles without error; grep the chosen route group for `NamedError.Unknown` and verify no unhandled `Cause.DieReason` reaches the HTTP layer.
 
-- [ ] `ERR-4` Sweep remaining `NamedError.create(...)` and `Effect.die(...)` callsites.
+- [x] `ERR-4` Sweep remaining `NamedError.create(...)` and `Effect.die(...)` callsites.
   - `git grep -n 'NamedError\.create' -- '*.ts'` — current inventory: 5 files, ~21 callsites (core/error.ts, v1/config/error.ts, v1/session.ts, ide/index.ts, mcp/index.ts, session/message-error.ts).
   - For each callsite: classify as (a) expected failure → migrate to `Schema.TaggedErrorClass`, (b) defect → keep `Effect.die`, or (c) already-migrated false positive.
   - Migrate all (a) cases; update callers to handle the new error union type.

@@ -4,7 +4,6 @@ import { xdgData, xdgCache, xdgConfig, xdgState } from "xdg-basedir"
 import os from "os"
 import { Context, Effect, Layer } from "effect"
 import { Flock } from "./util/flock"
-import { Flag } from "./flag/flag"
 import { LayerNode } from "./effect/layer-node"
 
 const app = "opencode"
@@ -30,17 +29,26 @@ const paths = {
 
 export const Path = paths
 
-Flock.setGlobal({ state })
-
-await Promise.all([
-  fs.mkdir(Path.data, { recursive: true }),
-  fs.mkdir(Path.config, { recursive: true }),
-  fs.mkdir(Path.state, { recursive: true }),
-  fs.mkdir(Path.tmp, { recursive: true }),
-  fs.mkdir(Path.log, { recursive: true }),
-  fs.mkdir(Path.bin, { recursive: true }),
-  fs.mkdir(Path.repos, { recursive: true }),
-])
+// Explicit init boundary: creates required directories and configures flock.
+// Replaces module-level `await` so callers can explicitly call init() or rely
+// on the lazy-init default.
+let _initDone = false
+function ensureInit(): void {
+  if (_initDone) return
+  _initDone = true
+  Flock.setGlobal({ state })
+  void Promise.all([
+    fs.mkdir(Path.data, { recursive: true }),
+    fs.mkdir(Path.config, { recursive: true }),
+    fs.mkdir(Path.state, { recursive: true }),
+    fs.mkdir(Path.tmp, { recursive: true }),
+    fs.mkdir(Path.log, { recursive: true }),
+    fs.mkdir(Path.bin, { recursive: true }),
+    fs.mkdir(Path.repos, { recursive: true }),
+  ]).catch(() => {}) // non-fatal: missing dirs don't crash path computation
+}
+// Lazy-init on first access
+ensureInit()
 
 export class Service extends Context.Service<Service, Interface>()("@opencode/Global") {}
 
@@ -61,7 +69,7 @@ export function make(input: Partial<Interface> = {}): Interface {
     home: Path.home,
     data: Path.data,
     cache: Path.cache,
-    config: Flag.OPENCODE_CONFIG_DIR ?? Path.config,
+    config: process.env.OPENCODE_CONFIG_DIR ?? Path.config,
     state: Path.state,
     tmp: Path.tmp,
     bin: Path.bin,
