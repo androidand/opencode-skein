@@ -26,6 +26,7 @@
 //   to the next pending request or to the prompt view.
 import type { Part, PermissionRequest, QuestionRequest, ToolPart } from "@opencode-ai/sdk/v2"
 import * as Locale from "@/util/locale"
+import { cliErrorMessage } from "@opencode-ai/tui/util/error"
 import { toolView } from "./tool"
 import type { FooterOutput, FooterPatch, FooterView, StreamCommit } from "./types"
 
@@ -160,23 +161,31 @@ function formatUsage(
   return text
 }
 
-export function formatError(error: {
-  name?: string
-  message?: string
-  data?: {
-    message?: string
-  }
-}): string {
-  if (error.data?.message) {
-    return error.data.message
+export function formatError(error: unknown): string {
+  // First try the rich cliErrorMessage formatter (handles TaggedError/NamedError)
+  const formatted = cliErrorMessage?.(error)
+  if (formatted) return formatted
+
+  // Fall back to basic field extraction — check data.message before name
+  // to preserve structured error detail over bare type names
+  if (typeof error === "object" && error !== null) {
+    const e = error as Record<string, unknown>
+    // NamedError / TaggedError: check data.message first (structured detail)
+    if (e.data && typeof e.data === "object" && typeof (e.data as Record<string, unknown>).message === "string") {
+      return String((e.data as Record<string, unknown>).message)
+    }
+    // Then top-level message
+    if (typeof e.message === "string" && e.message) return e.message
   }
 
-  if (error.message) {
-    return error.message
+  if (error instanceof Error) {
+    if (error.message) return error.message
+    if (error.name) return error.name
   }
 
-  if (error.name) {
-    return error.name
+  if (typeof error === "object" && error !== null) {
+    const e = error as Record<string, unknown>
+    if (typeof e.name === "string" && e.name) return e.name
   }
 
   return "unknown error"

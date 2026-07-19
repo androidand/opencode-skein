@@ -17,6 +17,7 @@
 // delayed idle from an older turn cannot complete a newer busy turn.
 import type { GlobalEvent, OpencodeClient } from "@opencode-ai/sdk/v2"
 import { Context, Deferred, Effect, Exit, Layer, Scope, Stream } from "effect"
+import { cliErrorMessage } from "@opencode-ai/tui/util/error"
 import { makeRuntime } from "@/effect/run-service"
 import {
   blockerStatus,
@@ -256,6 +257,10 @@ export function formatUnknownError(error: unknown): string {
   if (typeof error === "string") {
     return error
   }
+
+  // Try the rich formatter first (handles TaggedError/NamedError types)
+  const formatted = cliErrorMessage?.(error)
+  if (formatted) return formatted
 
   if (error instanceof Error) {
     return error.message || error.name
