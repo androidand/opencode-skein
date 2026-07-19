@@ -15,7 +15,7 @@
   - Migrate all (a) cases; update callers to handle the new error union type.
   - Validation: `cd packages/opencode && npm run build` — compiles; `git grep -c 'NamedError\.create' -- '*.ts'` returns 0 in packages/opencode.
 
-- [~coder] `RENDER-2` Audit CLI and TUI surfaces for opaque `Error: Name` rendering of typed errors.
+- [x] `RENDER-2` Audit CLI and TUI surfaces for opaque `Error: Name` rendering of typed errors.
   - Search CLI handler output paths (src/cli/commands/*.ts, src/cli/cmd/run/*.surface.ts) and TUI error surfaces for patterns like `String(error)` or `error.toString()` on Effect-failures.
   - For each occurrence: ensure the error's schema fields (e.g. `reason`, `ref`) are rendered, or route through a typed error renderer.
   - Validation: `cd packages/opencode && npm run build` — compiles; run the CLI with a known typed failure and verify structured fields appear (not `Error: Name`).
