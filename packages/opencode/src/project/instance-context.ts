@@ -1,5 +1,5 @@
-import { LocalContext } from "@/util/local-context"
 import { FSUtil } from "@opencode-ai/core/fs-util"
+import { create } from "@/context"
 import type * as Project from "./project"
 
 export interface InstanceContext {
@@ -8,7 +8,11 @@ export interface InstanceContext {
   project: Project.Info
 }
 
-export const context = LocalContext.create<InstanceContext>("instance")
+/**
+ * Named context manager for the current project instance.
+ * Provides async-local storage of project directory, worktree, and project info.
+ */
+export const context = create<InstanceContext>("instance")
 
 /**
  * Check if a path is within the project boundary.
