@@ -25,7 +25,7 @@
   - Per callsite: route through `RuntimeFlags`, accept as env/config boundary, or migrate to typed `Config`. No Flag imports left in opencode package code (test fixtures and core-only env reads OK).
   - Validation: `cd packages/opencode && npm run build` — compiles; `git grep 'from.*flag/flag' -- 'packages/opencode/**/*.ts'` returns 0.
 
-- [ ] `GLOBAL-1` Remove `Flag` dependency from `global.ts` path resolution.
+- [x] `GLOBAL-1` Remove `Flag` dependency from `global.ts` path resolution.
   - `global.ts:64` currently does `Flag.OPENCODE_CONFIG_DIR ?? Path.config` — replace with an explicit `Config` service read.
   - Move directory creation and `Flock` setup behind an explicit init boundary (lazy init or explicit `init()` call).
   - Validation: `cd packages/opencode && npm run build` — compiles; `git grep 'import.*Flag' -- 'packages/core/src/global.ts'` returns 0.
