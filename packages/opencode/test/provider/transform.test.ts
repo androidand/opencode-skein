@@ -3468,6 +3468,22 @@ describe("ProviderTransform.variants", () => {
     })
   })
 
+  test.each(["nvidia", "lilac"])("%s minimax gpuhost4 returns chat template thinking toggles", (providerID) => {
+    const model = createMockModel({
+      id: `${providerID}/minimaxai/minimax-gpuhost4`,
+      providerID,
+      api: {
+        id: "minimaxai/minimax-gpuhost4",
+        url: "https://api.example.com/v1",
+        npm: "@ai-sdk/openai-compatible",
+      },
+    })
+    expect(ProviderTransform.variants(model)).toEqual({
+      none: { chat_template_kwargs: { thinking_mode: "disabled" } },
+      thinking: { chat_template_kwargs: { thinking_mode: "enabled" } },
+    })
+  })
+
   test("glm returns empty object", () => {
     const model = createMockModel({
       id: "glm/glm-4",
