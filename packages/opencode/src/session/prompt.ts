@@ -1192,7 +1192,7 @@ export const layer = Layer.effect(
             lastAssistant?.finish &&
             !["tool-calls"].includes(lastAssistant.finish) &&
             !hasToolCalls &&
-            lastUser.id < lastAssistant.id
+            lastAssistant.parentID === lastUser.id
           ) {
             // fork: an "empty" turn — the model finished without emitting any
             // tool call or text (small local reasoning models sometimes stop
