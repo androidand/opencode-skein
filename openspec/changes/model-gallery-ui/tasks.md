@@ -193,8 +193,36 @@
 
 ## 6. Web and desktop experience
 
-- [ ] 6.1 Extend current upstream V2 Model Settings with Installed, Discover,
+- [x] 6.1 Extend current upstream V2 Model Settings with Installed, Discover,
       and Operations sections.
+      — Real target found first: the epic's own "V2 Model Settings" is
+      `packages/app/src/components/settings-v2/models.tsx`
+      (`SettingsModelsV2`), not the older non-V2 `settings-models.tsx` —
+      confirmed via `settings-v2/dialog-settings-v2.tsx`'s tab registration.
+      `SettingsModelsV2` is now a container with an inner `TabsV2`
+      (Installed/Discover/Operations), each section split into its own file:
+      `models-installed.tsx` (the pre-existing provider-grouped list, moved
+      verbatim — zero behavior change, same filter/sort/visibility-toggle
+      logic as before this task); `models-discover.tsx` (real but
+      deliberately narrow — lists llama-skein hosts via the already-shipped
+      `GET /gallery/hosts`, task 5.7, online/offline + installed-model
+      count; not the full search/filter/candidate-card experience, that's
+      6.2); `models-operations.tsx` (honest empty state — real operation
+      data needs the app-side operations client task 7.2 builds, not
+      fabricated here). New `settings.models.{installed,discover,
+      operations}` tab-label strings, Discover panel strings, and a new
+      `PluralKey` entry (`settings.models.discover.hostInstalledCount`)
+      registered in `context/language.tsx`.
+      Built in worktree `opencode-skein-worktrees/model-gallery-ui`
+      (branch `skein/model-gallery-ui`, reset onto current `dev` first —
+      its prior 3 commits were either already merged into `dev` or
+      superseded by the newer `local-model-picker-ergonomics` change
+      covering the same file).
+      `tsgo --noEmit -p packages/app`: 0 errors (package was already clean;
+      no new errors introduced). `oxlint`: 1 pre-existing-pattern warning
+      (narrowing assertion on the tab `onChange`, same shape used elsewhere
+      in this tree), 0 errors. **Not verified in a running browser** — no
+      visual/E2E check this pass, stated explicitly rather than implied.
 - [ ] 6.2 Implement gallery search, filters, candidate cards/table, empty,
       offline, stale, and progressive host-result states.
 - [ ] 6.3 Implement candidate detail with model card link, provenance,
