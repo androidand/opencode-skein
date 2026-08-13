@@ -33,6 +33,7 @@ type PluralKey =
   | "session.question.pending"
   | "session.followupDock.summary"
   | "session.revertDock.summary"
+  | "settings.models.discover.hostInstalledCount"
 type Source = { dict: Record<string, string> }
 
 function cookie(locale: Locale) {
