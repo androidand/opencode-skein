@@ -221,8 +221,41 @@
       `tsgo --noEmit -p packages/app`: 0 errors (package was already clean;
       no new errors introduced). `oxlint`: 1 pre-existing-pattern warning
       (narrowing assertion on the tab `onChange`, same shape used elsewhere
-      in this tree), 0 errors. **Not verified in a running browser** — no
-      visual/E2E check this pass, stated explicitly rather than implied.
+      in this tree), 0 errors.
+      — **2026-08-14 update: actually verified live in a browser**, not just
+      typechecked. Getting there required fixing four real, pre-existing
+      boot-blocking bugs unrelated to this task, found by systematically
+      diffing against `upstream/dev` rather than guessing:
+      (1) `packages/core/src/util/log.ts` (a fork compatibility shim,
+      correctly retired since upstream has its own logger) was deleted
+      without migrating its 5 callers first, breaking every server boot;
+      (2) `provider.ts`'s `ModelNotFoundError`/`InitError` had
+      `Schema.optional(Schema.Defect)` — missing the `()` that makes it an
+      actual schema factory call, introduced by a later commit that touched
+      a neighboring line; confirmed NOT an effect-beta issue by diffing
+      against upstream's identical-version, correctly-written equivalent;
+      (3) `LayerNode.make(layer, [...])` — a positional-argument call shape
+      the function has never supported (it takes one `{service, layer,
+      deps}` object) — silently produced `dependencies: undefined` on 6
+      nodes across `provider.ts`, `mcp/index.ts`, `session/prompt.ts`,
+      `auto-mode/service.ts`, `side-question/index.ts`, and this worktree's
+      `loop.ts`, crashing `AppLayer` composition; (4) `session/prompt.ts`
+      imported a raw `.txt` prompt file upstream replaced with a proper
+      `MAX_STEPS_PROMPT` module export. None of these were caused by this
+      task's own change (confirmed: `packages/app` alone was always 0
+      typecheck errors) — they were pre-existing gaps blocking anyone from
+      running the server at all. Fixed on `dev` directly (not scoped to
+      this branch) since they affect every user, not just this feature;
+      see `dev` commits `21c1ac9dd6`/`7503b4d303`.
+      With those fixed, `bun run serve` (port 4096) + `bun run dev:web`
+      (port 3000) both boot clean, and Settings → Models shows all three
+      tabs working for real: Installed unchanged (verified same provider
+      groups/toggles), Discover shows live fleet data (`z4` 8 models
+      online, `rocky` 6 models online, `m5` 10 models online — real mDNS
+      discovery through the shipped `GET /gallery/hosts`), Operations shows
+      its honest empty state. Zero app-level console errors (one
+      unrelated Chrome-extension content-script exception, not from this
+      app). Screenshots taken during verification, not just described.
 - [ ] 6.2 Implement gallery search, filters, candidate cards/table, empty,
       offline, stale, and progressive host-result states.
 - [ ] 6.3 Implement candidate detail with model card link, provenance,
