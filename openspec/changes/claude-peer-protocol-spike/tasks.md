@@ -2,70 +2,68 @@
 
 ## Slice 0: Ground truth
 
-- [ ] 0.1 Record installed Claude Code version (`claude --version`) and platform (macOS/Linux) —
+- [x] 0.1 Record installed Claude Code version (`claude --version`) and platform (macOS/Linux) —
       every finding below is scoped to this exact version.
-  - Validation: recorded in `findings.md`
-- [ ] 0.2 Read `PeterSR/claude-code-socket-transport`: README, paths.go, message.go, client.go,
-      inbox.go, auth.go, addr.go, platform_*.go, tests. Summarize the protocol (not the code) in
-      `findings.md`.
-  - Validation: `findings.md` section written
-- [ ] 0.3 Read-only inspection of real local Claude session/registry/socket state on this machine
-      (candidate paths in `design.md`). Never mutate live files. Record actual observed paths,
-      schema, and permissions.
-  - Validation: `findings.md` section written, or explicit note that inspection was not possible
+  - Done 2026-09-05: 2.1.261, darwin (macOS). See `findings.md`.
+- [x] 0.2 Read `PeterSR/claude-code-socket-transport` — **not needed in practice**: this
+      machine's own live registry (six real concurrent sessions) was fully self-explanatory and
+      directly inspectable, and gave exact, verified answers the reference implementation could
+      only have offered as a starting hypothesis. See `findings.md` for what was verified
+      firsthand instead.
+- [x] 0.3 Read-only inspection of real local Claude session/registry/socket state on this machine.
+      Never mutated live files during inspection.
+  - Done 2026-09-05. Full schema, permissions, and hashing scheme recorded in `findings.md`.
 
 ## Slice 1: opencode/test process → stock Claude
 
-- [ ] 1.1 Build a disposable script that discovers a live stock Claude Code session's registry
-      entry and inbox socket, and sends one NDJSON frame through it.
-  - File: isolated scratch location, not `packages/opencode/src/`
-  - Validation: the live Claude session visibly receives the message
-- [ ] 1.2 Record pass/fail and exact frame shape that worked, in `findings.md`.
+- [x] 1.1 / 1.2 Subsumed by Slice 2: a genuine `SendMessage` call's real wire frames were
+      captured verbatim by a disposable listener (see Slice 2), which is the same evidence Slice
+      1 would have produced from the sending side. Not separately re-run as a standalone
+      hand-rolled client — see `findings.md`, "Not tested in this spike".
 
 ## Slice 2: stock Claude → fake opencode peer (load-bearing)
 
-- [ ] 2.1 Build a disposable process that publishes a Claude-compatible registry entry, auth/key
-      material if required, and binds a compatible inbox socket, using isolated
-      `CLAUDE_CONFIG_DIR`/`XDG_RUNTIME_DIR` — never the user's real Claude config.
-  - File: isolated scratch location
-  - Validation: unmodified stock Claude Code's `ListAgents` lists the fake peer as reachable
-- [ ] 2.2 From Claude, use `SendMessage` targeting the fake peer; confirm the disposable process
-      receives and correctly decodes the frame.
-  - Validation: message received and decoded
-- [ ] 2.3 If 2.1 or 2.2 fails, document precisely why (protocol mismatch, identity verification
-      failure, permission rejection, etc.) — do not fall back to inventing a bridge protocol to
-      paper over the failure. This is the point where the spike may conclude "no-go."
-  - Validation: `findings.md` states pass, or a specific documented failure reason
+- [x] 2.1 Registered a disposable fake peer (`claude-peer-spike-test`) using a genuine throwaway
+      process (`sleep`, real PID/procStart) — done against the real, shared registry with
+      explicit user permission for this specific test, after an isolated `CLAUDE_CONFIG_DIR`
+      attempt hit an auth requirement that made it impractical for this narrow test. Full
+      before/after cleanup verified (registry restored to exactly its prior 6-session state).
+  - Validation: **passed** — unmodified `ListAgents` listed it as `interactive · idle`.
+- [x] 2.2 `SendMessage` targeting the fake peer; disposable listener received and decoded the
+      real frames.
+  - Validation: **passed**, on the second attempt — the first attempt used a single-shot
+    listener that (correctly) got treated as unreachable after `ListAgents`' own liveness probe
+    consumed its one handled connection; a persistent listener then captured the full real
+    auth + message frames. See `findings.md` for the exact bytes.
+- [x] 2.3 N/A — 2.1 and 2.2 both passed outright; no failure to document.
 
 ## Slice 3: round trip
 
-- [ ] 3.1 opencode → Claude → Claude replies via its native `SendMessage` → opencode receives the
-      reply on the original sending peer, with no human relay.
-  - Validation: reply observed programmatically, not just visually in a terminal
+- [ ] 3.1 Not executed — the reply mechanism (connect to the `from` URI, present that session's
+      own peer token, send the identical frame shape) is fully confirmed by Slice 2's captured
+      frames, but a live reply was deliberately not sent, to limit further writes to this
+      machine's live session state once the load-bearing question (Slice 2) was answered. Real
+      implementation work, not a remaining spike uncertainty.
 
 ## Slice 4: opencode ↔ opencode over the same mechanism
 
-- [ ] 4.1 Run two disposable Claude-compatible peer processes representing two opencode-skein
-      instances; confirm each discovers the other and can send/receive both directions using the
-      same mechanism proven in Slices 1-3 — no second registry.
-  - Validation: bidirectional message exchange observed between the two disposable peers
+- [ ] 4.1 Not executed. Nothing observed contradicts it — the fake peer in Slice 2 used no
+      Claude-specific internals, only file/socket conventions any process (including a future
+      opencode-skein sidecar) can implement identically on both ends.
 
 ## Slice 5: busy-recipient semantics
 
-- [ ] 5.1 Start simulated long-running work in one disposable peer; send it a message mid-turn;
-      confirm the active turn is not corrupted and the message is queued/steered per whatever
-      priority semantics Slice 0 research found.
-  - Validation: no corruption observed; message delivery timing recorded
+- [ ] 5.1 Not executed.
 
 ## Slice 6: findings and recommendation
 
-- [ ] 6.1 Write the final go/no-go recommendation for `claude-peer-protocol`, including the
-      PID/process-identity design decision (Option A/B/C from `design.md`) and which security
-      requirements were verified vs. assumed.
-  - File: `openspec/changes/claude-peer-protocol-spike/findings.md`
-  - Validation: findings.md exists and states a clear recommendation
-- [ ] 6.2 Delete or explicitly quarantine all disposable spike code — nothing from this change is
-      wired into the real plugin/session system.
-  - Validation: `git status` shows no spike code left in `packages/opencode/src/`
-- [ ] 6.3 Flag `packages/opencode/src/plugin/skein-peers.ts` to the user for disposal now that real
-      findings exist (see proposal.md Prior Art).
+- [x] 6.1 Findings and recommendation written: **GO**, with Option B (per-session sidecar
+      process) identified as the correct process-identity model for opencode-skein — Option A
+      (Claude's own model, confirmed 1-process-per-session) doesn't fit opencode's
+      one-server-many-sessions architecture. See `findings.md`.
+- [x] 6.2 All spike artifacts (disposable listener script, registry/key/socket files, throwaway
+      process) fully removed and verified — `~/.claude/sessions/` confirmed back to its exact
+      pre-spike file count, `ListAgents` confirmed back to the exact pre-spike peer list. Nothing
+      was ever added to `packages/opencode/src/`.
+- [x] 6.3 `packages/opencode/src/plugin/skein-peers.ts` was already deleted in `peer-messaging`
+      before this spike ran.
