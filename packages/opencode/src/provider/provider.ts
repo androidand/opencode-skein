@@ -1544,6 +1544,35 @@ export function noteHostPaced(providerID: string, modelID: string, fit?: { hostP
   else hostPacedModels.delete(key)
 }
 
+// A model configured with a very large context window is slow to first
+// token even fully GPU-resident: KV-cache allocation scales with ctx-size,
+// and a large agent prompt's prefill on a big model can itself run well
+// past a minute on consumer hardware. This is a distinct cause from
+// hostPaced (CPU/GPU-hybrid bandwidth) — a native-gpu placement can still
+// need this floor — so it is tracked separately rather than folded into
+// isHostPaced, whose narrower meaning llm.ts's stream watchdog relies on.
+// Threshold picked to only flag deliberately-oversized configs (observed in
+// the wild: 262144, 647168) and leave ordinary 8k-32k configs untouched.
+const SLOW_COLD_START_CTX_THRESHOLD = 65_536
+const slowColdStartModels = new Set<string>()
+
+/** Reports whether a model's configured context is large enough that even a
+ * GPU-resident load can legitimately take much longer than the local-provider
+ * header-timeout default to answer its first request. */
+export function isSlowColdStart(providerID: string, modelID: string): boolean {
+  return slowColdStartModels.has(`${providerID}/${modelID}`)
+}
+
+/** Updates the slow-cold-start registry from a discovery pass, same
+ * clear/re-arm rules as noteHostPaced: fresh data wins, a missing fit report
+ * keeps the previous verdict. */
+export function noteSlowColdStart(providerID: string, modelID: string, fit?: { configuredCtx?: number }): void {
+  if (!fit) return
+  const key = `${providerID}/${modelID}`
+  if (fit.configuredCtx !== undefined && fit.configuredCtx >= SLOW_COLD_START_CTX_THRESHOLD) slowColdStartModels.add(key)
+  else slowColdStartModels.delete(key)
+}
+
 async function fetchLocalModelFit(
   controlBase: string,
   signal?: AbortSignal,
@@ -1713,6 +1742,7 @@ async function discoverOpenAICompatibleModels(input: {
           (fit?.modelMb ? fit.modelMb * 1024 * 1024 : undefined) ??
           existingModel?.sizeBytes
         noteHostPaced(input.providerID, modelID, fit)
+        noteSlowColdStart(input.providerID, modelID, fit)
 
         discovered[modelID] = {
           id: ModelV2.ID.make(modelID),
@@ -2323,7 +2353,23 @@ export const layer = Layer.effect(
           const chunkAbortCtl =
             typeof effectiveChunkTimeout === "number" && effectiveChunkTimeout > 0 ? new AbortController() : undefined
           const headerTimeoutMs = headerTimeout === false ? undefined : headerTimeout
-          const headerTimeoutCtl = typeof headerTimeoutMs === "number" ? timeoutController(headerTimeoutMs) : undefined
+          // fork: the same "legitimately silent for minutes" floor chunk
+          // timeout gets above must also cover the HEADER timeout, or a model
+          // that is merely slow to send its first byte — a cold GPU-resident
+          // load with a huge configured ctx-size, not just a host-paced
+          // hybrid placement — gets its request aborted by the client before
+          // it ever has a chance to answer. That abort looks, from the
+          // proxy's side, exactly like a disconnect from a hung backend and
+          // triggers its own wedge-recovery restart, which then really does
+          // kill the (merely slow) backend — silently, every retry, forever.
+          const effectiveHeaderTimeout =
+            typeof headerTimeoutMs === "number" &&
+            requestModelID !== undefined &&
+            (isHostPaced(model.providerID, requestModelID) || isSlowColdStart(model.providerID, requestModelID))
+              ? Math.max(headerTimeoutMs, HOST_PACED_STREAM_DEADLINE_SECONDS * 1000)
+              : headerTimeoutMs
+          const headerTimeoutCtl =
+            typeof effectiveHeaderTimeout === "number" ? timeoutController(effectiveHeaderTimeout) : undefined
           const signals: AbortSignal[] = []
 
           if (opts.signal) signals.push(opts.signal)
