@@ -35,3 +35,42 @@ describe("host-paced model registry", () => {
     expect(Provider.isHostPaced("gpuhost2", "big-moe")).toBe(false)
   })
 })
+
+// Regression: a fully GPU-resident 35B-A3B model configured with a 262144
+// ctx-size on an M3 Mac (kat-coder-v2.5-apex-i-compact) never answered a
+// single request through opencode-skein. It was not host-paced (perf_class
+// was native-gpu, not cpu-bound-hybrid) — it was just slow to first token, a
+// distinct cause (KV-cache allocation + prefill time scale with configured
+// ctx-size regardless of placement). opencode's 600s headerTimeout aborted
+// before the model answered; each abort read, from llama-skein's side, as a
+// client disconnect from a hung backend, triggering its own wedge-recovery
+// restart that really did kill the merely-slow backend — silently, on every
+// retry. isSlowColdStart is the signal that lets the header timeout get the
+// same patient floor isHostPaced already gets for a different reason.
+describe("slow-cold-start model registry", () => {
+  test("an unknown model is not flagged slow-cold-start", () => {
+    expect(Provider.isSlowColdStart("nope", "nothing")).toBe(false)
+  })
+
+  test("a small configured ctx is not flagged", () => {
+    Provider.noteSlowColdStart("gpuhost4", "small-model", { configuredCtx: 8192 })
+    expect(Provider.isSlowColdStart("gpuhost4", "small-model")).toBe(false)
+  })
+
+  test("a very large configured ctx is flagged, and clears when reconfigured smaller", () => {
+    Provider.noteSlowColdStart("gpuhost4", "kat-coder-v2.5-apex-i-compact", { configuredCtx: 262144 })
+    expect(Provider.isSlowColdStart("gpuhost4", "kat-coder-v2.5-apex-i-compact")).toBe(true)
+
+    // a config reload dropping ctx-size back down should un-flag it
+    Provider.noteSlowColdStart("gpuhost4", "kat-coder-v2.5-apex-i-compact", { configuredCtx: 8192 })
+    expect(Provider.isSlowColdStart("gpuhost4", "kat-coder-v2.5-apex-i-compact")).toBe(false)
+  })
+
+  test("a failed fit probe keeps the previous verdict", () => {
+    Provider.noteSlowColdStart("gpuhost4", "big-ctx-model", { configuredCtx: 262144 })
+    expect(Provider.isSlowColdStart("gpuhost4", "big-ctx-model")).toBe(true)
+
+    Provider.noteSlowColdStart("gpuhost4", "big-ctx-model", undefined)
+    expect(Provider.isSlowColdStart("gpuhost4", "big-ctx-model")).toBe(true)
+  })
+})

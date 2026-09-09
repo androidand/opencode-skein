@@ -535,9 +535,14 @@ function DialogLocalProviders(props: { instances: LocalInstance[] }) {
   const sync = useSync()
   const dialog = useDialog()
   const toast = useToast()
-  const [selected, setSelected] = createSignal(
-    new Set(props.instances.filter((item) => !item.configuredProviderID).map((item) => item.baseURL)),
-  )
+  // Every instance starts selected: an unconfigured one because scanning it
+  // up is the common case (space to opt OUT of adding it), a configured one
+  // because it's already connected (space to opt OUT, i.e. remove it). This
+  // makes the checkbox mean the same thing for both — "connected after
+  // apply" — instead of configured rows being a separate, un-toggleable
+  // state, which was the bug: there was no way to deselect (and thus remove)
+  // an already-configured host.
+  const [selected, setSelected] = createSignal(new Set(props.instances.map((item) => item.baseURL)))
   const [connecting, setConnecting] = createSignal(false)
 
   function keyOf(instance: LocalInstance) {
@@ -545,7 +550,7 @@ function DialogLocalProviders(props: { instances: LocalInstance[] }) {
   }
 
   function toggle(instance: LocalInstance) {
-    if (instance.configuredProviderID || connecting()) return
+    if (connecting()) return
     setSelected((current) => {
       const next = new Set(current)
       const key = keyOf(instance)
@@ -555,42 +560,57 @@ function DialogLocalProviders(props: { instances: LocalInstance[] }) {
     })
   }
 
-  async function connectInstances(items: LocalInstance[]) {
+  async function applyChanges(toAdd: LocalInstance[], toRemove: LocalInstance[]) {
     if (connecting()) return
-    const picked = items.filter((item) => !item.configuredProviderID)
-    if (picked.length === 0) {
-      toast.show({ variant: "info", message: "No new local providers selected" })
+    if (toAdd.length === 0 && toRemove.length === 0) {
+      toast.show({ variant: "info", message: "No changes selected" })
       return
     }
 
     setConnecting(true)
-    const failed: string[] = []
-    for (const item of picked) {
+    const addFailed: string[] = []
+    const removeFailed: string[] = []
+    for (const item of toAdd) {
       const result = await sdk.client.local.connect({
         directory: sdk.directory,
         localConnectPayload: { id: item.id, name: item.name, baseURL: item.baseURL },
       })
-      if (result.error) failed.push(item.name)
+      if (result.error) addFailed.push(item.name)
+    }
+    for (const item of toRemove) {
+      const result = await sdk.client.local.disconnect({
+        directory: sdk.directory,
+        providerID: item.configuredProviderID!,
+      })
+      if (result.error) removeFailed.push(item.name)
     }
     setConnecting(false)
 
-    if (failed.length > 0) {
-      toast.show({ variant: "error", message: `Failed to add ${failed.join(", ")}` })
+    if (addFailed.length > 0 || removeFailed.length > 0) {
+      const parts: string[] = []
+      if (addFailed.length > 0) parts.push(`add ${addFailed.join(", ")}`)
+      if (removeFailed.length > 0) parts.push(`remove ${removeFailed.join(", ")}`)
+      toast.show({ variant: "error", message: `Failed to ${parts.join("; ")}` })
       return
     }
 
     await sdk.client.instance.dispose()
     await sync.bootstrap()
-    toast.show({
-      variant: "info",
-      message: `Added ${picked.length} local provider${picked.length === 1 ? "" : "s"}`,
-    })
+    const parts: string[] = []
+    if (toAdd.length > 0) parts.push(`added ${toAdd.length}`)
+    if (toRemove.length > 0) parts.push(`removed ${toRemove.length}`)
+    toast.show({ variant: "info", message: parts.join(", ") })
     dialog.clear()
   }
 
-  async function connectSelected(fallback?: LocalInstance) {
-    const picked = props.instances.filter((item) => selected().has(keyOf(item)) && !item.configuredProviderID)
-    await connectInstances(picked.length > 0 ? picked : fallback ? [fallback] : [])
+  async function applySelected(fallback?: LocalInstance) {
+    const toAdd = props.instances.filter((item) => !item.configuredProviderID && selected().has(keyOf(item)))
+    const toRemove = props.instances.filter((item) => item.configuredProviderID && !selected().has(keyOf(item)))
+    if (toAdd.length === 0 && toRemove.length === 0 && fallback && !fallback.configuredProviderID) {
+      await applyChanges([fallback], [])
+      return
+    }
+    await applyChanges(toAdd, toRemove)
   }
 
   const options = createMemo<DialogSelectOption<LocalInstance>[]>(() =>
@@ -607,8 +627,11 @@ function DialogLocalProviders(props: { instances: LocalInstance[] }) {
           : `${instance.host}:${instance.port} · offline`,
         category,
         gutter: () => {
-          if (configured) return <text fg={running ? theme.success : theme.textMuted}>✓</text>
-          return <text fg={picked ? theme.success : theme.textMuted}>[{picked ? "✓" : " "}]</text>
+          // Unchecking a configured host marks it for removal — flag that
+          // distinctly (error color) rather than the neutral "not adding
+          // this one" muted color used for unconfigured rows.
+          const color = picked ? theme.success : configured ? theme.error : theme.textMuted
+          return <text fg={color}>[{picked ? "✓" : " "}]</text>
         },
       }
     }),
@@ -627,13 +650,13 @@ function DialogLocalProviders(props: { instances: LocalInstance[] }) {
         },
         {
           command: "dialog.local.connect",
-          title: connecting() ? "adding" : "add selected",
+          title: connecting() ? "applying" : "apply changes",
           side: "right",
           disabled: connecting(),
-          onTrigger: () => connectSelected(),
+          onTrigger: () => applySelected(),
         },
       ]}
-      onSelect={(option) => connectSelected(option.value)}
+      onSelect={(option) => applySelected(option.value as LocalInstance)}
     />
   )
 }
