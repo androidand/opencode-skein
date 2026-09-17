@@ -13,7 +13,7 @@ import { Session } from "@/session/session"
 import { SessionStatus } from "@/session/status"
 import { resolveMessageTargets } from "@/session/peers"
 import { GitBranch } from "@/util/git-branch"
-import { listClaudePeers } from "@/agent/presence-claude"
+import { fetchClaudeAgentRecords, listClaudePeers } from "@/agent/presence-claude"
 import { EOL } from "os"
 
 interface AgentRecord {
@@ -67,12 +67,16 @@ export const AgentsCommand = effectCmd({
       now: Date.now(),
     })
 
-    const claudePeers = yield* Effect.promise(() =>
-      listClaudePeers({
-        enabled: !flags.disableClaudeCodePeerSource,
-        messaging: !flags.disableClaudeCodePeerMessaging,
-      }),
-    )
+    const [claudePeers, claudeRecords] = yield* Effect.all([
+      Effect.promise(() =>
+        listClaudePeers({
+          enabled: !flags.disableClaudeCodePeerSource,
+          messaging: !flags.disableClaudeCodePeerMessaging,
+        }),
+      ),
+      Effect.promise(() => fetchClaudeAgentRecords({ enabled: !flags.disableClaudeCodePeerSource })),
+    ])
+    const claudeNames = new Map(claudeRecords.flatMap((r) => (r.name ? [[r.sessionId, r.name] as const] : [])))
 
     const records: AgentRecord[] = [
       ...opencodePeers.map(
@@ -92,6 +96,7 @@ export const AgentsCommand = effectCmd({
         (peer): AgentRecord => ({
           owner: "claude-code",
           id: peer.sessionID,
+          title: claudeNames.get(peer.sessionID),
           directory: peer.directory,
           status: peer.status,
         }),

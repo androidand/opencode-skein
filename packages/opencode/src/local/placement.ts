@@ -227,7 +227,7 @@ export async function hostCapacity(
   const aborter = new AbortController()
   const timer = setTimeout(() => aborter.abort(), timeoutMs)
   try {
-    return await Promise.all(
+    const all = await Promise.all(
       local.map(async ({ info, baseURL }): Promise<HostCapacity> => {
         const reserved = reservedFor(info.id)
         const llama = new LlamaSkeinClient({
@@ -239,10 +239,12 @@ export async function hostCapacity(
           .then((res) => res.data ?? null)
           .catch(() => null)
         if (!hardware) return { providerID: info.id, reachable: false, reserved, free: 0 }
+        const slotsTotal = hardware.inference?.slots_total
         return {
           providerID: info.id,
           reachable: true,
-          slotsTotal: hardware.inference?.slots_total,
+          // 0 means no model is running, not "zero slots" — an idle host.
+          slotsTotal: slotsTotal && slotsTotal > 0 ? slotsTotal : undefined,
           inFlight: hardware.inference?.in_flight,
           reserved,
           free: Math.max(0, freeSlots(hardware, reserved)),
@@ -250,9 +252,28 @@ export async function hostCapacity(
         }
       }),
     )
+    // Any provider with a baseURL is probed (a cloud endpoint simply fails);
+    // only a LAN/loopback address that fails is worth reporting as a host
+    // that is down.
+    return all.filter((host, i) => host.reachable || isPrivateURL(local[i].baseURL))
   } finally {
     clearTimeout(timer)
   }
+}
+
+export function isPrivateURL(url: string): boolean {
+  let host: string
+  try {
+    host = new URL(url).hostname
+  } catch {
+    return false
+  }
+  if (host === "localhost" || host.endsWith(".local") || host === "::1") return true
+  const m = host.match(/^(\d+)\.(\d+)\.\d+\.\d+$/)
+  if (!m) return false
+  const a = Number(m[1])
+  const b = Number(m[2])
+  return a === 10 || a === 127 || (a === 192 && b === 168) || (a === 172 && b >= 16 && b <= 31)
 }
 
 /**
