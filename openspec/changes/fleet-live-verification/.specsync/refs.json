@@ -1,0 +1,9 @@
+{
+  "github:androidand/opencode-skein": {
+    "provider": "github:androidand/opencode-skein",
+    "id": "89",
+    "url": "https://github.com/androidand/opencode-skein/issues/89",
+    "base_sha": "f3fa0ae6fb110ff7669f58ef8aa7f263379ff74f35fdb5c69c7dc8b4883b5e6f",
+    "base": "# Tasks: fleet-live-verification\n\n- [ ] 1. Capacity truth (`provider-capacity-truth` 3.1): with one host serving a request,\n      `peers`/`opencode agents` show it `0/1 slots free` and an idle host `1/1`; a subagent\n      lands on the idle one\n- [ ] 2. Background default (`subagent-background-default` 6): a local orchestrator fanning\n      out three tasks does not block on the first; all three land on different hosts or peers\n- [ ] 3. Cloud parent → local subagent (`role-placement-policy` 4.2): a role with\n      `placement: \"local\"` run from a cloud model places its subagent on a local host\n- [ ] 4. Context-aware placement (`ctx-aware-subagent-placement` 10–12): a subagent prompt\n      larger than a small-ctx host's `max_safe_ctx` skips that host; the placed model's\n      `limit.context` equals the host's current `max_safe_ctx`\n- [ ] 5. Delegation (`skein-pool` 2.5): parent on a full single-slot host + idle Claude Code\n      peer → task envelope arrives at the peer, its `[peer-task-result]` reply lands as the\n      task result; repeat with an idle opencode peer on a cloud model\n- [ ] 6. Eternal loop (`loop-eternal-by-default` 6.2): plain `/loop` on a quickly-completing\n      prompt keeps going until stopped; `--until-done` stops on completion\n- [ ] 7. Persona fan-out (`persona-gate-fanout` 4.5): `/backlog` on a real change shows the\n      reviewer persona's parts inline\n"
+  }
+}
