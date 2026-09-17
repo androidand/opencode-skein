@@ -71,7 +71,7 @@ import * as Model from "../../util/model"
 import { formatTranscript } from "../../util/transcript"
 import { sessionEpilogue } from "../../util/presentation"
 import { setPreLayoutSiblingMargin } from "../../util/layout"
-import { useTuiConfig } from "../../config"
+import { TuiConfig, useTuiConfig } from "../../config"
 import { useClipboard } from "../../context/clipboard"
 import { nextThinkingMode, reasoningSummary, useThinkingMode, type ThinkingMode } from "../../context/thinking"
 import { getScrollAcceleration } from "../../util/scroll"
@@ -282,6 +282,14 @@ export function Session() {
   const providers = createMemo(() => Model.index(sync.data.provider))
 
   const scrollAcceleration = createMemo(() => getScrollAcceleration(tuiConfig))
+  // fork: transcript windowing (`transcript_window` in the TUI config). Every
+  // message and part of a session used to stay mounted as rendered nodes —
+  // markdown, syntax highlighting, code blocks, huge reasoning dumps — for the
+  // session's whole life. Measured: freed memory does return to the OS on this
+  // Bun, so a long session's RSS climb is live retention, and this was the one
+  // unbounded retainer left. Messages older than the most recent window render
+  // as a one-line placeholder until clicked; 0 never collapses.
+  const transcriptWindow = createMemo(() => tuiConfig.transcript_window ?? TuiConfig.TranscriptWindowDefault)
   const toast = useToast()
   const sdk = useSDK()
   const editor = useEditorContext()
@@ -1249,7 +1257,18 @@ export function Session() {
               >
                 <box height={1} />
                 <For each={messages()}>
-                  {(message, index) => (
+                  {(message, index) => {
+                    // See transcriptWindow. Per-item state, like the revert
+                    // branch's hover signal below: an old message the user opened
+                    // stays open for the rest of the session.
+                    const [expandedOld, setExpandedOld] = createSignal(false)
+                    const collapsed = createMemo(
+                      () =>
+                        transcriptWindow() > 0 &&
+                        !expandedOld() &&
+                        index() < messages().length - transcriptWindow(),
+                    )
+                    return (
                     <Switch>
                       <Match when={message.id === revert()?.messageID}>
                         {(function () {
@@ -1316,6 +1335,14 @@ export function Session() {
                       >
                         <></>
                       </Match>
+                      <Match when={collapsed()}>
+                        <CollapsedMessage
+                          message={message as UserMessage | AssistantMessage}
+                          parts={sync.data.part[message.id] ?? []}
+                          index={index()}
+                          onExpand={() => setExpandedOld(true)}
+                        />
+                      </Match>
                       <Match when={message.role === "user"}>
                         <UserMessage
                           index={index()}
@@ -1342,7 +1369,8 @@ export function Session() {
                         />
                       </Match>
                     </Switch>
-                  )}
+                    )
+                  }}
                 </For>
               </scrollbox>
               <box flexShrink={0}>
@@ -1410,6 +1438,45 @@ export function Session() {
         </box>
       </context.Provider>
     </LocationProvider>
+  )
+}
+
+function CollapsedMessage(props: {
+  message: UserMessage | AssistantMessage
+  parts: Part[]
+  index: number
+  onExpand: () => void
+}) {
+  const { theme } = useTheme()
+  const [hover, setHover] = createSignal(false)
+  const summary = createMemo(() => {
+    const text = props.parts.find((p): p is TextPart => p.type === "text" && !!p.text.trim())
+    const tools = props.parts.filter((p) => p.type === "tool").length
+    const line = text ? text.text.trim().split("\n")[0]!.slice(0, 96) : undefined
+    const bits = [line, tools > 0 ? `${tools} tool call${tools === 1 ? "" : "s"}` : undefined].filter(Boolean)
+    if (bits.length > 0) return bits.join(" · ")
+    return `${props.parts.length} part${props.parts.length === 1 ? "" : "s"}`
+  })
+
+  return (
+    <box
+      // Only user messages carry an id: keyboard navigation jumps between
+      // prompts by matching scroll children to message ids, same as UserMessage.
+      id={props.message.role === "user" ? props.message.id : undefined}
+      ref={(el: BoxRenderable) => alwaysSeparate.add(el)}
+      marginTop={props.index === 0 ? 0 : 1}
+      paddingLeft={3}
+      flexShrink={0}
+      onMouseOver={() => setHover(true)}
+      onMouseOut={() => setHover(false)}
+      onMouseUp={props.onExpand}
+    >
+      <text fg={hover() ? theme.text : theme.textMuted} wrapMode="none">
+        {props.message.role === "user" ? "> " : "  "}
+        {summary()}
+        <span style={{ fg: theme.textMuted }}> · click to expand</span>
+      </text>
+    </box>
   )
 }
 
@@ -1726,6 +1793,14 @@ function ReasoningHeader(props: {
 
   return (
     <Switch>
+      {/* fork: no spinner while the body is open — the animated glyph re-lays out
+          the expanded reasoning text every frame, which reads as the whole block
+          shaking. Static header when open, spinner only when collapsed. */}
+      <Match when={!props.done && props.open}>
+        <text fg={fg()} wrapMode="none">
+          {props.title ? "Thinking: " + props.title : "Thinking"}
+        </text>
+      </Match>
       <Match when={!props.done}>
         <box flexDirection="row">
           <Spinner color={fg()}>{props.title ? "Thinking: " + props.title : "Thinking"}</Spinner>

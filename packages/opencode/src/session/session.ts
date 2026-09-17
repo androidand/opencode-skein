@@ -638,7 +638,15 @@ const layer: Layer.Layer<
       Effect.gen(function* () {
         yield* events.publish(SessionV1.Event.PartUpdated, {
           sessionID: part.sessionID,
-          part: structuredClone(part),
+          // A shallow copy is the snapshot that matters: the streaming loop
+          // mutates the same part object in place between publishes by
+          // reassigning `text` (strings are immutable), so copying the fields
+          // preserves the exact text at publish time without copying the
+          // text bytes. structuredClone did that too, at O(part size) per
+          // call — and every downstream consumer either destructures
+          // synchronously (projector), clones for itself (share-next), or
+          // receives an already-serialized copy (SDK/SSE clients).
+          part: { ...part },
           time: Date.now(),
         })
         return part

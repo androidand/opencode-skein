@@ -9,6 +9,11 @@ import { HttpApiBuilder } from "effect/unstable/httpapi"
 import * as Sse from "effect/unstable/encoding/Sse"
 import { EventApi } from "../groups/event"
 
+// Generous for any draining client; only a subscriber that has stopped
+// consuming ever approaches it, and for that one, failing the stream (so the
+// client reconnects and resyncs) beats retaining every event in the process.
+const SUBSCRIBER_QUEUE_CAPACITY = 10_000
+
 function eventData(data: unknown): Sse.Event {
   return {
     _tag: "Event",
@@ -28,10 +33,11 @@ function eventResponse(events: EventV2.Interface) {
     const workspaceID = yield* InstanceState.workspaceID
     // Listener registration is eager, so events published after this point cannot
     // be lost while the HTTP body fiber is starting or emitting server.connected.
-    const queue = yield* Queue.unbounded<EventV2.Payload>()
-    const unsubscribe = yield* events.listen((event) => Effect.sync(() => Queue.offerUnsafe(queue, event)))
-    yield* Effect.addFinalizer(() => unsubscribe)
-    const stream = Stream.fromQueue(queue).pipe(
+    // Bounded: a subscriber that stops draining (a stalled or half-closed client)
+    // must not retain every event in the process forever. On overflow the stream
+    // fails and the client reconnects and resyncs, which is the recoverable
+    // outcome; unbounded growth is not.
+    const stream = (yield* EventV2.allBounded(events, SUBSCRIBER_QUEUE_CAPACITY)).pipe(
       Stream.filter(
         (event) =>
           event.location?.directory === instance.directory &&
