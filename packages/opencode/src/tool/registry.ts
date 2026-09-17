@@ -464,32 +464,4 @@ export const node = LayerNode.make({
   ],
 })
 
-export const defaultLayer = Layer.suspend(() =>
-  layer.pipe(
-    Layer.provide([
-      Config.defaultLayer,
-      Plugin.defaultLayer,
-      Question.defaultLayer,
-      Todo.defaultLayer,
-      Agent.defaultLayer,
-      Skill.defaultLayer,
-      Session.defaultLayer,
-      BackgroundJob.defaultLayer,
-      Provider.defaultLayer,
-      LSP.defaultLayer,
-      Instruction.defaultLayer,
-      FSUtil.defaultLayer,
-      EventV2Bridge.defaultLayer,
-      LayerNode.compile(httpClient),
-      CrossSpawnSpawner.defaultLayer,
-      Format.defaultLayer,
-      Truncate.defaultLayer,
-      RuntimeFlags.defaultLayer,
-      MCP.defaultLayer,
-      Database.defaultLayer,
-      Ripgrep.defaultLayer,
-    ]),
-  ),
-)
-
 export * as ToolRegistry from "./registry"

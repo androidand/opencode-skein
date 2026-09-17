@@ -715,6 +715,4 @@ export const node = LayerNode.make({
   ],
 })
 
-export const defaultLayer = Layer.suspend(() => layer.pipe(Layer.provide(Session.defaultLayer), Layer.provide(Config.defaultLayer), Layer.provide(Snapshot.defaultLayer), Layer.provide(Agent.defaultLayer), Layer.provide(LLM.defaultLayer), Layer.provide(Permission.defaultLayer), Layer.provide(Plugin.defaultLayer), Layer.provide(SessionSummary.defaultLayer), Layer.provide(SessionStatus.defaultLayer), Layer.provide(Image.defaultLayer), Layer.provide(EventV2Bridge.defaultLayer), Layer.provide(Database.defaultLayer)))
-
 export * as SessionProcessor from "./processor"

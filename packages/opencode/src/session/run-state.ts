@@ -148,6 +148,4 @@ function busyError(sessionID: SessionID) {
 
 export const node = LayerNode.make({ service: Service, layer: layer, deps: [BackgroundJob.node, SessionStatus.node] })
 
-export const defaultLayer = Layer.suspend(() => layer.pipe(Layer.provide(BackgroundJob.defaultLayer), Layer.provide(SessionStatus.defaultLayer)))
-
 export * as SessionRunState from "./run-state"

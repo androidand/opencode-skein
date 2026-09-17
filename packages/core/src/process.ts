@@ -259,6 +259,4 @@ const layer = Layer.effect(
 
 export const node = makeGlobalNode({ service: Service, layer: layer, deps: [CrossSpawnSpawner.node] })
 
-export const defaultLayer = Layer.suspend(() => layer.pipe(Layer.provide(CrossSpawnSpawner.defaultLayer)))
-
 export * as AppProcess from "./process"

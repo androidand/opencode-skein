@@ -283,5 +283,4 @@ export namespace EffectFlock {
 
   export const node = makeGlobalNode({ service: Service, layer: layer, deps: [Global.node, FSUtil.node] })
 
-export const defaultLayer = Layer.suspend(() => layer.pipe(Layer.provide(Global.defaultLayer), Layer.provide(FSUtil.defaultLayer)))
 }

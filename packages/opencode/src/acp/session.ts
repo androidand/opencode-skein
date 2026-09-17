@@ -203,8 +203,6 @@ const layer = Layer.effect(
 
 export const node = LayerNode.make({ service: Service, layer, deps: [] })
 
-export const defaultLayer = Layer.suspend(() => layer)
-
 function makeSession(input: StoreInput): Info {
   return {
     id: input.id,

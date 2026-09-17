@@ -56,6 +56,4 @@ export const node = makeGlobalNode({
   deps: [Config.node, Format.node, LSP.node, Plugin.node, Project.node, ShareNext.node, Snapshot.node, Vcs.node],
 })
 
-export const defaultLayer = Layer.suspend(() => layer.pipe(Layer.provide(Config.defaultLayer), Layer.provide(Format.defaultLayer), Layer.provide(LSP.defaultLayer), Layer.provide(Plugin.defaultLayer), Layer.provide(Project.defaultLayer), Layer.provide(ShareNext.defaultLayer), Layer.provide(Snapshot.defaultLayer), Layer.provide(Vcs.defaultLayer)))
-
 export * as InstanceBootstrap from "./bootstrap"

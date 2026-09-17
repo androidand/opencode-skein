@@ -223,8 +223,6 @@ export const layer = Layer.effect(
 
 export const node = makeGlobalNode({ service: Service, layer, deps: [Database.node] })
 
-export const defaultLayer = Layer.suspend(() => layer.pipe(Layer.provide(Database.defaultLayer)))
-
 /** Runs the journal sweep once at startup and hourly after, once globally rather than once per active Location. */
 export const sweepLayer = Layer.effectDiscard(
   Effect.gen(function* () {

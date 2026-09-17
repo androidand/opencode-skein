@@ -131,5 +131,4 @@ export namespace RipgrepBinary {
     deps: [FSUtil.node, httpClient, CrossSpawnSpawner.node],
   })
 
-export const defaultLayer = Layer.suspend(() => layer.pipe(Layer.provide(FSUtil.defaultLayer), Layer.provide(LayerNode.compile(httpClient)), Layer.provide(CrossSpawnSpawner.defaultLayer)))
 }

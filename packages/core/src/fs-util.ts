@@ -221,8 +221,6 @@ export namespace FSUtil {
 
   export const node = makeGlobalNode({ service: Service, layer: layer, deps: [filesystem] })
 
-export const defaultLayer = Layer.suspend(() => layer.pipe(Layer.provide(LayerNode.compile(filesystem))))
-
   // Pure helpers that don't need Effect (path manipulation, sync operations)
   export function mimeType(p: string): string {
     return lookup(p) || "application/octet-stream"

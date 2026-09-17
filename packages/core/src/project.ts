@@ -135,5 +135,3 @@ export const node = makeGlobalNode({
   layer: layer,
   deps: [FSUtil.node, Git.node, ProjectDirectories.node],
 })
-
-export const defaultLayer = Layer.suspend(() => layer.pipe(Layer.provide(FSUtil.defaultLayer), Layer.provide(Git.defaultLayer), Layer.provide(ProjectDirectories.defaultLayer)))
