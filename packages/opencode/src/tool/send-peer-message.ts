@@ -1,6 +1,8 @@
 import { Effect, Schema, Scope } from "effect"
-import { InstanceState } from "@/effect/instance-state"
+import { RuntimeFlags } from "@/effect/runtime-flags"
 import { Permission } from "@/permission"
+import { sendClaudeMessage } from "@/peer/claude/client"
+import { resolveClaudeTarget } from "@/peer/claude/resolve"
 import { Session } from "@/session/session"
 import { SessionID } from "@/session/schema"
 import { SessionStatus } from "@/session/status"
@@ -19,10 +21,19 @@ export const Parameters = Schema.Struct({
 })
 
 interface ResultMetadata {
-  reason?: "ambiguous" | "not-found" | "busy" | "unreachable"
+  reason?:
+    | "ambiguous"
+    | "not-found"
+    | "busy"
+    | "unreachable"
+    | "protocol-mismatch"
+    | "identity-mismatch"
+    | "no-token"
+    | "messaging-disabled"
   matches?: string[]
   sessionID?: string
   accepted?: boolean
+  harness?: "claude-code"
 }
 
 export const SendPeerMessageTool = Tool.define(
@@ -31,6 +42,7 @@ export const SendPeerMessageTool = Tool.define(
     const session = yield* Session.Service
     const status = yield* SessionStatus.Service
     const permission = yield* Permission.Service
+    const flags = yield* RuntimeFlags.Service
     const scope = yield* Scope.Scope
 
     return {
@@ -53,7 +65,6 @@ export const SendPeerMessageTool = Tool.define(
           if (message === "")
             return { title: "No message sent", metadata: {}, output: "Message text is empty — nothing sent." }
 
-          const ins = yield* InstanceState.context
           const [sessions, statuses, permissions] = yield* Effect.all([
             session.list(),
             status.list(),
@@ -74,7 +85,6 @@ export const SendPeerMessageTool = Tool.define(
             pendingPermission: new Set(permissions.map((item) => item.sessionID)),
             loops: [],
             callerID: ctx.sessionID,
-            directory: ins.directory,
             now: Date.now(),
           })
 
@@ -90,13 +100,67 @@ export const SendPeerMessageTool = Tool.define(
                   ". Use the exact session id.",
               }
             }
+            // Not an opencode-skein peer — try a live Claude Code session.
+            const claudeResolved = yield* Effect.promise(() =>
+              resolveClaudeTarget(params.target, { enabled: !flags.disableClaudeCodePeerSource }),
+            )
+            if (!claudeResolved.ok) {
+              if (claudeResolved.reason === "ambiguous") {
+                return {
+                  title: "Ambiguous target",
+                  metadata: { reason: "ambiguous", matches: claudeResolved.matches.map((r) => String(r.pid)) },
+                  output:
+                    `"${params.target}" matches more than one live Claude Code session: ` +
+                    claudeResolved.matches.map((r) => `${r.pid} ("${r.name ?? "unnamed"}")`).join(", ") +
+                    ". Use the exact pid or Claude session id.",
+                }
+              }
+              return {
+                title: "Peer not found",
+                metadata: { reason: "not-found" },
+                output:
+                  `No opencode-skein or Claude Code session anywhere on this machine matches "${params.target}" ` +
+                  "(idle sessions are valid targets here, unlike the `peers` tool's awareness roster — but your " +
+                  "own session and any subagent you spawned are excluded either way).",
+              }
+            }
+            if (flags.disableClaudeCodePeerMessaging) {
+              return {
+                title: "Claude peer messaging disabled",
+                metadata: { reason: "messaging-disabled", harness: "claude-code" },
+                output:
+                  `Found Claude Code session pid ${claudeResolved.record.pid} ` +
+                  `("${claudeResolved.record.name ?? "unnamed"}"), but Claude Code peer messaging is disabled on ` +
+                  "this instance (OPENCODE_DISABLE_CLAUDE_CODE_PEER_MESSAGING is set). Not delivered.",
+              }
+            }
+
+            const caller = yield* session.get(ctx.sessionID).pipe(Effect.orElseSucceed(() => undefined))
+            const claudeResult = yield* Effect.promise(() =>
+              sendClaudeMessage({
+                targetPid: claudeResolved.record.pid,
+                fromSessionID: ctx.sessionID,
+                fromName: caller?.title ?? ctx.sessionID,
+                // A tool call only happens while the calling session is
+                // actively generating — "idle" was never true here.
+                fromMode: "prompting",
+                text: message,
+              }),
+            )
+            if (!claudeResult.ok) {
+              return {
+                title: "Claude peer message failed",
+                metadata: { reason: claudeResult.reason, harness: "claude-code" },
+                output: `Not delivered to Claude Code session pid ${claudeResolved.record.pid}: ${claudeResult.reason}${claudeResult.detail ? ` (${claudeResult.detail})` : ""}.`,
+              }
+            }
             return {
-              title: "Peer not found",
-              metadata: { reason: "not-found" },
+              title: `Message sent to Claude Code session ${claudeResolved.record.pid}`,
+              metadata: { sessionID: claudeResolved.record.sessionId, accepted: true, harness: "claude-code" },
               output:
-                `No session in this directory matches "${params.target}" (idle sessions are valid targets here, ` +
-                "unlike the `peers` tool's awareness roster — but your own session and any subagent you spawned " +
-                "are excluded either way).",
+                `Delivered to Claude Code session pid ${claudeResolved.record.pid} ` +
+                `("${claudeResolved.record.name ?? "unnamed"}"). This channel is outbound-only right now — ` +
+                "the Claude session cannot reply back through it.",
             }
           }
           const peer = resolved.peer
