@@ -504,6 +504,4 @@ export const node = LayerNode.make({
   deps: [Config.node, RuntimeFlags.node, FSUtil.node, EventV2Bridge.node],
 })
 
-export const defaultLayer = Layer.suspend(() => layer.pipe(Layer.provide(Config.defaultLayer), Layer.provide(RuntimeFlags.defaultLayer), Layer.provide(FSUtil.defaultLayer), Layer.provide(EventV2Bridge.defaultLayer)))
-
 export * as LSP from "./lsp"

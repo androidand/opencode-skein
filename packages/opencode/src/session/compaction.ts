@@ -658,6 +658,4 @@ export const node = LayerNode.make({
   ],
 })
 
-export const defaultLayer = Layer.suspend(() => layer.pipe(Layer.provide(Config.defaultLayer), Layer.provide(Session.defaultLayer), Layer.provide(Agent.defaultLayer), Layer.provide(Plugin.defaultLayer), Layer.provide(SessionProcessor.defaultLayer), Layer.provide(Provider.defaultLayer), Layer.provide(EventV2Bridge.defaultLayer), Layer.provide(RuntimeFlags.defaultLayer)))
-
 export * as SessionCompaction from "./compaction"

@@ -454,5 +454,3 @@ const layer = Layer.effectDiscard(
 )
 
 export const node = makeGlobalNode({ name: "session-projector", layer, deps: [EventV2.node, Database.node] })
-
-export const defaultLayer = Layer.suspend(() => layer.pipe(Layer.provide(EventV2.defaultLayer), Layer.provide(Database.defaultLayer)))

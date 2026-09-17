@@ -1174,13 +1174,4 @@ export const node = LayerNode.make({
   deps: [CrossSpawnSpawner.node, McpAuth.node, EventV2Bridge.node, Config.node],
 })
 
-export const defaultLayer = Layer.suspend(() =>
-  layer.pipe(
-    Layer.provide(CrossSpawnSpawner.defaultLayer),
-    Layer.provide(McpAuth.defaultLayer),
-    Layer.provide(EventV2Bridge.defaultLayer),
-    Layer.provide(Config.defaultLayer),
-  ),
-)
-
 export * as MCP from "."

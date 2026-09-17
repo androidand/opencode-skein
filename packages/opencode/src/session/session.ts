@@ -1023,6 +1023,4 @@ export const node = LayerNode.make({
   deps: [BackgroundJob.node, RuntimeFlags.node, Database.node, EventV2Bridge.node],
 })
 
-export const defaultLayer = Layer.suspend(() => layer.pipe(Layer.provide(BackgroundJob.defaultLayer), Layer.provide(RuntimeFlags.defaultLayer), Layer.provide(Database.defaultLayer), Layer.provide(EventV2Bridge.defaultLayer)))
-
 export * as Session from "./session"

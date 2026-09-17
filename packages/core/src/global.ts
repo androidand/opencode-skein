@@ -79,8 +79,6 @@ const layer = Layer.effect(
 
 export const node = makeGlobalNode({ service: Service, layer: layer, deps: [] })
 
-export const defaultLayer = Layer.suspend(() => layer)
-
 export const layerWith = (input: Partial<Interface>) =>
   Layer.effect(
     Service,

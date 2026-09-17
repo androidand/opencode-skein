@@ -22,5 +22,3 @@ export const layer = Layer.unwrap(
 )
 
 export const node = LayerNode.make({ name: "observability", layer, deps: [] })
-
-export const defaultLayer = Layer.suspend(() => layer)

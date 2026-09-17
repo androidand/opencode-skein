@@ -401,6 +401,4 @@ export const node = LayerNode.make({
   ],
 })
 
-export const defaultLayer = Layer.suspend(() => live.pipe(Layer.provide(Auth.defaultLayer), Layer.provide(Config.defaultLayer), Layer.provide(Provider.defaultLayer), Layer.provide(Plugin.defaultLayer), Layer.provide(Permission.defaultLayer), Layer.provide(EventV2Bridge.defaultLayer), Layer.provide(LayerNode.compile(llmClient)), Layer.provide(RuntimeFlags.defaultLayer)))
-
 export * as LLM from "./llm"

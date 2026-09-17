@@ -247,8 +247,6 @@ export const node = makeGlobalNode({
   deps: [EffectFlock.node, FSUtil.node, Git.node, Global.node],
 })
 
-export const defaultLayer = Layer.suspend(() => layer.pipe(Layer.provide(EffectFlock.defaultLayer), Layer.provide(FSUtil.defaultLayer), Layer.provide(Git.defaultLayer), Layer.provide(Global.defaultLayer)))
-
 function errorMessage(error: unknown) {
   return error instanceof globalThis.Error ? error.message : String(error)
 }

@@ -264,6 +264,4 @@ const layer = Layer.effect(
 
 export const node = makeGlobalNode({ service: Service, layer: layer, deps: [FSUtil.node, EventV2.node, httpClient] })
 
-export const defaultLayer = Layer.suspend(() => layer.pipe(Layer.provide(FSUtil.defaultLayer), Layer.provide(EventV2.defaultLayer), Layer.provide(LayerNode.compile(httpClient))))
-
 export * as ModelsDev from "./models-dev"

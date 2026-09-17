@@ -34,6 +34,4 @@ const layer = Layer.succeed(
 
 export const node = LayerNode.make({ service: Service, layer, deps: [] })
 
-export const defaultLayer = Layer.suspend(() => layer)
-
 export * as McpBrowser from "./browser"
