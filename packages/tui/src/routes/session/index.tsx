@@ -2802,11 +2802,12 @@ function Peers(props: ToolProps) {
   const { theme } = useTheme()
   const peers = createMemo(() => parsePeers(props.metadata.peers))
   const claudePeers = createMemo(() => parseClaudePeers(props.metadata.claudePeers))
+  const hosts = createMemo(() => parseHosts(props.metadata.hosts))
   const count = createMemo(() => peers().length + claudePeers().length)
 
   return (
     <Switch>
-      <Match when={count() > 0}>
+      <Match when={count() > 0 || hosts().length > 0}>
         <BlockTool title="# Agents" part={props.part}>
           <box>
             <box flexDirection="row" gap={1}>
@@ -2844,6 +2845,44 @@ function Peers(props: ToolProps) {
                 />
               )}
             </For>
+            <Show when={hosts().length > 0}>
+              <box flexDirection="row" gap={1} marginTop={1}>
+                <text width={2} />
+                <text width={PEER_NAME_WIDTH} fg={theme.textMuted}>
+                  Host
+                </text>
+                <text width={PEER_TYPE_WIDTH} fg={theme.textMuted}>
+                  Slots
+                </text>
+                <text flexGrow={1} fg={theme.textMuted}>
+                  Loaded model
+                </text>
+              </box>
+              <For each={hosts()}>
+                {(host) => (
+                  <box flexDirection="row" gap={1}>
+                    <text width={2} fg={!host.reachable ? theme.error : host.free > 0 ? theme.success : theme.warning}>
+                      ●
+                    </text>
+                    <text width={PEER_NAME_WIDTH} fg={theme.text}>
+                      {host.providerID}
+                    </text>
+                    <text width={PEER_TYPE_WIDTH} fg={theme.textMuted}>
+                      {!host.reachable
+                        ? "—"
+                        : host.slotsTotal !== undefined
+                          ? `${host.free}/${host.slotsTotal}`
+                          : host.free > 0
+                            ? "idle"
+                            : "busy"}
+                    </text>
+                    <text flexGrow={1} fg={theme.textMuted}>
+                      {!host.reachable ? "unreachable" : (host.loadedModel ?? "")}
+                    </text>
+                  </box>
+                )}
+              </For>
+            </Show>
           </box>
         </BlockTool>
       </Match>
@@ -2901,6 +2940,24 @@ function parseClaudePeers(value: unknown) {
     const cwd = stringValue(peer?.cwd)
     if (pid === undefined || !cwd) return []
     return [{ pid, name: stringValue(peer?.name), cwd, status: stringValue(peer?.status) }]
+  })
+}
+
+function parseHosts(value: unknown) {
+  if (!Array.isArray(value)) return []
+  return value.flatMap((item) => {
+    const host = recordValue(item)
+    const providerID = stringValue(host?.providerID)
+    if (!providerID) return []
+    return [
+      {
+        providerID,
+        reachable: host?.reachable === true,
+        free: numberValue(host?.free) ?? 0,
+        slotsTotal: numberValue(host?.slotsTotal),
+        loadedModel: stringValue(host?.loadedModel),
+      },
+    ]
   })
 }
 

@@ -1265,6 +1265,7 @@ export interface Interface {
     providerID: ProviderV2.ID,
     modelID: ModelV2.ID,
     context: number,
+    contextMax?: number | "keep",
   ) => Effect.Effect<boolean>
 }
 
@@ -2494,15 +2495,20 @@ export const layer = Layer.effect(
       providerID: ProviderV2.ID,
       modelID: ModelV2.ID,
       context: number,
+      contextMax: number | "keep" = context,
     ) {
       return yield* InstanceState.use(state, (s) => {
         const model = s.providers[providerID]?.models[modelID]
         if (!model || !Number.isFinite(context) || context <= 0) return false
-        // Update contextMax too: it's the enforced hard n_ctx the sidebar shows.
-        // The user just set --ctx-size to this value, so it's the new ceiling.
-        // The next discovery re-reads it from the (now patched) backend, so it
-        // does not revert to a capacity number.
-        model.limit = { ...model.limit, context, contextMax: context }
+        if (model.limit.context === context && contextMax === "keep") return true
+        // contextMax is the enforced hard n_ctx the sidebar shows. A user
+        // --ctx-size change moves it; a per-slot trim from a placement probe
+        // ("keep") leaves the ceiling alone.
+        model.limit = {
+          ...model.limit,
+          context,
+          ...(contextMax === "keep" ? {} : { contextMax }),
+        }
         return true
       })
     })

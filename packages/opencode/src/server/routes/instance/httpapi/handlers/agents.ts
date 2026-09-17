@@ -110,7 +110,11 @@ export const agentsHandlers = HttpApiBuilder.group(InstanceHttpApi, "agents", (h
       // session ids, Claude's are pids, so there is no shared key space to
       // collide in.
       const claudePeers = yield* Effect.promise(() =>
-        listClaudePeers({ enabled: !flags.disableClaudeCodePeerSource, now }),
+        listClaudePeers({
+          enabled: !flags.disableClaudeCodePeerSource,
+          messaging: !flags.disableClaudeCodePeerMessaging,
+          now,
+        }),
       )
 
       return [...result.values(), ...claudePeers]

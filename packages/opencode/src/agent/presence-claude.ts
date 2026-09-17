@@ -42,6 +42,8 @@ export interface ResolveInput {
   now: number
   /** Injectable for tests; real liveness is `process.kill(pid, 0)` not throwing. */
   isAlive: (pid: number) => boolean
+  /** Whether this instance can message Claude Code peers (`peer/claude`). */
+  messaging?: boolean
 }
 
 /**
@@ -64,7 +66,7 @@ export function resolveClaudePeers(input: ResolveInput): AgentPresence.Info[] {
       status,
       lastEventAt: raw.statusUpdatedAt ?? raw.startedAt,
       heartbeatAt: input.now,
-      canPrompt: false,
+      canPrompt: alive && input.messaging === true,
       canBtw: false,
       canAbort: false,
     })
@@ -161,10 +163,14 @@ export async function fetchClaudeAgentRecords(opts: { enabled: boolean; now?: nu
   return records
 }
 
-export async function listClaudePeers(opts: { enabled: boolean; now?: number }): Promise<AgentPresence.Info[]> {
+export async function listClaudePeers(opts: {
+  enabled: boolean
+  messaging?: boolean
+  now?: number
+}): Promise<AgentPresence.Info[]> {
   const now = opts.now ?? Date.now()
   const records = await fetchClaudeAgentRecords({ enabled: opts.enabled, now })
-  return resolveClaudePeers({ records, now, isAlive })
+  return resolveClaudePeers({ records, now, isAlive, messaging: opts.messaging })
 }
 
 export * as PresenceClaude from "./presence-claude"

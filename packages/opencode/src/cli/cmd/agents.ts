@@ -3,9 +3,11 @@
 // now"), for opencode-skein's own sessions, merged with Claude Code's if a
 // live Claude registry is present. See openspec/changes/claude-code-peer-source.
 import type { Argv } from "yargs"
-import { Effect } from "effect"
+import { Effect, Option } from "effect"
 import { effectCmd } from "../effect-cmd"
 import { RuntimeFlags } from "@/effect/runtime-flags"
+import { LocalPlacement } from "@/local/placement"
+import { Provider } from "@/provider/provider"
 import { Permission } from "@/permission"
 import { Session } from "@/session/session"
 import { SessionStatus } from "@/session/status"
@@ -40,6 +42,7 @@ export const AgentsCommand = effectCmd({
     const session = yield* Session.Service
     const status = yield* SessionStatus.Service
     const permission = yield* Permission.Service
+    const provider = Option.getOrUndefined(yield* Effect.serviceOption(Provider.Service))
 
     const [sessions, statuses, permissions] = yield* Effect.all([session.list(), status.list(), permission.list()])
     const branches = yield* Effect.promise(() => GitBranch.currentBranches(sessions.map((item) => item.directory)))
@@ -64,7 +67,12 @@ export const AgentsCommand = effectCmd({
       now: Date.now(),
     })
 
-    const claudePeers = yield* Effect.promise(() => listClaudePeers({ enabled: !flags.disableClaudeCodePeerSource }))
+    const claudePeers = yield* Effect.promise(() =>
+      listClaudePeers({
+        enabled: !flags.disableClaudeCodePeerSource,
+        messaging: !flags.disableClaudeCodePeerMessaging,
+      }),
+    )
 
     const records: AgentRecord[] = [
       ...opencodePeers.map(
@@ -90,8 +98,15 @@ export const AgentsCommand = effectCmd({
       ),
     ]
 
+    const hosts = provider
+      ? yield* provider.list().pipe(
+          Effect.flatMap((providers) => Effect.promise(() => LocalPlacement.hostCapacity(providers))),
+          Effect.orElseSucceed(() => [] as LocalPlacement.HostCapacity[]),
+        )
+      : []
+
     if (args.json) {
-      console.log(JSON.stringify(records, null, 2))
+      console.log(JSON.stringify({ agents: records, hosts }, null, 2))
       return
     }
 
@@ -105,6 +120,16 @@ export const AgentsCommand = effectCmd({
       const label = r.title ?? "(unnamed)"
       return `${r.owner.padEnd(14)}  ${r.status.padEnd(18)}  ${place}  — ${label} [${r.id}]`
     })
+    for (const host of hosts) {
+      const slots = !host.reachable
+        ? "unreachable"
+        : host.slotsTotal !== undefined
+          ? `${host.free}/${host.slotsTotal} slots free`
+          : host.free > 0
+            ? "idle"
+            : "busy"
+      lines.push(`${"host".padEnd(14)}  ${slots.padEnd(18)}  ${host.providerID}${host.loadedModel ? `  — ${host.loadedModel}` : ""}`)
+    }
     console.log(lines.join(EOL))
   }),
 })
