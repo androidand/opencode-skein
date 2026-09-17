@@ -23,6 +23,12 @@ export const LeaderTimeout = Schema.Int.check(Schema.isGreaterThan(0)).annotate(
   description: "Leader key timeout in milliseconds",
 })
 
+export const TranscriptWindowDefault = 40
+export const TranscriptWindow = Schema.Int.check(Schema.isGreaterThanOrEqualTo(0)).annotate({
+  description:
+    "Fully render only the most recent N messages of a session; older ones collapse to a one-line summary until clicked. 0 never collapses (default: 40)",
+})
+
 export const ScrollSpeed = Schema.Number.check(Schema.isGreaterThanOrEqualTo(0.001))
 export const ScrollAcceleration = Schema.Struct({
   enabled: Schema.Boolean.annotate({ description: "Enable scroll acceleration" }),
@@ -69,6 +75,7 @@ export const Info = Schema.Struct({
   prompt: Schema.optional(Prompt),
   scroll_speed: Schema.optional(ScrollSpeed).annotate({ description: "TUI scroll speed" }),
   scroll_acceleration: Schema.optional(ScrollAcceleration),
+  transcript_window: Schema.optional(TranscriptWindow),
   diff_style: Schema.optional(DiffStyle),
   cursor: Schema.optional(Cursor),
   mouse: Schema.optional(Schema.Boolean).annotate({ description: "Enable or disable mouse capture (default: true)" }),
