@@ -4,6 +4,7 @@ import { ProviderV2 } from "@opencode-ai/core/provider"
 import { ModelV2 } from "@opencode-ai/core/model"
 import type { MtpMetadata } from "@/local/llama-skein/gen/types.gen"
 import { withGlobalConfigLock } from "@/local/config-lock"
+import { addIgnored, removeIgnored } from "@/local/ignored"
 import { probeModelIDs, scanLlamaSwap } from "@/local/mdns"
 import { createClient, createConfig } from "@/local/llama-skein/gen/client"
 import { LlamaSkeinClient } from "@/local/llama-skein/gen/sdk.gen"
@@ -261,6 +262,10 @@ export const localHandlers = HttpApiBuilder.group(InstanceHttpApi, "local", (han
           const existing = (providers[id] ?? (existingKey ? providers[existingKey] : undefined) ?? {}) as ProviderEntry
           if (existingKey && existingKey !== id) delete providers[existingKey]
 
+          // Explicit reconnect overrides a prior disconnect — resume normal
+          // auto-heal (IP updates, etc.) for this host on future scans.
+          yield* Effect.promise(() => removeIgnored(baseURL))
+
           providers[id] = {
             ...existing,
             npm: "@ai-sdk/openai-compatible",
@@ -280,10 +285,15 @@ export const localHandlers = HttpApiBuilder.group(InstanceHttpApi, "local", (han
         Effect.gen(function* () {
           const global = yield* configSvc.getGlobal()
           const providers = { ...(global.provider ?? {}) }
+          const baseURL = (providers[providerID] as ProviderEntry | undefined)?.options?.baseURL
           delete providers[providerID]
           // replace: mergeDeep alone cannot remove keys, which made disconnect a
           // silent no-op for providers already on disk.
           yield* configSvc.updateGlobal({ ...global, provider: providers }, { replace: ["provider"] })
+          // Otherwise the next auto-sync (including the dispose+bootstrap this
+          // same dialog action triggers) rediscovers this host on mDNS and adds
+          // it right back before the user ever sees it gone.
+          if (baseURL) yield* Effect.promise(() => addIgnored(baseURL))
         }),
       )
       return providerID
