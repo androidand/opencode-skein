@@ -206,7 +206,7 @@ const syncLocalProviders = Effect.gen(function* () {
   // written back atomically w.r.t. /connect and /disconnect.
   yield* withGlobalConfigLock(
     Effect.gen(function* () {
-      const global = yield* configSvc.getGlobal()
+      const global = yield* configSvc.getGlobalRaw()
       const { providers, changes } = reconcileProviders({
         providers: { ...(global.provider ?? {}) },
         online,
@@ -249,7 +249,7 @@ const syncLocalProviders = Effect.gen(function* () {
       // trigger a write.
       const changed = changes.some((change) => change.type !== "kept-manual")
 
-      if (changed) yield* configSvc.updateGlobal({ ...global, provider: providers }, { replace: ["provider"] })
+      if (changed) yield* configSvc.updateGlobal({ provider: providers }, { replace: ["provider"] })
     }),
   )
 })

@@ -124,6 +124,8 @@ type State = {
 export interface Interface {
   readonly get: () => Effect.Effect<Info>
   readonly getGlobal: () => Effect.Effect<Info>
+  /** The global config exactly as written, with `{env:}` / `{file:}` left intact. */
+  readonly getGlobalRaw: () => Effect.Effect<Info>
   readonly getConsoleState: () => Effect.Effect<ConsoleState>
   readonly update: (config: Info) => Effect.Effect<void>
   readonly updateGlobal: (
@@ -313,6 +315,22 @@ const layer = Layer.effect(
 
     const getGlobal = Effect.fn("Config.getGlobal")(function* () {
       return yield* cachedGlobal
+    })
+
+    // Anything that reads the config, edits part of it and writes it back must
+    // start here. `getGlobal` has already expanded `{env:}` references, so
+    // round-tripping it burns the resolved secret onto disk — or an empty
+    // string, when the variable was not set.
+    const getGlobalRaw = Effect.fn("Config.getGlobalRaw")(function* () {
+      let result: Info = {}
+      for (const name of ["config.json", "opencode.json", "opencode.jsonc"]) {
+        const file = path.join(Global.Path.config, name)
+        const text = yield* readConfigFile(file)
+        if (!text) continue
+        const parsed = ConfigParse.schema(ConfigV1.Info, normalizeLoadedConfig(ConfigParse.jsonc(text, file)), file)
+        result = mergeConfig(result, parsed)
+      }
+      return result
     })
 
     const ensureGitignore = Effect.fn("Config.ensureGitignore")(function* (dir: string) {
@@ -722,6 +740,7 @@ const layer = Layer.effect(
     return Service.of({
       get,
       getGlobal,
+      getGlobalRaw,
       getConsoleState,
       update,
       updateGlobal,
