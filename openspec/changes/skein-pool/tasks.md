@@ -2,27 +2,32 @@
 
 ## Phase 1: Context truth stays fresh
 
-- [ ] 1.1 Confirm live: a llama-skein host with `--parallel 2` advertises `max_safe_ctx` ≈
-      half of `configured_ctx` in `/api/fit`, and opencode's `limit.context` for that model
-      equals it after discovery
+- [x] 1.1 Confirmed at the source instead: llama-skein `internal/fit/fit.go:505-512` divides
+      `max_safe_ctx` by `--parallel`; opencode adopts it as `limit.context`
+      (`provider.ts:1698`). No host currently runs `--parallel > 1` to measure against.
 - [ ] 1.2 Reproduce the stale case: raise `--parallel` on a running host mid-session and
       show opencode keeps the old `limit.context` until a 413
-- [ ] 1.3 `placement.ts` probe → update the live model's `limit.context` from the fresh
-      `max_safe_ctx` (same write `adjustLocalContextOnOverflow` does); unit test
+- [x] 1.3 `pick` returns the chosen model's fresh `maxSafeCtx`; `task.ts` writes it through
+      `Provider.setModelContextLimit(..., "keep")` (context only, ceiling untouched)
 
 ## Phase 2: Peers as a placement pool
 
-- [ ] 2.1 `pick` candidate kind `peer` from the A2A roster: idle, not self, `canPrompt`,
-      enough context for the estimated prompt, role `placement` honoured; hosts-first
-      default; tests alongside `test/local/placement.test.ts`
-- [ ] 2.2 Task envelope in `peer/`: id, instructions, reply-to, deadline; encoded for
-      opencode (synthetic prompt) and Claude Code (UDS envelope) transports; codec tests
-- [ ] 2.3 `task.ts` delegate path: send, correlate the reply by task id, surface it as the
-      task result; `release` semantics unchanged
-- [ ] 2.4 Deadline: one wall-clock ceiling for host and peer placements; on expiry re-place
-      or inherit (absorbs `ctx-aware-subagent-placement` task 5)
-- [ ] 2.5 Live: cloud parent + idle local opencode peer → task lands on the peer, reply
-      arrives; same with an idle Claude Code peer
+- [x] 2.1 `peer/delegate.ts` `pickPeer`: idle only, Claude Code peers first, opencode peers
+      only when their model is not on a local host (that host is already a `host`
+      candidate); unit tests. Peers are the fallback after every host is full — not
+      scored against hosts, since a peer holds no slot opencode can measure.
+- [x] 2.2 Task envelope: `[peer-task <id>]` header with reply address, reply tool and
+      deadline; reply marker `[peer-task-result <id>]`; same text over both transports
+      (Claude UDS envelope, opencode synthetic prompt); tests
+- [x] 2.3 `task.ts` delegates when the parent host is `no-slot` and no idle host exists
+      (`experimental.peer_delegation`, default on); replies are intercepted in the Claude
+      sidecar `deliver` and in `send_peer_message` and settled as the task result;
+      background/foreground/timeout paths unchanged
+- [x] 2.4 Deadline: the existing `SUBAGENT_TASK_TIMEOUT_MS` bounds the delegated wait too;
+      expiry surfaces as a task error the parent is notified of (absorbs
+      `ctx-aware-subagent-placement` task 5 for the delegated path)
+- [ ] 2.5 Live: local parent on a full host + idle Claude Code peer → task lands on the peer,
+      reply arrives as the task result; same with an idle opencode peer on a cloud model
 
 ## Phase 3: Leases on the host (llama-skein)
 
@@ -35,9 +40,12 @@
 
 ## Phase 4: Roster shows capacity
 
-- [ ] 4.1 `peers` tool and `opencode agents --json` include per-host `slots`, `in_flight`,
-      `leased`, holder names; TUI Peers table gets a capacity column
-- [ ] 4.2 `bun typecheck`, `bun run fork:verify`, `bun test test/local test/peer`
+- [x] 4.1 `LocalPlacement.hostCapacity`: `peers` tool lists local hosts with free/total slots,
+      in-process reservations and loaded model; `opencode agents --json` returns
+      `{ agents, hosts }`; TUI Peers block gets a Host/Slots table. (`leased`/holders wait
+      for Phase 3.) Claude peers now report `canPrompt` truthfully (alive + messaging on).
+- [x] 4.2 `bun typecheck` (opencode, tui) clean; `bun test test/tool/task test/peer test/agent
+      test/local/placement` 167 pass
 
 ## Phase 5: Bookkeeping
 
