@@ -36,6 +36,14 @@ in [`skein.json`](skein.json); the file-level inventory in
   provider (reader) share it across the package boundary.
 - Re-created the `core/util/log` logger as a fork-owned shim after upstream
   replaced it with Effect logging (#31310), keeping fork-only modules building.
+- Local/dev builds report `opencode/0.0.0-<channel>-<timestamp>` as their
+  version (upstream's own scheme, unchanged by the fork). `console.opencode.ai`
+  started rejecting that as below its free-tier minimum ("OpenCode 1.17.0 or
+  newer is required"), breaking every OpenCode Zen free model for anyone
+  running a local build instead of a tagged release. Added
+  `bun run build:local` (`packages/opencode/script/build-local.ts`), which
+  wraps `build.ts` with a real version/channel so local builds keep passing
+  the check.
 
 ## [fork/2026-06-18.1] — 2026-06-18
 Synced to upstream `8716c4309` (238 commits). Baseline recorded in the manifest.
