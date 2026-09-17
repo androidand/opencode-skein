@@ -1532,6 +1532,11 @@ function isRunControlInput(input: string): boolean {
     return local.agent.color(agent.name)
   })
 
+  // Permissions stop being asked when either the TUI-side toggle (`--auto`,
+  // <leader>p) or the server-side `auto_mode` config (permission dialog's
+  // "Allow + stop asking", opencode.json) is on. The badge must follow both.
+  const autoApprove = createMemo(() => local.permission.mode === "auto" || sync.data.config.auto_mode === true)
+
   const showVariant = createMemo(() => {
     const variants = local.model.variant.list()
     if (variants.length === 0) return false
@@ -1688,7 +1693,7 @@ function isRunControlInput(input: string): boolean {
                       <text fg={fadeColor(highlight(), agentMetaAlpha())}>
                         {store.mode === "shell" ? "Shell" : Locale.titlecase(agent().name)}
                       </text>
-                      <Show when={store.mode === "normal" && local.permission.mode === "auto"}>
+                      <Show when={store.mode === "normal" && autoApprove()}>
                         {/* Distinct accent from the loop/backlog badge below (theme.success) so the
                             two read as separate states — permission auto-approve is not the same
                             thing as an unattended loop/backlog run, and both can be active at once. */}
