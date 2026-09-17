@@ -4,6 +4,7 @@ import {
   capacityFromProbe,
   estimateRequiredCtx,
   freeSlots,
+  isPrivateURL,
   parentCapacity,
   type Probe,
 } from "../../src/local/placement"
@@ -260,5 +261,24 @@ describe("bestModel host-paced placement (hybrid GPU + system RAM)", () => {
     )
     const result = bestModel({ probe: p, info: info("resident", "faster"), parentModelID: "cloud", requiredCtx })
     expect(result?.modelID as string | undefined).toBe("resident")
+  })
+})
+
+describe("isPrivateURL", () => {
+  test("LAN and loopback addresses are private", () => {
+    for (const url of [
+      "http://127.0.0.1:11435/v1",
+      "http://localhost:13305/v1",
+      "http://192.0.2.10:11435/v1",
+      "http://10.0.0.5:8080",
+      "http://172.20.0.1:8080",
+      "http://rocky.local:8080",
+    ])
+      expect(isPrivateURL(url)).toBe(true)
+  })
+  test("public endpoints are not", () => {
+    expect(isPrivateURL("https://swedencentral.api.cognitive.microsoft.com/openai/v1")).toBe(false)
+    expect(isPrivateURL("http://172.32.0.1")).toBe(false)
+    expect(isPrivateURL("not a url")).toBe(false)
   })
 })
