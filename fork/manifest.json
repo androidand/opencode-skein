@@ -187,7 +187,8 @@
     "packages/opencode/src/cli/cmd/debug/claude-sidecar-entry.ts",
     "packages/opencode/src/local/ignored.ts",
     "packages/opencode/test/local/ignored.test.ts",
-    "packages/opencode/test/local/sync.test.ts"
+    "packages/opencode/test/local/sync.test.ts",
+    "packages/opencode/test/config/env-reference-survives.test.ts"
   ],
   "_ownedRemoved_2026-09-05": {
     "note": "packages/opencode/src/session/stream-stalled.ts, packages/opencode/src/session/tool-activity.ts, and packages/opencode/test/session/tool-activity.test.ts were deleted by a90c49880b — confirmed intentional, not a merge regression: a full, reasoned commit message explains that the stream-inactivity watchdog these files implemented only ever fired on false positives (host-paced hybrid loads, foreground subagents, compaction's single big call, cold-load chunks — each already special-cased before this commit finished the trend) and never once caught a genuinely wedged socket, while its false positives were abandoning working turns fleet-wide. Same commit also removed the fork patches this manifest tracked in llm.ts (marker @/local/skein-loading — the SkeinLoading cold-load liveness tick that fed only this watchdog), message-v2.ts (marker StreamStalledError — the error-mapping case for the watchdog's failure type; message-v2.ts no longer diverges from upstream at all and was fully removed from `patched`), and tools.ts (marker \"fork: the stream watchdog must not count\" — the per-tool-call liveness ticks). llm.ts and tools.ts each still diverge from upstream for unrelated, still-live fork reasons and were re-registered in `patched` with fresh markers (see those entries) rather than dropped — only the watchdog-specific tracking was retired.",
@@ -772,6 +773,7 @@
       "packages/opencode/src/share/share-next.ts",
       "packages/opencode/src/tool/shell/prompt.ts",
       "packages/opencode/src/tool/truncate.ts",
+      "packages/opencode/test/fixture/config.ts",
       "packages/opencode/test/mcp/oauth-provider.test.ts",
       "packages/tui/src/component/dialog-move-session.tsx"
     ]
