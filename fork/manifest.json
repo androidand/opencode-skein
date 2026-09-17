@@ -163,22 +163,46 @@
     "packages/tui/src/theme/assets/pip-boy.json",
     "packages/tui/test/loop-command-match.test.ts",
     "packages/tui/test/model-fit.test.ts",
-    "packages/tui/test/ui/dialog-select-footer.test.ts"
+    "packages/tui/test/ui/dialog-select-footer.test.ts",
+    "packages/opencode/src/agent/presence-claude.ts",
+    "packages/opencode/test/agent/presence-claude.test.ts",
+    "packages/opencode/src/peer/claude/registry.ts",
+    "packages/opencode/src/peer/claude/codec.ts",
+    "packages/opencode/src/peer/claude/client.ts",
+    "packages/opencode/src/peer/claude/resolve.ts",
+    "packages/opencode/src/peer/claude/sidecar-registry.ts",
+    "packages/opencode/test/peer/claude/registry.test.ts",
+    "packages/opencode/test/peer/claude/codec.test.ts",
+    "packages/opencode/test/peer/claude/client.test.ts",
+    "packages/opencode/test/peer/claude/sidecar-registry.test.ts",
+    "packages/opencode/src/util/git-branch.ts",
+    "packages/opencode/src/cli/cmd/agents.ts",
+    "packages/opencode/src/peer/claude/sidecar-server.ts",
+    "packages/opencode/src/peer/claude/sidecar-entry.ts",
+    "packages/opencode/src/peer/claude/sidecar-manager.ts",
+    "packages/opencode/test/peer/claude/sidecar-e2e.test.ts",
+    "packages/opencode/test/peer/claude/sidecar-manager.test.ts",
+    "packages/opencode/src/peer/claude/lifecycle.ts",
+    "packages/opencode/script/build-local.ts",
+    "packages/opencode/src/cli/cmd/debug/claude-sidecar-entry.ts",
+    "packages/opencode/src/local/ignored.ts",
+    "packages/opencode/test/local/ignored.test.ts",
+    "packages/opencode/test/local/sync.test.ts"
   ],
   "_ownedRemoved_2026-09-05": {
-    "note": "packages/opencode/src/session/stream-stalled.ts, packages/opencode/src/session/tool-activity.ts, and packages/opencode/test/session/tool-activity.test.ts were deleted by a90c49880b — confirmed intentional, not a merge regression: a full, reasoned commit message explains that the stream-inactivity watchdog these files implemented only ever fired on false positives (host-paced hybrid loads, foreground subagents, compaction's single big call, cold-load chunks — each already special-cased before this commit finished the trend) and never once caught a genuinely wedged socket, while its false positives were abandoning working turns fleet-wide. Same commit also removed the fork patches this manifest tracked in llm.ts (marker @/local/skein-loading — the SkeinLoading cold-load liveness tick that fed only this watchdog), message-v2.ts (marker StreamStalledError — the error-mapping case for the watchdog's failure type; message-v2.ts no longer diverges from upstream at all and was fully removed from `patched`), and tools.ts (marker \"fork: the stream watchdog must not count\" — the per-tool-call liveness ticks). llm.ts and tools.ts each still diverge from upstream for unrelated, still-live fork reasons and were re-registered in `patched` with fresh markers (see those entries) rather than dropped — only the watchdog-specific tracking was retired.",
+    "note": "packages/opencode/src/session/stream-stalled.ts, packages/opencode/src/session/tool-activity.ts, and packages/opencode/test/session/tool-activity.test.ts were deleted by a90c49880b \u2014 confirmed intentional, not a merge regression: a full, reasoned commit message explains that the stream-inactivity watchdog these files implemented only ever fired on false positives (host-paced hybrid loads, foreground subagents, compaction's single big call, cold-load chunks \u2014 each already special-cased before this commit finished the trend) and never once caught a genuinely wedged socket, while its false positives were abandoning working turns fleet-wide. Same commit also removed the fork patches this manifest tracked in llm.ts (marker @/local/skein-loading \u2014 the SkeinLoading cold-load liveness tick that fed only this watchdog), message-v2.ts (marker StreamStalledError \u2014 the error-mapping case for the watchdog's failure type; message-v2.ts no longer diverges from upstream at all and was fully removed from `patched`), and tools.ts (marker \"fork: the stream watchdog must not count\" \u2014 the per-tool-call liveness ticks). llm.ts and tools.ts each still diverge from upstream for unrelated, still-live fork reasons and were re-registered in `patched` with fresh markers (see those entries) rather than dropped \u2014 only the watchdog-specific tracking was retired.",
     "commits": [
       "a90c49880b"
     ]
   },
   "_ownedRemoved_2026-08-14": {
-    "note": "packages/opencode/src/util/sync-log.ts was deleted in the origin/dev merge — confirmed intentional, not a merge regression. It was added by 21c1ac9dd6 to give non-Effect call sites (provider.ts, local/placement.ts) a TUI-safe logger after the core/util/log shim was deleted. The dev-side design solved the same problem differently: those helpers now return outcomes (PickOutcome, DiscoveryResult.warnings) and the Effect caller logs (tool/task.ts, provider.ts). That left zero call sites, so the file was removed rather than carried as dead code.",
+    "note": "packages/opencode/src/util/sync-log.ts was deleted in the origin/dev merge \u2014 confirmed intentional, not a merge regression. It was added by 21c1ac9dd6 to give non-Effect call sites (provider.ts, local/placement.ts) a TUI-safe logger after the core/util/log shim was deleted. The dev-side design solved the same problem differently: those helpers now return outcomes (PickOutcome, DiscoveryResult.warnings) and the Effect caller logs (tool/task.ts, provider.ts). That left zero call sites, so the file was removed rather than carried as dead code.",
     "commits": [
       "21c1ac9dd6"
     ]
   },
   "_ownedRemoved_2026-08-13": {
-    "note": "packages/core/src/util/log.ts (the legacy-logger compatibility shim, upstream's own module removed in #31310) was deleted 2026-08-12 — confirmed intentional, not a merge regression: upstream now has its own logger, making the shim genuinely obsolete."
+    "note": "packages/core/src/util/log.ts (the legacy-logger compatibility shim, upstream's own module removed in #31310) was deleted 2026-08-12 \u2014 confirmed intentional, not a merge regression: upstream now has its own logger, making the shim genuinely obsolete."
   },
   "_ownedRemoved_2026-08-12": {
     "note": "auto-reply.ts, automation-features.ts, pattern-detection.ts (+ its two CLI commands), scheduler.ts, and hook.ts were deliberately deleted 2026-08-07 (commits 88731dfc6f, 0530944759) for being dead/broken code, not lost in a merge. fork:verify was reporting all 7 as regressions because this manifest was never updated at deletion time. Removed here, not re-added.",
@@ -231,12 +255,12 @@
     {
       "file": "packages/tui/src/context/theme.tsx",
       "marker": "ThemeState.set",
-      "note": "createEffect writing ThemeState.set(store.active) — the writer half of the local-backend themed-loading-screen feature (reader is provider.ts ThemeState.get). theme-state.ts now lives in packages/core/src/local so both the TUI (writer) and the opencode provider (reader) can share the singleton across the package boundary."
+      "note": "createEffect writing ThemeState.set(store.active) \u2014 the writer half of the local-backend themed-loading-screen feature (reader is provider.ts ThemeState.get). theme-state.ts now lives in packages/core/src/local so both the TUI (writer) and the opencode provider (reader) can share the singleton across the package boundary."
     },
     {
       "file": "packages/opencode/src/effect/app-runtime.ts",
       "marker": "LocalProviderSync",
-      "note": "Fork services joined to upstream's LayerNode graph: BeadsSync, AutoMode, LocalProviderSync, Loop, SideQuestion. Loop/SideQuestion own HTTP routes and publish events, so they must be in the graph."
+      "note": "Fork services joined to upstream's LayerNode graph: BeadsSync, AutoMode, LocalProviderSync, Loop, SideQuestion, ClaudeSidecarLifecycle. Loop/SideQuestion own HTTP routes and publish events, so they must be in the graph."
     },
     {
       "file": "packages/opencode/src/event-manifest.ts",
@@ -251,27 +275,27 @@
     {
       "file": "packages/opencode/src/session/llm.ts",
       "marker": "export const defaultLayer",
-      "note": "Fork edit to an upstream file (+2/-0 vs upstream/dev as of 2026-09-05). Re-registered here with a fresh marker after a90c49880b (deliberate stream-inactivity-watchdog removal, see _ownedRemoved_2026-09-05) retired the previous marker (`@/local/skein-loading`) along with the watchdog code it fed — llm.ts still diverges from upstream for this unrelated reason and must stay tracked."
+      "note": "Fork edit to an upstream file (+2/-0 vs upstream/dev as of 2026-09-05). Re-registered here with a fresh marker after a90c49880b (deliberate stream-inactivity-watchdog removal, see _ownedRemoved_2026-09-05) retired the previous marker (`@/local/skein-loading`) along with the watchdog code it fed \u2014 llm.ts still diverges from upstream for this unrelated reason and must stay tracked."
     },
     {
       "file": "packages/opencode/src/session/tools.ts",
       "marker": "QueueAuthority",
-      "note": "Fork edit to an upstream file (+110/-82 vs upstream/dev as of 2026-09-05): the loop-spec-queue authority ceiling (deny-rules-before-auto-mode-skip ordering, credential-less shell for push-denied sessions). Re-registered here with a fresh marker after a90c49880b retired the previous marker (`fork: the stream watchdog must not count`) along with the watchdog's tool-liveness ticks — tools.ts still diverges substantially from upstream for this unrelated, load-bearing reason and must stay tracked."
+      "note": "Fork edit to an upstream file (+110/-82 vs upstream/dev as of 2026-09-05): the loop-spec-queue authority ceiling (deny-rules-before-auto-mode-skip ordering, credential-less shell for push-denied sessions). Re-registered here with a fresh marker after a90c49880b retired the previous marker (`fork: the stream watchdog must not count`) along with the watchdog's tool-liveness ticks \u2014 tools.ts still diverges substantially from upstream for this unrelated, load-bearing reason and must stay tracked."
     },
     {
       "file": "packages/core/src/git.ts",
       "marker": "LC_ALL",
-      "note": "Pins LC_ALL=C on git spawns. This code matches git's human-readable output by text (forceRequired), and git localises it — on a non-English machine those checks silently read false."
+      "note": "Pins LC_ALL=C on git spawns. This code matches git's human-readable output by text (forceRequired), and git localises it \u2014 on a non-English machine those checks silently read false."
     },
     {
       "file": "packages/opencode/test/fixture/fixture.ts",
       "marker": "disposeDirectory",
-      "note": "Disposes each test's instance when the test ends. InstanceStore otherwise holds every instance the suite creates — each with its own :memory: SQLite and slice of the app graph — until the process exits, which measured as the bulk of the suite's memory (provider dir: 3004 -> 2577 MB)."
+      "note": "Disposes each test's instance when the test ends. InstanceStore otherwise holds every instance the suite creates \u2014 each with its own :memory: SQLite and slice of the app graph \u2014 until the process exits, which measured as the bulk of the suite's memory (provider dir: 3004 -> 2577 MB)."
     },
     {
       "file": "packages/core/src/npm.ts",
       "marker": "basePackage",
-      "note": "Splits a package specifier from its export subpath. `@ai-sdk/amazon-bedrock/mantle` is not an installable npm spec — npa cannot parse it, so npm treats it as a local folder and arborist reads <cwd>/@ai-sdk/... Install the base package, resolve the full specifier for the entrypoint."
+      "note": "Splits a package specifier from its export subpath. `@ai-sdk/amazon-bedrock/mantle` is not an installable npm spec \u2014 npa cannot parse it, so npm treats it as a local folder and arborist reads <cwd>/@ai-sdk/... Install the base package, resolve the full specifier for the entrypoint."
     },
     {
       "file": "packages/core/src/config.ts",
@@ -330,7 +354,7 @@
     },
     {
       "file": "packages/opencode/src/cli/cmd/run.ts",
-      "marker": "fork: auto-mode — `--auto` (or OPENCODE_",
+      "marker": "fork: auto-mode \u2014 `--auto` (or OPENCODE_",
       "note": "Fork edit to an upstream file (+7/-0 vs baseline). Marker is a string the fork's edit introduces and upstream does not contain, so a merge that reverts the edit fails fork:verify."
     },
     {
@@ -400,7 +424,7 @@
     },
     {
       "file": "packages/opencode/src/server/routes/instance/httpapi/handlers/global.ts",
-      "marker": "fork: name the binary location — the com",
+      "marker": "fork: name the binary location \u2014 the com",
       "note": "Fork edit to an upstream file (+7/-1 vs baseline). Marker is a string the fork's edit introduces and upstream does not contain, so a merge that reverts the edit fails fork:verify."
     },
     {
@@ -425,7 +449,7 @@
     },
     {
       "file": "packages/opencode/src/session/prompt.ts",
-      "marker": "fork: loop detection — if consecutive as",
+      "marker": "fork: loop detection \u2014 if consecutive as",
       "note": "Fork edit to an upstream file (+287/-121 vs baseline). Marker is a string the fork's edit introduces and upstream does not contain, so a merge that reverts the edit fails fork:verify."
     },
     {
@@ -667,10 +691,55 @@
       "file": "packages/tui/test/theme.test.ts",
       "marker": "test(\"includes local custom themes\", () => {",
       "note": "Fork edit to an upstream file (+7/-0 vs baseline). Marker is a full added line, verified absent from upstream's copy."
+    },
+    {
+      "file": "packages/opencode/src/effect/runtime-flags.ts",
+      "marker": "OPENCODE_DISABLE_CLAUDE_CODE_PEER_MESSAGING",
+      "note": "Fork edit: adds disableClaudeCodePeerSource + disableClaudeCodePeerMessaging (both opt-out, on by default) for the Claude Code peer-source/messaging feature. Marker is a string this edit introduces that upstream does not contain."
+    },
+    {
+      "file": "packages/opencode/src/server/routes/instance/httpapi/server.ts",
+      "marker": "ClaudeSidecarLifecycle",
+      "note": "Fork edit: joins ClaudeSidecarLifecycle.node to THIS file's own separate LayerNode graph (the actual root the HTTP server boots from \u2014 distinct from effect/app-runtime.ts's AppLayer, which app-runtime.ts's own consumers use). Both graphs need the node or session-lifecycle events published during real HTTP-served requests never reach it. See openspec/changes/claude-peer-messaging, Phase 3."
+    },
+    {
+      "file": "packages/tui/src/routes/session/index.tsx",
+      "marker": "function Peers(props: ToolProps)",
+      "note": "Fork edit: adds a dedicated terminal renderer for the `peers` tool (opencode-skein + Claude Code peers as a bordered agent list, not the model's own paraphrase) instead of falling through to GenericTool. See openspec/changes/claude-code-peer-source."
+    },
+    {
+      "file": "packages/opencode/src/cli/cmd/debug/index.ts",
+      "marker": "ClaudeSidecarEntryCommand",
+      "note": "Fork edit: registers the hidden claude-sidecar-entry debug subcommand sidecar-manager.ts spawns instead of a standalone script (which doesn't exist in a compiled single-file binary). See openspec/changes/claude-peer-messaging."
+    },
+    {
+      "file": "packages/opencode/src/server/routes/instance/httpapi/handlers/event.ts",
+      "marker": "SUBSCRIBER_QUEUE_CAPACITY",
+      "note": "Fork edit: bounds the per-subscriber SSE event queue (was Queue.unbounded \u2014 upstream #45215) via core's EventV2.allBounded; a stalled client fails and resyncs instead of retaining every event forever."
+    },
+    {
+      "file": "packages/opencode/src/session/session.ts",
+      "marker": "A shallow copy is the snapshot that matters",
+      "note": "Fork edit: updatePart publishes a shallow copy of the part instead of structuredClone (upstream #35107 direction) \u2014 same snapshot semantics for the in-place-mutated text field, without copying part bytes per publish."
+    },
+    {
+      "file": "packages/tui/src/routes/session/index.tsx",
+      "marker": "no spinner while the body is open",
+      "note": "Fork edit: ReasoningHeader renders a static header instead of the animated Spinner while the reasoning body is expanded, so the body stops shaking every frame."
+    },
+    {
+      "file": "packages/tui/src/routes/session/index.tsx",
+      "marker": "transcriptWindow",
+      "note": "Fork edit: transcript windowing \u2014 messages older than the most recent `transcript_window` (TUI config, default 40, 0 disables) render as a one-line CollapsedMessage until clicked, so a long session no longer keeps every part's markdown/syntax/code renderer mounted for its whole life (long-running-session OOM)."
+    },
+    {
+      "file": "packages/tui/src/config/index.tsx",
+      "marker": "transcript_window",
+      "note": "Fork edit: adds the optional `transcript_window` TUI config key (TranscriptWindow schema + TranscriptWindowDefault) consumed by the session route's transcript windowing."
     }
   ],
   "divergence": {
-    "note": "Ratchet for the failure this fork keeps hitting: a merge silently deleting a fork feature (see the self-healing compaction entry). Any file under `scope` that differs from baseline.upstreamRef and is neither owned/patched nor listed in `accepted` fails fork:verify. `accepted` is the divergence that already existed when the gate was added — classify those as feature or drift over time; new files must be classified immediately. The single remaining accepted entry is packages/core/src/effect/dfdf, which upstream committed by accident — its contents are an editor's \"File to save in:\" prompt. It is deleted here on purpose; it stays accepted rather than registered because there is no file left to carry a marker. Re-baseline deliberately with `bun run fork:verify --accept-divergence`.",
+    "note": "Ratchet for the failure this fork keeps hitting: a merge silently deleting a fork feature (see the self-healing compaction entry). Any file under `scope` that differs from baseline.upstreamRef and is neither owned/patched nor listed in `accepted` fails fork:verify. `accepted` is the divergence that already existed when the gate was added \u2014 classify those as feature or drift over time; new files must be classified immediately. The single remaining accepted entry is packages/core/src/effect/dfdf, which upstream committed by accident \u2014 its contents are an editor's \"File to save in:\" prompt. It is deleted here on purpose; it stays accepted rather than registered because there is no file left to carry a marker. Re-baseline deliberately with `bun run fork:verify --accept-divergence`.",
     "scope": [
       "^packages/[^/]+/(src|test)/"
     ],
