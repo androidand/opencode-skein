@@ -754,10 +754,12 @@ export const layer = Layer.effect(
         return path.isAbsolute(configured) ? configured : path.resolve(base, configured)
       })
 
-    // Other agents working in this directory. Unlike the tool, this runs
+    // Other agents active anywhere on this machine (peers are no longer
+    // scoped to this loop's own directory — see
+    // openspec/changes/claude-code-peer-source). Unlike the tool, this runs
     // INSIDE the loop service, so it can see live loop state and does not have
     // to infer activity from session status alone.
-    const activePeers = (callerID: SessionID, directory: string) =>
+    const activePeers = (callerID: SessionID, _directory: string) =>
       Effect.gen(function* () {
         const [sessions, statuses, permissions, loops] = yield* Effect.all([
           session.list().pipe(Effect.orElseSucceed(() => [])),
@@ -784,7 +786,6 @@ export const layer = Layer.effect(
             iteration: item.iteration,
           })),
           callerID,
-          directory,
           now: Date.now(),
         }).map(describePeer)
       }).pipe(Effect.orElseSucceed(() => [] as string[]))

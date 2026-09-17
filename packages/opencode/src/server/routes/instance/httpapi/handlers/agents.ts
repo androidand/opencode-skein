@@ -1,5 +1,7 @@
 import * as AgentPresence from "@/agent/presence"
+import { listClaudePeers } from "@/agent/presence-claude"
 import { InstanceState } from "@/effect/instance-state"
+import { RuntimeFlags } from "@/effect/runtime-flags"
 import { Loop } from "@/loop/loop"
 import { Permission } from "@/permission"
 import { Session } from "@/session/session"
@@ -16,6 +18,7 @@ export const agentsHandlers = HttpApiBuilder.group(InstanceHttpApi, "agents", (h
     const status = yield* SessionStatus.Service
     const permission = yield* Permission.Service
     const loop = yield* Loop.Service
+    const flags = yield* RuntimeFlags.Service
 
     const list = Effect.fn("AgentsHttpApi.list")(function* () {
       const [ctx, sessions, statuses, permissions, loops] = yield* Effect.all([
@@ -103,7 +106,14 @@ export const agentsHandlers = HttpApiBuilder.group(InstanceHttpApi, "agents", (h
         })
       }
 
-      return [...result.values()]
+      // Appended, not merged into `result`: `result`'s keys are opencode
+      // session ids, Claude's are pids, so there is no shared key space to
+      // collide in.
+      const claudePeers = yield* Effect.promise(() =>
+        listClaudePeers({ enabled: !flags.disableClaudeCodePeerSource, now }),
+      )
+
+      return [...result.values(), ...claudePeers]
     })
 
     return handlers.handle("list", list)

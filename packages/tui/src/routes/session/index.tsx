@@ -1852,6 +1852,9 @@ function ToolPart(props: { last: boolean; part: ToolPart; message: AssistantMess
         <Match when={display() === "skill"}>
           <Skill {...toolprops} />
         </Match>
+        <Match when={display() === "peers"}>
+          <Peers {...toolprops} />
+        </Match>
         <Match when={true}>
           <GenericTool {...toolprops} />
         </Match>
@@ -2677,6 +2680,155 @@ function Skill(props: ToolProps) {
   )
 }
 
+const PEER_NAME_WIDTH = 24
+const PEER_TYPE_WIDTH = 9
+const PEER_STATUS_WIDTH = 12
+
+function peerStatusColor(theme: ReturnType<typeof useTheme>["theme"], status: string) {
+  switch (status) {
+    case "busy":
+    case "prompting":
+      return theme.success
+    case "awaiting-permission":
+    case "waiting":
+      return theme.warning
+    case "stalled":
+    case "unreachable":
+      return theme.error
+    default:
+      return theme.textMuted
+  }
+}
+
+function peerStatusLabel(status: string) {
+  switch (status) {
+    case "idle":
+      return "Idle"
+    case "busy":
+      return "Busy"
+    case "waiting":
+      return "Waiting"
+    case "prompting":
+      return "Prompting"
+    case "awaiting-permission":
+      return "Awaiting perm."
+    case "stalled":
+      return "Stalled"
+    case "cancelling":
+      return "Cancelling"
+    case "unreachable":
+      return "Unreachable"
+    default:
+      return status ? status[0]!.toUpperCase() + status.slice(1) : "Unknown"
+  }
+}
+
+function Peers(props: ToolProps) {
+  const { theme } = useTheme()
+  const peers = createMemo(() => parsePeers(props.metadata.peers))
+  const claudePeers = createMemo(() => parseClaudePeers(props.metadata.claudePeers))
+  const count = createMemo(() => peers().length + claudePeers().length)
+
+  return (
+    <Switch>
+      <Match when={count() > 0}>
+        <BlockTool title="# Agents" part={props.part}>
+          <box>
+            <box flexDirection="row" gap={1}>
+              <text width={2} />
+              <text width={PEER_NAME_WIDTH} fg={theme.textMuted}>
+                Name
+              </text>
+              <text width={PEER_TYPE_WIDTH} fg={theme.textMuted}>
+                Type
+              </text>
+              <text flexGrow={1} fg={theme.textMuted}>
+                Directory
+              </text>
+              <text width={PEER_STATUS_WIDTH} fg={theme.textMuted}>
+                Status
+              </text>
+            </box>
+            <For each={peers()}>
+              {(peer) => (
+                <PeerRow
+                  name={peer.title}
+                  type="opencode"
+                  directory={peer.branch ? `${peer.directory} @ ${peer.branch}` : peer.directory}
+                  status={peer.status}
+                />
+              )}
+            </For>
+            <For each={claudePeers()}>
+              {(peer) => (
+                <PeerRow
+                  name={peer.name ?? `pid ${peer.pid}`}
+                  type="Claude"
+                  directory={peer.cwd}
+                  status={peer.status ?? "idle"}
+                />
+              )}
+            </For>
+          </box>
+        </BlockTool>
+      </Match>
+      <Match when={true}>
+        <InlineTool icon="→" pending="Checking for other agents..." complete={true} part={props.part}>
+          No other agents active
+        </InlineTool>
+      </Match>
+    </Switch>
+  )
+}
+
+function PeerRow(props: { name: string; type: "opencode" | "Claude"; directory: string; status: string }) {
+  const { theme } = useTheme()
+
+  return (
+    <box flexDirection="row" gap={1}>
+      <text width={2} fg={peerStatusColor(theme, props.status)}>
+        ●
+      </text>
+      <text width={PEER_NAME_WIDTH} fg={theme.text}>
+        {props.name}
+      </text>
+      <text width={PEER_TYPE_WIDTH} fg={theme.textMuted}>
+        {props.type}
+      </text>
+      <text flexGrow={1} fg={theme.textMuted}>
+        {props.directory}
+      </text>
+      <text width={PEER_STATUS_WIDTH} fg={theme.textMuted}>
+        {peerStatusLabel(props.status)}
+      </text>
+    </box>
+  )
+}
+
+function parsePeers(value: unknown) {
+  if (!Array.isArray(value)) return []
+  return value.flatMap((item) => {
+    const peer = recordValue(item)
+    const sessionID = stringValue(peer?.sessionID)
+    const title = stringValue(peer?.title)
+    const status = stringValue(peer?.status)
+    const directory = stringValue(peer?.directory)
+    if (!sessionID || !title || !status || !directory) return []
+    return [{ sessionID, title, status, directory, branch: stringValue(peer?.branch) }]
+  })
+}
+
+function parseClaudePeers(value: unknown) {
+  if (!Array.isArray(value)) return []
+  return value.flatMap((item) => {
+    const peer = recordValue(item)
+    const pid = numberValue(peer?.pid)
+    const cwd = stringValue(peer?.cwd)
+    if (pid === undefined || !cwd) return []
+    return [{ pid, name: stringValue(peer?.name), cwd, status: stringValue(peer?.status) }]
+  })
+}
+
 function Diagnostics(props: { diagnostics: unknown; filePath: string }) {
   const { theme } = useTheme()
   const terminalEnvironment = useTuiTerminalEnvironment()
@@ -2735,6 +2887,7 @@ const toolDisplays = new Set([
   "question",
   "skill",
   "execute",
+  "peers",
 ])
 
 export function toolDisplay(tool: string) {

@@ -9,6 +9,9 @@ import { BeadsCommand } from "../cli/cmd/beads"
 // Effective-ruleset inspector + usage-scanning setup wizard, the local
 // equivalent of `claude auto-mode config` / `/auto-mode-setup`.
 import { PermissionCommand } from "../cli/cmd/permission"
+// Cross-owner agent roster (opencode-skein + Claude Code) — see
+// openspec/changes/claude-code-peer-source.
+import { AgentsCommand } from "../cli/cmd/agents"
 
 /**
  * Fork-only CLI commands, registered as a single unit from `src/index.ts`.
@@ -26,4 +29,5 @@ export const ForkCommands: CommandModule<any, any>[] = [
   LoopCommand,
   BeadsCommand,
   PermissionCommand,
+  AgentsCommand,
 ]
