@@ -47,3 +47,5 @@ Supersedes `role-model-chains` (renamed 2026-08-07). See the proposal for why th
 - [x] 4.1 `bun test test/loop/ test/agent/ test/local/ test/tool/` — 744 pass; typecheck clean
 - [ ] 4.2 Live check: a cloud-model session fans out and the subagent lands on a local host
   - The whole point of the change; assert on the subagent's resolved provider, not a claim
+
+> Unchecked items above: see Disposition in proposal.md (2026-09-18).

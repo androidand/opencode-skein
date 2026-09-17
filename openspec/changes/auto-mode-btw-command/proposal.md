@@ -73,3 +73,7 @@ Local llama-skein models report `size_bytes` in their `/v1/models` endpoint, and
 - Modified: `packages/opencode/src/provider/provider.ts` (model size fallback from fit report)
 - Modified: `packages/opencode/src/cli/cmd/models.ts` (display size in output)
 - Modified: `packages/opencode/src/config/config.ts` (add auto mode config)
+
+## Disposition (2026-09-18)
+
+**Archived — superseded/obsolete.** /btw exists as the side-question command; auto mode exists (`--auto`, `auto_mode`, footer badge fixed 2026-09-18). The safety-rule categories were never wanted over the permission system.

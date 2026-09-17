@@ -53,3 +53,5 @@
 - [ ] **Create `docs/UPSTREAM_SYNC.md`** — the master document containing: custom change catalog, sync procedure, validation checklist, tagging discipline, and Skein port update steps. **Validation:** `wc -l docs/UPSTREAM_SYNC.md` ≥ 50
 
 - [ ] **Add a CHANGELOG entry** for the sync strategy changes. **Validation:** `grep -q "sync" CHANGELOG.md` || `grep -q "Sync" CHANGELOG.md`
+
+> Unchecked items above: see Disposition in proposal.md (2026-09-18).

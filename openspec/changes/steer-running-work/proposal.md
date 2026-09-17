@@ -84,3 +84,7 @@ intervene. Subagent targeting can be added later as `/nudge <n> <text>`, on the 
   tool, or gate behaviour.
 - `--guidance` at start and `/nudge` mid-run become the same channel: one sets the standing
   instruction, the other appends corrections to it.
+
+## Disposition (2026-09-18)
+
+**Shipped.** Shipped: /nudge end to end.

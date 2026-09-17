@@ -61,3 +61,7 @@ opencode's context display and its 413-overflow auto-patch both use the wrong
   target value; discovery-refresh after set.
 - `packages/opencode/src/server/routes/instance/httpapi/handlers/local.ts`:
   `setModelCtxSize` triggers a provider re-discovery.
+
+## Disposition (2026-09-18)
+
+**Shipped.** Shipped: sidebar shows `limit.contextMax ?? limit.context`; provider.test.ts covers adjustLocalContextOnOverflow.

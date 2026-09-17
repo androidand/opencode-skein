@@ -19,3 +19,7 @@ Current manifest has 17 owned files and 7 patched files. Patch surface is accept
 - fork/manifest.json updated with capability metadata
 - Behavioral tests exist for critical capabilities
 - FORK_WORKFLOW.md updated
+
+## Disposition (2026-09-18)
+
+**Archived — superseded/obsolete.** The real problem (silent feature loss on sync) is solved by fork/manifest.json + fork:verify; owned-module consolidation happens per feature, not as a project.

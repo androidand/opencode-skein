@@ -79,3 +79,7 @@ answer taken before the host went down.
   `placement.ts:66`.
 - No behaviour change to existing placement decisions — the same inputs produce the same
   choices; they simply become observable.
+
+## Disposition (2026-09-18)
+
+**Shipped — live checks moved.** Shipped; 3.2 verified 2026-09-18, live check 3.1 moved to fleet-live-verification.

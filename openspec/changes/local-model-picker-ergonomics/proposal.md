@@ -114,3 +114,7 @@ generated SDK type yet — read it loosely; regen the SDK to type it properly",
 and reads it through `(model as { sizeBytes?: number })`. The regeneration has
 since happened: `size_bytes` is in `packages/tui/src/local/llama-skein/gen/types.gen.ts:178`.
 The cast and the comment can go.
+
+## Disposition (2026-09-18)
+
+**Archived — superseded/obsolete.** 2.1 shipped (provider-scoped query); the rest folded into models-picker-ux.

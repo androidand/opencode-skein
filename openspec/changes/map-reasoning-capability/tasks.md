@@ -4,3 +4,5 @@
        capabilities.reasoning (existing config wins). provider.ts.
        Validation: cd packages/opencode && bun run typecheck
 - [ ] 2. Repo validation: typecheck opencode + tui.
+
+> Unchecked items above: see Disposition in proposal.md (2026-09-18).

@@ -50,3 +50,5 @@
       `aggregate_id` = the session) that `message.updated` rows for the
       turn's user message land roughly once per 5s window plus one at turn
       end, not once per step.
+
+> Unchecked items above: see Disposition in proposal.md (2026-09-18).

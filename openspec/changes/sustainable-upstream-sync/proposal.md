@@ -41,3 +41,7 @@ A comprehensive, automatable upstream sync strategy that includes:
 - **Scope creep** — mitigated by keeping tasks focused on documentation and lightweight tooling
 - **Script complexity** — the sync script could become fragile; mitigated by keeping it simple and well-tested
 - **Stale custom-change docs** — mitigated by including custom-change docs as part of the sync validation checklist
+
+## Disposition (2026-09-18)
+
+**Archived — superseded/obsolete.** Superseded by fork/manifest.json + script/fork-verify.ts + script/sync-check.ts + FORK_WORKFLOW.md.

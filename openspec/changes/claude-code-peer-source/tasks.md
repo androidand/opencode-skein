@@ -93,3 +93,5 @@
     with no duplicates and no missing rows
   - Done 2026-09-17: `listClaudePeers` against this machine's 15 real, live Claude
     sessions matched `claude agents --json`'s own count and pids exactly.
+
+> Unchecked items above: see Disposition in proposal.md (2026-09-18).

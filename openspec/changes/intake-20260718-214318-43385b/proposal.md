@@ -38,3 +38,7 @@ The goal is to have ONE source of truth: `.skein/changes/<slug>/` for Skein runt
 - `internal/cli/migrate_state.go` — can be simplified/removed after migration
 
 **Caution:** This is a breaking change for repos that have only compat state. The Migrate command should be run first on existing repos.
+
+## Disposition (2026-09-18)
+
+**Archived — superseded/obsolete.** Misfiled — targets the skein Go repo (internal/port/adapter, changestate).

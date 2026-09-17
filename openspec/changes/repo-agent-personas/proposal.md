@@ -78,3 +78,7 @@ over every persona in the set and its findings have been folded back into the fi
 - No change to how skein seeds `.skein/agents/` for other repos. This is about what
   *this* repo ships.
 - Prerequisite for `persona-gate-fanout`, which is what actually puts them to work.
+
+## Disposition (2026-09-18)
+
+**Shipped.** Shipped: .opencode/agent personas + persona-auditor test.

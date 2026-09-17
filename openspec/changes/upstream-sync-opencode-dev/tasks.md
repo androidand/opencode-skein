@@ -12,3 +12,5 @@
 - [ ] Commit sync changes, push sync branch, open PR to dev
 - [ ] Merge PR, tag dev, clean worktree
 - [ ] Update FORK_WORKFLOW.md with lessons
+
+> Unchecked items above: see Disposition in proposal.md (2026-09-18).

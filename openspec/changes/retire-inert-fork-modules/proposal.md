@@ -80,3 +80,7 @@ not check `imports`/`exports` conditions will delete the database layer.**
 - No behaviour change anywhere else — nothing referenced any of it.
 - The scan method is recorded in `tasks.md` so this is repeatable rather than another
   accident.
+
+## Disposition (2026-09-18)
+
+**Shipped.** Shipped: scheduler, event-error, tui auto-mode util, hook cmd removed; BeadsCommand via fork/commands.ts.

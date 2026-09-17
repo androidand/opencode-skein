@@ -89,3 +89,5 @@
     delivery path.
   - Cross-instance delivery (Slice 3) remains not live-checked — still blocked on
     `fleet-instance-presence` Phase 4.
+
+> Unchecked items above: see Disposition in proposal.md (2026-09-18).

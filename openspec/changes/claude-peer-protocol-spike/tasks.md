@@ -67,3 +67,5 @@
       was ever added to `packages/opencode/src/`.
 - [x] 6.3 `packages/opencode/src/plugin/skein-peers.ts` was already deleted in `peer-messaging`
       before this spike ran.
+
+> Unchecked items above: see Disposition in proposal.md (2026-09-18).

@@ -43,3 +43,7 @@ llama-skein's fit data.
 - Users can set `--ctx-size` above the model's trained context.
 - The inference engine (llama.cpp) still enforces VRAM limits at load time.
 - Quality degradation above trained context is the user's call.
+
+## Disposition (2026-09-18)
+
+**Shipped.** This repo's share (comments/model-fit) shipped; remaining items are llama-skein commits.

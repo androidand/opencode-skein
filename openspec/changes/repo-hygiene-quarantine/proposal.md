@@ -24,3 +24,6 @@ git's index.
 - `.vscode/settings.example.json`
 - `packages/opencode/script/build-node.ts`
 
+## Disposition (2026-09-18)
+
+**Archived — superseded/obsolete.** The 5 tracked-but-ignored files are upstream's; untracking them would conflict on every sync. Fix the local .gitignore negation if it bites.

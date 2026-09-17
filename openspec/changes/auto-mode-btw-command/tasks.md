@@ -89,3 +89,5 @@
   - `bun typecheck` in packages/opencode — zero errors
   - `bun test packages/opencode --timeout 60000` — all tests green
   - Validation: no regressions in existing features
+
+> Unchecked items above: see Disposition in proposal.md (2026-09-18).

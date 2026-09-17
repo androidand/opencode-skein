@@ -142,3 +142,7 @@ Two facts about it shape the design:
   flow in the TUI.
 - Operational: a broker to run and monitor. That cost is the main argument against, and it
   should be weighed only once presence has demonstrated the polling ceiling.
+
+## Disposition (2026-09-18)
+
+**Archived — superseded/obsolete.** An MQTT bus is not needed: A2A peer messaging (send_peer_message / Claude Code UDS protocol) is the coordination channel, and the roster is pull-based on purpose.

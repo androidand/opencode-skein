@@ -113,3 +113,5 @@ Every field/path/permission cited below is confirmed in
       (not a throwaway): a real opencode-skein session's `send_peer_message` reaches a real
       Claude Code session via `ListAgents`, and a real Claude Code `SendMessage` reaches a real
       opencode-skein session — both directions, cleaned up afterward if any test artifacts remain.
+
+> Unchecked items above: see Disposition in proposal.md (2026-09-18).

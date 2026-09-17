@@ -17,3 +17,7 @@ Refactor context management to introduce a named abstraction for consistency and
 ## Risks
 - Scope creep — mitigated by breaking work into small, verifiable tasks
 - Unclear requirements — mitigated by the ANALYSIS phase before coding
+
+## Disposition (2026-09-18)
+
+**Archived — superseded/obsolete.** Duplicate of introduce-a-named-abstraction-for-c; one module landed.

@@ -30,3 +30,7 @@ The `opencode loop` CLI command (packages/opencode/src/cli/cmd/loop.ts) exists b
 - New: `packages/opencode/src/loop/` (service), server routes, SDK v2 client methods, events.
 - Modified: `packages/opencode/src/cli/cmd/loop.ts` (delegate to service), `packages/tui/src/app.tsx` (keymap layer commands `/loop`, `/loops`), new TUI dialog component for loop management.
 - SDK consumers gain `loop.*` methods; no existing API surface changes.
+
+## Disposition (2026-09-18)
+
+**Shipped.** Shipped; D3 per-iteration child sessions reversed by fix-loop-reliability.

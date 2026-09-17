@@ -9,3 +9,5 @@
 - [ ] Update tests to use New instead of NewWithCompat
 - [ ] Run Migrate on brick-now repo to copy compat state to primary
 - [ ] Clean up compat references in comments and documentation
+
+> Unchecked items above: see Disposition in proposal.md (2026-09-18).

@@ -88,3 +88,7 @@ sense that a command which never had an effect stops existing.
 - Modified: `packages/opencode/src/fork/commands.ts`,
   `packages/opencode/AUTOMATION_FEATURES.md`, `CHANGELOG.md`, `skein.json`.
 - No runtime behaviour changes for any working feature — nothing calls the removed code.
+
+## Disposition (2026-09-18)
+
+**Shipped.** Shipped: auto-reply/automation removed.

@@ -15,3 +15,5 @@
        unit test is a follow-up. (REMAINING)
 - [x] 5. `bun run typecheck` green in both `opencode` and `tui` packages
        (0 errors).
+
+> Unchecked items above: see Disposition in proposal.md (2026-09-18).

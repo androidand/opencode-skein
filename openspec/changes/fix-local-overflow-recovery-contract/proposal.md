@@ -95,3 +95,7 @@ reached (`max_safe_ctx 237076` vs reported `262144`); `gpuhost3` sits at
   benefits from the corrected value, no signature change expected.
 - Regression risk is low and well-bounded: the code path being changed is
   currently dead, so behaviour can only improve from "no recovery".
+
+## Disposition (2026-09-18)
+
+**Shipped.** Shipped (provider.ts overflow discriminator + getModelFit). Open 7 (cross-repo drift guard) and 8 (live) are not blocking; reopen as a small change if the contract drifts.

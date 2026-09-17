@@ -275,3 +275,5 @@
 - [ ] 4.2 Confirm a Claude Code upgrade that changes the protocol degrades to a refusal
       and leaves the roster working
   - Validation: simulated by forcing the version gate to fail
+
+> Unchecked items above: see Disposition in proposal.md (2026-09-18).

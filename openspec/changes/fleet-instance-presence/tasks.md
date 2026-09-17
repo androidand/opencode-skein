@@ -126,3 +126,5 @@ died 20 minutes ago.
       `subagent-notification-reliability`, which exists specifically to investigate that failure
       mode and depends on this phase's roster accuracy to rule out "stale roster" as the cause.
   - Validation: n/a — coordination task
+
+> Unchecked items above: see Disposition in proposal.md (2026-09-18).

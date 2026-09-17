@@ -78,3 +78,7 @@ quietly stops reviewing is worse than one that refuses to start.
 - Depends on `repo-agent-personas` for the agents to exist.
 - Composes with `role-model-chains`: a reviewer can be pinned to a different model than
   the coder, which is most of the value of a second opinion.
+
+## Disposition (2026-09-18)
+
+**Shipped — live checks moved.** Shipped; live check 4.5 moved to fleet-live-verification.

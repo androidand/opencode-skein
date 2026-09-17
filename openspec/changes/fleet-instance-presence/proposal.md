@@ -128,3 +128,7 @@ local placement both consume presence today, with no liveness signal to filter o
 most likely root cause of reports that the "free agent" list `/backlog` suggests is frequently
 wrong (stale, busy, or unreachable entries presented as available). See Phase 6, added below, and
 `subagent-notification-reliability` for the related delegate-and-idle investigation.
+
+## Disposition (2026-09-18)
+
+**Archived — superseded/obsolete.** Phases 1–2 shipped (presence records, /agents, peers). The roster is A2A now (opencode + Claude Code, any directory); delegation/reuse is skein-pool. Stall detection and remote cancel (Phase 3, 4.1–4.3) were never built — reopen as a small change if wanted.

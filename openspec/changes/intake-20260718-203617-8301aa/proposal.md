@@ -70,3 +70,7 @@ Wire PatternDetection into the prompt loop as an **additional** check alongside 
 - **False positives:** PatternDetection's similarity on tool usage strings could trigger on legitimate tool sequences. Mitigate by keeping conservative thresholds (same as text detection: 0.92 bigram threshold, max streak 3).
 - **Performance:** Adding a PatternDetection call per turn adds overhead. Mitigate by only running when there are tool calls (complementary to the existing text-only check).
 - **Regression:** Adding a new check in the prompt loop could affect latency or break existing behavior. Test with existing sub-agent scenarios before deploying.
+
+## Disposition (2026-09-18)
+
+**Archived — superseded/obsolete.** Pattern detection shipped in 3b681a2627 and removed as inert in 88731dfc6f (retire-auto-reply). Live loop detection is prompt.ts loopStreak.

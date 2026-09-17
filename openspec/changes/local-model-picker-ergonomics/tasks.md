@@ -75,3 +75,5 @@ These change the design, not the implementation, so answer them before writing c
       matches `skein models list`, confirm the default resolves.
 - [ ] 7.3 Confirm nothing changed for a cloud provider — ordering, labels, and search
       behaviour identical to before.
+
+> Unchecked items above: see Disposition in proposal.md (2026-09-18).

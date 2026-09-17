@@ -66,3 +66,7 @@ it and then double-book it (audit 2026-07-11):
   hold the reservation across the sub-agent run; release on completion.
 - `packages/opencode/src/session/retry.ts` (or the local dispatch path): a
   wall-clock ceiling on local sub-agent inference.
+
+## Disposition (2026-09-18)
+
+**Shipped — live checks moved.** Shipped; task 5 (wall-clock ceiling) delivered for the delegated path by skein-pool 2.4, live checks moved to fleet-live-verification.

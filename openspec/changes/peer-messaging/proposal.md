@@ -97,3 +97,7 @@ this change rather than leaving it as an unregistered, confusing duplicate.
 - Deleted: `packages/opencode/src/plugin/skein-peers.ts`.
 - Modified: `packages/opencode/src/session/peers.ts` (delivery, not just resolution), instance HTTP
   API surface for the cross-instance path (co-designed with `fleet-instance-presence` Phase 4).
+
+## Disposition (2026-09-18)
+
+**Archived — superseded/obsolete.** Shipped as send_peer_message under claude-peer-messaging; 3.1/3.2 (unreachable/disappeared targets) handled there and by skein-pool's deadline.

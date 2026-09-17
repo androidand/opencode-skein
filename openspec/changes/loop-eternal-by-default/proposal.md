@@ -93,3 +93,7 @@ queue run is a bigger behavior change than a bug fix, even though it defaults on
   `packages/opencode/src/loop/spec-queue/queue.ts` (priority ordering), `packages/opencode/src/loop/continuation.ts`
   (whole-turn tool-call counting), `packages/opencode/src/cli/cmd/loop.ts` and
   `packages/tui/src/component/prompt/index.tsx` (flag surface + transition messaging).
+
+## Disposition (2026-09-18)
+
+**Shipped — live checks moved.** Shipped; live check 6.2 moved to fleet-live-verification.

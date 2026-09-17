@@ -78,3 +78,7 @@ the Deferred, waking the fiber immediately.
 - Modifying the CLI `follow()` polling (separate improvement; bounded by iteration
   count now).
 - Changing `maxIterations`, `noProgressLimit` defaults (already fixed in 272beedad).
+
+## Disposition (2026-09-18)
+
+**Shipped.** Shipped; Phase 1 per-iteration sessions reversed by recorded decision.

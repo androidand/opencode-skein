@@ -125,3 +125,7 @@ implementation must uphold at least as strictly as real Claude Code does.
   the adapter), session lifecycle hooks (spawn/kill the sidecar with the session).
 - New tests: `packages/opencode/test/peer/claude/*` (unit) plus an optional, manually-run
   conformance suite against a real stock Claude Code install.
+
+## Disposition (2026-09-18)
+
+**Archived — superseded/obsolete.** Superseded by claude-code-peer-source (#84) and claude-peer-messaging (#85), which shipped the sidecar peer end to end.

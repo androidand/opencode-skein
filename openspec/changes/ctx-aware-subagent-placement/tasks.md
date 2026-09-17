@@ -72,3 +72,5 @@ path". That was not implemented, so the reported session hang is still live.
       provider registered under any other adapter gets no header timeout at all.
       Apply the timeouts by provider locality, not by npm adapter identity.
       Validation: a local provider on a different adapter still gets both timeouts.
+
+> Unchecked items above: see Disposition in proposal.md (2026-09-18).

@@ -42,3 +42,5 @@
 - [ ] 4.2 Live check: with local fleet saturated (or simulated as such), a subagent placed on a
       free-tier candidate completes and its result reaches the parent via the
       `subagent-notification-reliability` wake-up path.
+
+> Unchecked items above: see Disposition in proposal.md (2026-09-18).

@@ -85,3 +85,7 @@ more steps — and therefore far more `summarize()` calls — per turn.
 - `packages/opencode/src/session/prompt.ts` — forced final `summarize()` call at
   turn-completion exit.
 - No API, schema, or on-disk format changes. No migration.
+
+## Disposition (2026-09-18)
+
+**Shipped.** Shipped: reentrancy set, 5 s throttle, busy_timeout, force at turn end. 4.1/4.2 verified 2026-09-18 (typecheck clean, test/session 445 pass).

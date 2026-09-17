@@ -95,3 +95,7 @@ a different situation from one that is simply free, and the fleet view should sa
   cross-host tier is swappable.
 - Behaviour is unchanged for a single instance with no peers — the common case must not
   regress or slow down.
+
+## Disposition (2026-09-18)
+
+**Archived — superseded/obsolete.** Superseded by skein-pool Phase 3: leases live on the llama-skein host that owns the slots, not in a three-tier store.

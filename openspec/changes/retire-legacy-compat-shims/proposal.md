@@ -78,3 +78,7 @@ file gets classified as *feature* or *drift*, and drift is reverted to upstream.
   and are manifest-patched. They need per-hunk classification, not wholesale restore.
 - Test files are the largest single block of `defaultLayer` use (~90 refs). Migrating
   them changes what the suite proves; the suite must be run, not just typechecked.
+
+## Disposition (2026-09-18)
+
+**Shipped.** Phase 3 finished 2026-09-18: the 77 `defaultLayer` exports re-added by af670cfd0c deleted (typecheck + 1310 tests clean), llm.ts upstream-identical, accepted divergence 67→35. 1.x inventory, 6.4, 6.5 dropped as non-goals — fork/manifest.json is the inventory.
