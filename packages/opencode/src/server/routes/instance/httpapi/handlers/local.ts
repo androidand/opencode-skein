@@ -252,7 +252,7 @@ export const localHandlers = HttpApiBuilder.group(InstanceHttpApi, "local", (han
       // auto-sync pass cannot clobber this connect (or vice versa).
       yield* withGlobalConfigLock(
         Effect.gen(function* () {
-          const global = yield* configSvc.getGlobal()
+          const global = yield* configSvc.getGlobalRaw()
           const providers = { ...(global.provider ?? {}) }
           const normalised = normalizeBaseURL(baseURL)
           const existingKey = Object.entries(providers).find(
@@ -273,7 +273,7 @@ export const localHandlers = HttpApiBuilder.group(InstanceHttpApi, "local", (han
             options: { ...(existing.options ?? {}), baseURL, apiKey: existing.options?.apiKey ?? "skein" },
             discoverModels: true,
           }
-          yield* configSvc.updateGlobal({ ...global, provider: providers }, { replace: ["provider"] })
+          yield* configSvc.updateGlobal({ provider: providers }, { replace: ["provider"] })
         }),
       )
       return id
@@ -283,13 +283,13 @@ export const localHandlers = HttpApiBuilder.group(InstanceHttpApi, "local", (han
       const { providerID } = ctx.params
       yield* withGlobalConfigLock(
         Effect.gen(function* () {
-          const global = yield* configSvc.getGlobal()
+          const global = yield* configSvc.getGlobalRaw()
           const providers = { ...(global.provider ?? {}) }
           const baseURL = (providers[providerID] as ProviderEntry | undefined)?.options?.baseURL
           delete providers[providerID]
           // replace: mergeDeep alone cannot remove keys, which made disconnect a
           // silent no-op for providers already on disk.
-          yield* configSvc.updateGlobal({ ...global, provider: providers }, { replace: ["provider"] })
+          yield* configSvc.updateGlobal({ provider: providers }, { replace: ["provider"] })
           // Otherwise the next auto-sync (including the dispose+bootstrap this
           // same dialog action triggers) rediscovers this host on mDNS and adds
           // it right back before the user ever sees it gone.
