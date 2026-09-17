@@ -25,13 +25,13 @@ import { AsyncLocalStorage } from "async_hooks"
 // ── Errors ────────────────────────────────────────────────────────────
 
 export class NotFound extends Error {
-  constructor(public readonly name: string) {
+  constructor(public override readonly name: string) {
     super(`No ${name} context available`)
   }
 }
 
 export class DuplicateNameError extends Error {
-  constructor(public readonly name: string) {
+  constructor(public override readonly name: string) {
     super(`Context "${name}" already registered`)
   }
 }
@@ -41,7 +41,7 @@ export class DuplicateNameError extends Error {
 interface Manager<A> {
   readonly name: string
   readonly store: AsyncLocalStorage<A>
-  provide(value: A, fn: () => void): void
+  provide<R>(value: A, fn: () => R): R
   use(): A
   tryUse(): A | undefined
   isSet(): boolean
@@ -64,8 +64,8 @@ export function create<A>(name: string): Manager<A> {
     name,
     store,
 
-    provide(value: A, fn: () => void): void {
-      store.run(value, fn)
+    provide<R>(value: A, fn: () => R): R {
+      return store.run(value, fn)
     },
 
     use(): A {

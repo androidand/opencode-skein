@@ -24,6 +24,8 @@
     "packages/opencode/src/beads/sync.ts",
     "packages/opencode/src/cli/cmd/beads.ts",
     "packages/opencode/src/cli/cmd/loop.ts",
+    "packages/opencode/src/context/README.md",
+    "packages/opencode/src/context/index.ts",
     "packages/opencode/src/fork/commands.ts",
     "packages/opencode/src/fork/distribution.ts",
     "packages/opencode/src/git/worktree.ts",
@@ -94,6 +96,7 @@
     "packages/opencode/src/util/which.ts",
     "packages/opencode/test/agent/presence.test.ts",
     "packages/opencode/test/agent/repo-personas.test.ts",
+    "packages/opencode/test/context/index.test.ts",
     "packages/opencode/test/fixtures/mcp-dual-era/server.ts",
     "packages/opencode/test/fixtures/mcp-legacy/server.ts",
     "packages/opencode/test/git/worktree.test.ts",
@@ -194,6 +197,16 @@
       "file": "packages/opencode/src/installation/index.ts",
       "marker": "ForkDistribution",
       "note": "In-app updater points at the fork (releaseRepo/installUrl/npm/brew), never upstream, so an update prompt cannot clobber our binary."
+    },
+    {
+      "file": "packages/opencode/src/control-plane/workspace-context.ts",
+      "marker": "create<WorkspaceContext>",
+      "note": "Migrated off @/util/local-context onto the fork's new named ContextManager (packages/opencode/src/context); upstream still uses LocalContext.create."
+    },
+    {
+      "file": "packages/opencode/src/project/instance-context.ts",
+      "marker": "create<InstanceContext>",
+      "note": "Migrated off @/util/local-context onto the fork's new named ContextManager (packages/opencode/src/context); upstream still uses LocalContext.create."
     },
     {
       "file": "packages/opencode/src/provider/provider.ts",
