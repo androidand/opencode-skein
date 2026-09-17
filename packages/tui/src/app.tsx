@@ -985,10 +985,24 @@ function App(props: { onSnapshot?: () => Promise<string[]>; pluginHost: TuiPlugi
         // it's the same permission.toggle() upstream still ships.
         name: "permission.mode",
         title:
-          local.permission.mode === "auto" ? "Disable auto-approve permissions" : "Enable auto-approve permissions",
+          local.permission.mode === "auto" || sync.data.config.auto_mode
+            ? "Disable auto-approve permissions"
+            : "Enable auto-approve permissions",
         category: "System",
         run: () => {
-          local.permission.toggle()
+          // Auto-approve has two sources: the TUI-side toggle and the server-side
+          // `auto_mode` config (set by the permission dialog's "Allow + stop
+          // asking"). "Disable" must clear both or it disables nothing.
+          if (sync.data.config.auto_mode) {
+            local.permission.set("normal")
+            void sdk.client.global.config
+              .update({ config: { auto_mode: false } }, { throwOnError: true })
+              .then(() => sdk.client.global.config.get({ throwOnError: true }))
+              .then((refreshed) => sync.set("config", refreshed.data!))
+              .catch(() => undefined)
+          } else {
+            local.permission.toggle()
+          }
           dialog.clear()
         },
       },
