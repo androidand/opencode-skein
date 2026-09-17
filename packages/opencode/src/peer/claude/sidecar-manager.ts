@@ -35,10 +35,18 @@ export interface SidecarInfo {
 }
 
 interface Managed extends SidecarInfo {
+  name: string
   child: ReturnType<typeof Process.spawn>
 }
 
 const active = new Map<string, Managed>()
+
+/** The name Claude Code peers see this session under (`ListAgents`), once its sidecar is up. */
+export function sidecarNameFor(sessionID: string): string | undefined {
+  const managed = active.get(sessionID)
+  if (!managed?.pid) return undefined
+  return `opencode:${managed.name}`
+}
 
 /** No point registering a peer nothing on this machine can discover. */
 export function claudeCodePresent(): boolean {
@@ -81,7 +89,7 @@ export function ensureSidecar(
     stderr: "pipe",
   })
 
-  const managed: Managed = { sessionID: input.sessionID, child }
+  const managed: Managed = { sessionID: input.sessionID, name: input.name, child }
   active.set(input.sessionID, managed)
 
   child.stderr?.on("data", (chunk: Buffer) => {

@@ -1,8 +1,10 @@
-import { Effect, Schema } from "effect"
+import { Effect, Option, Schema } from "effect"
 import { fetchClaudeAgentRecords } from "@/agent/presence-claude"
 import { InstanceState } from "@/effect/instance-state"
 import { RuntimeFlags } from "@/effect/runtime-flags"
+import { LocalPlacement } from "@/local/placement"
 import { Permission } from "@/permission"
+import { Provider } from "@/provider/provider"
 import { Session } from "@/session/session"
 import { SessionStatus } from "@/session/status"
 import { describePeer, resolvePeers } from "@/session/peers"
@@ -19,6 +21,7 @@ export const PeersTool = Tool.define(
     const status = yield* SessionStatus.Service
     const permission = yield* Permission.Service
     const flags = yield* RuntimeFlags.Service
+    const provider = Option.getOrUndefined(yield* Effect.serviceOption(Provider.Service))
 
     return {
       description: DESCRIPTION,
@@ -33,9 +36,15 @@ export const PeersTool = Tool.define(
             session.get(ctx.sessionID).pipe(Effect.orElseSucceed(() => undefined)),
           ])
 
-          const claudePeers = yield* Effect.promise(() =>
-            fetchClaudeAgentRecords({ enabled: !flags.disableClaudeCodePeerSource }),
-          )
+          const [claudePeers, hosts] = yield* Effect.all([
+            Effect.promise(() => fetchClaudeAgentRecords({ enabled: !flags.disableClaudeCodePeerSource })),
+            provider
+              ? provider.list().pipe(
+                  Effect.flatMap((providers) => Effect.promise(() => LocalPlacement.hostCapacity(providers))),
+                  Effect.orElseSucceed(() => [] as LocalPlacement.HostCapacity[]),
+                )
+              : Effect.succeed([] as LocalPlacement.HostCapacity[]),
+          ])
 
           const branches = yield* Effect.promise(() =>
             GitBranch.currentBranches([...sessions.map((item) => item.directory), ...claudePeers.map((c) => c.cwd)]),
@@ -80,11 +89,33 @@ export const PeersTool = Tool.define(
 
           const totalOther = peers.length + claudeLines.length
 
+          const hostLines = hosts.map((host) => {
+            if (!host.reachable) return `- ${host.providerID}: unreachable`
+            const slots =
+              host.slotsTotal !== undefined
+                ? `${host.free}/${host.slotsTotal} slot${host.slotsTotal === 1 ? "" : "s"} free`
+                : host.free > 0
+                  ? "idle"
+                  : "busy"
+            const held = host.reserved > 0 ? `, ${host.reserved} reserved by this instance` : ""
+            const loaded = host.loadedModel ? `, ${host.loadedModel} loaded` : ""
+            return `- ${host.providerID}: ${slots}${held}${loaded}`
+          })
+          const hostSection =
+            hostLines.length === 0
+              ? []
+              : ["", "Local inference hosts (where a subagent can be placed):", ...hostLines]
+
           // An empty roster is a real, useful answer — say so rather than
           // returning a blank that reads like a failure.
           const output =
             totalOther === 0
-              ? `${selfLine}\n\nNo other agent sessions are active anywhere on this machine right now.`
+              ? [
+                  selfLine,
+                  "",
+                  "No other agent sessions are active anywhere on this machine right now.",
+                  ...hostSection,
+                ].join("\n")
               : [
                   selfLine,
                   "",
@@ -92,6 +123,7 @@ export const PeersTool = Tool.define(
                   "",
                   ...peers.map((peer) => `- ${describePeer(peer)}`),
                   ...claudeLines,
+                  ...hostSection,
                   "",
                   "If any of these overlaps what you are about to do, say so before you start.",
                 ].join("\n")
@@ -105,6 +137,7 @@ export const PeersTool = Tool.define(
               count: totalOther,
               peers,
               claudePeers: claudePeers.map((c) => ({ pid: c.pid, name: c.name, cwd: c.cwd, status: c.status })),
+              hosts,
             },
             output,
           }

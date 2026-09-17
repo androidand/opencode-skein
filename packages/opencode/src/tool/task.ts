@@ -16,6 +16,20 @@ import { Effect, Exit, Option, Schema, Scope } from "effect"
 import { EffectBridge } from "@/effect/bridge"
 import { RuntimeFlags } from "@/effect/runtime-flags"
 import { Database } from "@opencode-ai/core/database/database"
+import { SessionStatus } from "@/session/status"
+import { Permission } from "@/permission"
+import { formatPeerMessage, resolveMessageTargets } from "@/session/peers"
+import { fetchClaudeAgentRecords } from "@/agent/presence-claude"
+import { sendClaudeMessage } from "@/peer/claude/client"
+import { sidecarNameFor } from "@/peer/claude/sidecar-manager"
+import {
+  awaitTaskReply,
+  buildTaskEnvelope,
+  cancelTaskReply,
+  pickPeer,
+  type PeerCandidate,
+  type TaskReplyResult,
+} from "@/peer/delegate"
 
 export interface TaskPromptOps {
   cancel(sessionID: SessionID): Effect.Effect<void>
@@ -118,6 +132,10 @@ export const TaskTool = Tool.define(
     const scope = yield* Scope.Scope
     const flags = yield* RuntimeFlags.Service
     const database = yield* Database.Service
+    // Optional like `provider`: absent in stripped-down environments, where
+    // peer delegation is simply not attempted.
+    const sessionStatus = Option.getOrUndefined(yield* Effect.serviceOption(SessionStatus.Service))
+    const permission = Option.getOrUndefined(yield* Effect.serviceOption(Permission.Service))
 
     const run = Effect.fn("TaskTool.execute")(function* (
       params: Schema.Schema.Type<typeof Parameters>,
@@ -262,7 +280,7 @@ export const TaskTool = Tool.define(
             )
       // pick() stays plain so its slot reservation is synchronous; it reports
       // the outcome and the logging happens here, in Effect context.
-      if (outcome?.kind === "placed")
+      if (outcome?.kind === "placed") {
         yield* Effect.logInfo("placed subagent on idle local provider", {
           provider: outcome.placement.providerID,
           model: outcome.placement.modelID,
@@ -270,7 +288,16 @@ export const TaskTool = Tool.define(
           requiredCtx: outcome.requiredCtx,
           probed: outcome.probed,
         })
-      else if (outcome?.kind === "none")
+        // The probe just read the host's current per-slot context; discovery
+        // may have seen a different --parallel. Trim to what is true now.
+        if (provider && outcome.maxSafeCtx > 0)
+          yield* provider.setModelContextLimit(
+            outcome.placement.providerID,
+            outcome.placement.modelID,
+            outcome.maxSafeCtx,
+            "keep",
+          )
+      } else if (outcome?.kind === "none")
         yield* Effect.logInfo("no idle local provider, inheriting parent", {
           parent: inherited.providerID,
           probed: outcome.probed,
@@ -307,6 +334,127 @@ export const TaskTool = Tool.define(
       // fallback.
       const willInherit = !next.model && !placed
       const placementRan = !!provider && !next.model && !session && cfg.experimental?.local_subagent_placement !== false
+
+      // Every local host is full. Before refusing, offer the task to an idle
+      // peer agent that runs on capacity this host does not share — a Claude
+      // Code session, or an opencode session on a cloud provider. The peer
+      // answers with a marker line (`peer/delegate.ts`) that the inbound paths
+      // route back here as the task result.
+      let delegated: { peer: PeerCandidate; reply: Promise<TaskReplyResult> } | undefined
+      const ops = ctx.extra?.promptOps as TaskPromptOps
+      if (!ops) return yield* Effect.fail(new Error("TaskTool requires promptOps in ctx.extra"))
+      const delegate = Effect.fn("TaskTool.delegate")(function* () {
+        if (!sessionStatus || !permission) return undefined
+        const [all, statuses, permissions, providers] = yield* Effect.all([
+          sessions.list(),
+          sessionStatus.list(),
+          permission.list(),
+          provider ? provider.list() : Effect.succeed({} as Record<string, Provider.Info>),
+        ])
+        const localProviderIDs = new Set(
+          Object.values(providers)
+            .filter((info) => LocalPlacement.baseURLOf(info))
+            .map((info) => info.id as string),
+        )
+        const opencodePeers = resolveMessageTargets({
+          sessions: all.map((item) => ({
+            id: item.id,
+            parentID: item.parentID,
+            directory: item.directory,
+            title: item.title,
+            agent: item.agent,
+            model: item.model ? { providerID: item.model.providerID, id: item.model.id } : undefined,
+            updatedAt: item.time.updated,
+          })),
+          statuses,
+          pendingPermission: new Set(permissions.map((item) => item.sessionID)),
+          loops: [],
+          callerID: ctx.sessionID,
+          now: Date.now(),
+        }).map(
+          (peer): PeerCandidate => ({
+            owner: "opencode-skein",
+            id: peer.sessionID,
+            name: peer.title,
+            status: peer.status,
+            provider: peer.provider,
+            idleForMs: peer.idleForMs,
+          }),
+        )
+        // A Claude peer can only reply to a session Claude can see — one with
+        // a sidecar of its own. A nested subagent has none.
+        const replyName = sidecarNameFor(ctx.sessionID)
+        const claudePeers =
+          replyName && !flags.disableClaudeCodePeerMessaging
+            ? (yield* Effect.promise(() =>
+                fetchClaudeAgentRecords({ enabled: !flags.disableClaudeCodePeerSource }),
+              )).map(
+                (record): PeerCandidate => ({
+                  owner: "claude-code",
+                  id: String(record.pid),
+                  name: record.name ?? `pid ${record.pid}`,
+                  status: record.status ?? "busy",
+                }),
+              )
+            : []
+        const peer = pickPeer({ peers: [...claudePeers, ...opencodePeers], localProviderIDs })
+        if (!peer) return undefined
+
+        const isClaude = peer.owner === "claude-code"
+        const envelope = buildTaskEnvelope({
+          taskID: nextSession.id,
+          description: params.description,
+          prompt: params.prompt,
+          cwd: parent.directory,
+          replyTo: isClaude ? replyName! : ctx.sessionID,
+          replyTool: isClaude ? "SendMessage" : "send_peer_message",
+          deadlineMs: SUBAGENT_TASK_TIMEOUT_MS,
+        })
+        // Register before sending so a fast reply cannot land first.
+        const reply = awaitTaskReply(nextSession.id, SUBAGENT_TASK_TIMEOUT_MS)
+        if (isClaude) {
+          const sent = yield* Effect.promise(() =>
+            sendClaudeMessage({
+              targetPid: Number(peer.id),
+              fromSessionID: ctx.sessionID,
+              fromName: parent.title,
+              fromMode: "prompting",
+              text: envelope,
+            }),
+          )
+          if (!sent.ok) {
+            cancelTaskReply(nextSession.id)
+            yield* Effect.logWarning("peer delegation: Claude peer unreachable", { pid: peer.id, reason: sent.reason })
+            return undefined
+          }
+        } else {
+          const target = yield* sessions.get(SessionID.make(peer.id)).pipe(Effect.orElseSucceed(() => undefined))
+          if (!target) {
+            cancelTaskReply(nextSession.id)
+            return undefined
+          }
+          yield* ops
+            .prompt({
+              sessionID: target.id,
+              agent: target.agent ?? ctx.agent,
+              parts: [
+                {
+                  type: "text",
+                  synthetic: true,
+                  text: formatPeerMessage({ sessionID: ctx.sessionID, title: parent.title }, envelope),
+                },
+              ],
+            })
+            .pipe(Effect.ignore, Effect.forkIn(scope, { startImmediately: true }))
+        }
+        yield* Effect.logInfo("delegated subagent task to idle peer", {
+          owner: peer.owner,
+          peer: peer.id,
+          name: peer.name,
+          task: nextSession.id,
+        })
+        return { peer, reply }
+      })
       if (willInherit && placementRan) {
         const capacity = yield* provider
           .list()
@@ -327,14 +475,16 @@ export const TaskTool = Tool.define(
             provider: inherited.providerID,
           })
         if (capacity === "no-slot") {
-          return yield* Effect.fail(
-            new Error(
-              `No capacity for subagent: local provider "${inherited.providerID}" has no free slot ` +
-                `and no idle local peer was available. It serves one session at a time, so running ` +
-                `here would queue behind this session and never return. Retry when it frees up, or ` +
-                `pass an explicit model on a different provider.`,
-            ),
-          )
+          if (cfg.experimental?.peer_delegation !== false) delegated = yield* delegate()
+          if (!delegated)
+            return yield* Effect.fail(
+              new Error(
+                `No capacity for subagent: local provider "${inherited.providerID}" has no free slot, ` +
+                  `no idle local host was available, and no idle peer agent could take the task. It serves ` +
+                  `one session at a time, so running here would queue behind this session and never return. ` +
+                  `Retry when it frees up, or pass an explicit model on a different provider.`,
+              ),
+            )
         }
       }
       // Only the data half of the placement goes anywhere near metadata —
@@ -346,15 +496,15 @@ export const TaskTool = Tool.define(
         sessionId: nextSession.id,
         model,
         ...(runInBackground ? { background: true } : {}),
+        ...(delegated
+          ? { delegatedTo: { owner: delegated.peer.owner, id: delegated.peer.id, name: delegated.peer.name } }
+          : {}),
       }
 
       yield* ctx.metadata({
         title: params.description,
         metadata,
       })
-
-      const ops = ctx.extra?.promptOps as TaskPromptOps
-      if (!ops) return yield* Effect.fail(new Error("TaskTool requires promptOps in ctx.extra"))
 
       // Release the local-placement slot reservation (if we hopped to an idle
       // peer) when the subagent finishes, however it finishes — success,
@@ -363,6 +513,19 @@ export const TaskTool = Tool.define(
       const releaseSlot = Effect.sync(() => placed?.release())
 
       const runTask = Effect.fn("TaskTool.runTask")(function* () {
+        if (delegated) {
+          const result = yield* Effect.promise(() => delegated.reply).pipe(
+            Effect.onInterrupt(() => Effect.sync(() => cancelTaskReply(nextSession.id))),
+          )
+          if (result.ok) return result.text
+          return yield* Effect.fail(
+            new Error(
+              result.reason === "timeout"
+                ? `Peer ${delegated.peer.name} (${delegated.peer.owner}) did not reply within ${SUBAGENT_TASK_TIMEOUT_MS / 1000}s.`
+                : "Delegated task cancelled.",
+            ),
+          )
+        }
         const parts = yield* ops.resolvePromptParts(params.prompt)
         const result = yield* ops.prompt({
           messageID: MessageID.ascending(),

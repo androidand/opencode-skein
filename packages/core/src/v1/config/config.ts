@@ -213,6 +213,10 @@ export const Info = Schema.Struct({
         description:
           "Model IDs trusted for local subagent placement (the parent's own model is always trusted). Unset: any tool-capable model on an idle provider qualifies",
       }),
+      peer_delegation: Schema.optional(Schema.Boolean).annotate({
+        description:
+          "When no local host has a free slot for a subagent, hand the task to an idle peer agent (Claude Code or opencode) over A2A instead of failing (default: true)",
+      }),
       queue_gate: Schema.optional(
         Schema.Struct({
           cwd: Schema.optional(Schema.String),

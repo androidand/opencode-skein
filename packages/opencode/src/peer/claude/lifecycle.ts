@@ -14,6 +14,7 @@ import { Session } from "@/session/session"
 import { SessionID } from "@/session/schema"
 import { SessionPrompt } from "@/session/prompt"
 import { formatPeerMessage } from "@/session/peers"
+import { settleTaskReply } from "@/peer/delegate"
 import { ensureSidecar, stopAllSidecars, stopSidecar, sweepOrphanedSidecars } from "./sidecar-manager"
 
 export class Service extends Context.Service<Service, {}>()("@opencode/ClaudeSidecarLifecycle") {}
@@ -32,6 +33,7 @@ const layer = Layer.effect(
     yield* Effect.promise(() => sweepOrphanedSidecars()).pipe(Effect.ignore)
 
     const deliver = (sessionID: string, text: string, fromName?: string) => {
+      if (settleTaskReply(text)) return
       Effect.gen(function* () {
         const info = yield* session.get(SessionID.make(sessionID)).pipe(Effect.orElseSucceed(() => undefined))
         if (!info) return

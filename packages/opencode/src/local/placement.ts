@@ -159,9 +159,9 @@ export function bestModel(input: {
   parentModelID: string
   requiredCtx: number
   allowedModels?: readonly string[]
-}): { modelID: ModelV2.ID; score: number } | null {
+}): { modelID: ModelV2.ID; score: number; maxSafeCtx: number } | null {
   const loadedID = input.probe.hardware.loaded_model?.id
-  let best: { modelID: ModelV2.ID; score: number } | null = null
+  let best: { modelID: ModelV2.ID; score: number; maxSafeCtx: number } | null = null
   for (const fit of input.probe.fit.models) {
     const model = input.info.models[fit.model]
     if (!model) continue // not registered with opencode — can't be prompted
@@ -199,9 +199,60 @@ export function bestModel(input: {
       // Host-bandwidth-paced placements rank below every GPU-resident
       // candidate, residency tier included — see HOST_PACED_PENALTY.
       (isHostPaced(fit) ? HOST_PACED_PENALTY : 0)
-    if (!best || score > best.score) best = { modelID: model.id, score }
+    if (!best || score > best.score) best = { modelID: model.id, score, maxSafeCtx: fit.max_safe_ctx }
   }
   return best
+}
+
+export interface HostCapacity {
+  providerID: string
+  reachable: boolean
+  slotsTotal?: number
+  inFlight?: number
+  reserved: number
+  free: number
+  loadedModel?: string
+}
+
+/** Live slot picture of every local host, for the roster. Hardware probe only — no fit report. */
+export async function hostCapacity(
+  providers: Record<string, Provider.Info>,
+  timeoutMs = 1_000,
+): Promise<HostCapacity[]> {
+  const local = Object.values(providers).flatMap((info) => {
+    const baseURL = baseURLOf(info)
+    return baseURL ? [{ info, baseURL }] : []
+  })
+  if (local.length === 0) return []
+  const aborter = new AbortController()
+  const timer = setTimeout(() => aborter.abort(), timeoutMs)
+  try {
+    return await Promise.all(
+      local.map(async ({ info, baseURL }): Promise<HostCapacity> => {
+        const reserved = reservedFor(info.id)
+        const llama = new LlamaSkeinClient({
+          client: createClient(createConfig({ baseUrl: normalizeBaseURL(baseURL) })),
+          key: `capacity:${info.id}`,
+        })
+        const hardware = await llama
+          .getHardware({ signal: aborter.signal })
+          .then((res) => res.data ?? null)
+          .catch(() => null)
+        if (!hardware) return { providerID: info.id, reachable: false, reserved, free: 0 }
+        return {
+          providerID: info.id,
+          reachable: true,
+          slotsTotal: hardware.inference?.slots_total,
+          inFlight: hardware.inference?.in_flight,
+          reserved,
+          free: Math.max(0, freeSlots(hardware, reserved)),
+          loadedModel: hardware.loaded_model?.id,
+        }
+      }),
+    )
+  } finally {
+    clearTimeout(timer)
+  }
 }
 
 /**
@@ -312,7 +363,15 @@ export function hostRankFor(prefer: "inherit" | "local" | readonly string[] | un
  * reservation stays synchronous (see below), and the caller does the logging.
  */
 export type PickOutcome =
-  | { kind: "placed"; placement: Placement; release: () => void; probed: number; requiredCtx: number }
+  | {
+      kind: "placed"
+      placement: Placement
+      release: () => void
+      probed: number
+      requiredCtx: number
+      /** The chosen model's usable context as the host reports it right now (per-slot share). */
+      maxSafeCtx: number
+    }
   | { kind: "none"; probed: number }
   | { kind: "failed"; error: string }
 
@@ -374,7 +433,7 @@ export async function pick(input: {
     // if every named host is unreachable or busy, the remaining candidates are
     // still there to be picked, and pick() falls through to inherit only when
     // genuinely nothing is eligible.
-    let best: { placement: Placement; score: number } | null = null
+    let best: { placement: Placement; score: number; maxSafeCtx: number } | null = null
     for (let i = 0; i < candidates.length; i++) {
       const result = probes[i]
       if (!result) continue
@@ -403,7 +462,7 @@ export async function pick(input: {
         Math.min(freeMb, 65_536) / 1_000 -
         (recent ? RECENT_PLACEMENT_PENALTY : 0)
       if (!best || score > best.score) {
-        best = { placement: { providerID: result.providerID, modelID: model.modelID }, score }
+        best = { placement: { providerID: result.providerID, modelID: model.modelID }, score, maxSafeCtx: model.maxSafeCtx }
       }
     }
 
@@ -413,7 +472,14 @@ export async function pick(input: {
       // TTL backstop fires).
       const release = reserve(best.placement.providerID)
       recentPlacements.set(best.placement.providerID, Date.now())
-      return { kind: "placed", placement: best.placement, release, probed: candidates.length, requiredCtx }
+      return {
+        kind: "placed",
+        placement: best.placement,
+        release,
+        probed: candidates.length,
+        requiredCtx,
+        maxSafeCtx: best.maxSafeCtx,
+      }
     }
     return { kind: "none", probed: candidates.length }
   } catch (err) {

@@ -3,6 +3,7 @@ import { RuntimeFlags } from "@/effect/runtime-flags"
 import { Permission } from "@/permission"
 import { sendClaudeMessage } from "@/peer/claude/client"
 import { resolveClaudeTarget } from "@/peer/claude/resolve"
+import { settleTaskReply } from "@/peer/delegate"
 import { Session } from "@/session/session"
 import { SessionID } from "@/session/schema"
 import { SessionStatus } from "@/session/status"
@@ -187,6 +188,14 @@ export const SendPeerMessageTool = Tool.define(
               title: "Peer disappeared",
               metadata: { reason: "unreachable", sessionID: peer.sessionID },
               output: `Peer session ${peer.sessionID} was found a moment ago but is gone now. Not delivered.`,
+            }
+          }
+
+          if (settleTaskReply(message)) {
+            return {
+              title: `Task result delivered to ${peer.title}`,
+              metadata: { sessionID: peer.sessionID, accepted: true },
+              output: `Delivered as the result of the task ${peer.title} delegated to you.`,
             }
           }
 
