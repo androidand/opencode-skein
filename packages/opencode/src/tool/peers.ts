@@ -1,9 +1,12 @@
 import { Effect, Schema } from "effect"
+import { fetchClaudeAgentRecords } from "@/agent/presence-claude"
 import { InstanceState } from "@/effect/instance-state"
+import { RuntimeFlags } from "@/effect/runtime-flags"
 import { Permission } from "@/permission"
 import { Session } from "@/session/session"
 import { SessionStatus } from "@/session/status"
 import { describePeer, resolvePeers } from "@/session/peers"
+import { GitBranch } from "@/util/git-branch"
 import DESCRIPTION from "./peers.txt"
 import * as Tool from "./tool"
 
@@ -15,6 +18,7 @@ export const PeersTool = Tool.define(
     const session = yield* Session.Service
     const status = yield* SessionStatus.Service
     const permission = yield* Permission.Service
+    const flags = yield* RuntimeFlags.Service
 
     return {
       description: DESCRIPTION,
@@ -22,11 +26,20 @@ export const PeersTool = Tool.define(
       execute: (_params: {}, ctx: Tool.Context) =>
         Effect.gen(function* () {
           const ins = yield* InstanceState.context
-          const [sessions, statuses, permissions] = yield* Effect.all([
+          const [sessions, statuses, permissions, caller] = yield* Effect.all([
             session.list(),
             status.list(),
             permission.list(),
+            session.get(ctx.sessionID).pipe(Effect.orElseSucceed(() => undefined)),
           ])
+
+          const claudePeers = yield* Effect.promise(() =>
+            fetchClaudeAgentRecords({ enabled: !flags.disableClaudeCodePeerSource }),
+          )
+
+          const branches = yield* Effect.promise(() =>
+            GitBranch.currentBranches([...sessions.map((item) => item.directory), ...claudePeers.map((c) => c.cwd)]),
+          )
 
           const peers = resolvePeers({
             sessions: sessions.map((item) => ({
@@ -47,28 +60,52 @@ export const PeersTool = Tool.define(
             // is accurate because a loop-driven session is busy while it works.
             loops: [],
             callerID: ctx.sessionID,
-            directory: ins.directory,
+            branches,
             now: Date.now(),
           })
+
+          // A peer resolving "who am I" (e.g. so another session or the human
+          // can address it back) needs its own id and title stated plainly —
+          // this is a discovery tool, self-identification included.
+          const selfLine = `You are session ${ctx.sessionID}${caller?.title ? ` — "${caller.title}"` : ""} in ${ins.directory}. Other sessions can message you with send_peer_message using this id, or an unambiguous prefix of your title.`
+
+          const claudeLines = claudePeers.map((claude) => {
+            const branch = branches.get(claude.cwd)
+            const place = branch ? `${claude.cwd} @ ${branch}` : claude.cwd
+            const messageable = !flags.disableClaudeCodePeerMessaging
+              ? "message with send_peer_message using its pid, session id, name, or directory"
+              : "not currently messageable — Claude Code peer messaging is disabled on this instance"
+            return `- Claude Code session pid ${claude.pid}${claude.name ? ` — "${claude.name}"` : ""} [${claude.status ?? "unknown"}], ${place}, ${messageable}`
+          })
+
+          const totalOther = peers.length + claudeLines.length
 
           // An empty roster is a real, useful answer — say so rather than
           // returning a blank that reads like a failure.
           const output =
-            peers.length === 0
-              ? `No other agent sessions are active in ${ins.directory}.`
+            totalOther === 0
+              ? `${selfLine}\n\nNo other agent sessions are active anywhere on this machine right now.`
               : [
-                  `${peers.length} other session${peers.length === 1 ? "" : "s"} active in ${ins.directory}:`,
+                  selfLine,
+                  "",
+                  `${totalOther} other agent session${totalOther === 1 ? "" : "s"} active on this machine:`,
                   "",
                   ...peers.map((peer) => `- ${describePeer(peer)}`),
+                  ...claudeLines,
                   "",
                   "If any of these overlaps what you are about to do, say so before you start.",
                 ].join("\n")
 
           return {
-            title: peers.length === 0 ? "No other agents here" : `${peers.length} other agent session(s)`,
+            title: totalOther === 0 ? "No other agents here" : `${totalOther} other agent session(s)`,
             // Metadata only. No message text, prompt, tool call or tool output
             // from another session is reachable through this.
-            metadata: { count: peers.length, peers },
+            metadata: {
+              self: { sessionID: ctx.sessionID, title: caller?.title },
+              count: totalOther,
+              peers,
+              claudePeers: claudePeers.map((c) => ({ pid: c.pid, name: c.name, cwd: c.cwd, status: c.status })),
+            },
             output,
           }
         }),
