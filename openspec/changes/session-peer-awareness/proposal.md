@@ -82,3 +82,7 @@ sees. Fixed in `packages/opencode/src/tool/registry.ts`; see task 4.2 and `peer-
 found and fixed the identical bug for `send_peer_message`). This is a plausible partial
 explanation for reports that agents "don't even seem to bother" using peer-awareness features —
 the tool to do so was silently unavailable.
+
+## Disposition (2026-09-18)
+
+**Shipped.** Shipped; extended by claude-code-peer-source (peers in any directory) and skein-pool (host capacity).

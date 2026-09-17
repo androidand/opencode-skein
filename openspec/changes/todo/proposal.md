@@ -48,3 +48,7 @@ Five concrete tasks were implemented:
 - `packages/sdk/js/src/v2/loop-args.ts` — Flag removal
 
 - Build: `npm run build` (TypeScript/Effect project)
+
+## Disposition (2026-09-18)
+
+**Archived — superseded/obsolete.** Upstream's Effect backlog; ticks were never true here. Not fork work.

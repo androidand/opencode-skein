@@ -74,3 +74,5 @@
 - [ ] 5.2 Manual smoke test: start a TUI session and send a real prompt that
       exercises tool permission checks (confirms the actual HTTP API graph,
       not just `AppLayer`, is exercised). - Validation: no `Service not found` errors in server logs.
+
+> Unchecked items above: see Disposition in proposal.md (2026-09-18).

@@ -24,3 +24,7 @@ Goal is to bring fork onto current upstream dev without losing Skein capabilitie
 - fork/manifest.json baseline updated
 - fork:verify passes
 - All Skein capabilities verified behaviorally
+
+## Disposition (2026-09-18)
+
+**Shipped.** Merged (baseline 4643e65, 2026-08-14). Upstream is ~316 commits ahead again — the next sync is a new change.

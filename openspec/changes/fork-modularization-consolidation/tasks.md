@@ -9,3 +9,5 @@
 - [ ] Add behavioral verification tests
 - [ ] Update manifest with capability metadata and tests
 - [ ] Update FORK_WORKFLOW.md
+
+> Unchecked items above: see Disposition in proposal.md (2026-09-18).

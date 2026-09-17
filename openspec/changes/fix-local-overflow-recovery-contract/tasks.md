@@ -53,3 +53,5 @@
 - [x] 9. `bun run typecheck` green in `opencode` and `tui`; `bun test` green for
        the provider package.
   - `bun run typecheck`: only the pre-existing `src/session/prompt.ts:1152` error remains, caused by unrelated uncommitted WIP (auto-mode) in the working tree — confirmed via bisecting clean checkouts, not caused by this change. `tui` package not separately checked (no changes there). `bun test test/provider/provider.test.ts`: 101 pass, 0 fail. `bun test test/session/compaction.test.ts`: 55 pass, 1 skip, 0 fail.
+
+> Unchecked items above: see Disposition in proposal.md (2026-09-18).

@@ -11,3 +11,5 @@
 - [ ] Commit and push to master
 - [ ] Deploy llama-skein to all local providers
 - [ ] Deploy opencode to path
+
+> Unchecked items above: see Disposition in proposal.md (2026-09-18).

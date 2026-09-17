@@ -78,3 +78,5 @@ decision gate with a real option to stop.
 
 - [ ] 5.2 Full typecheck and test
   - Validation: `bun typecheck` zero errors; `bun test packages/opencode --timeout 60000` green
+
+> Unchecked items above: see Disposition in proposal.md (2026-09-18).

@@ -23,3 +23,7 @@ it gone.
 
 - New: `src/local/ignored.ts`, `test/local/ignored.test.ts`, `test/local/sync.test.ts`.
 - Modified: `src/local/sync.ts`, `httpapi/handlers/local.ts`.
+
+## Disposition (2026-09-18)
+
+**Shipped.** Shipped 2026-09-18.

@@ -19,3 +19,7 @@ first) rendered as a frozen "not responding" during the think phase.
 - Changing reasoning rendering itself (already gated on capabilities.reasoning).
 - Client regen: discovery reads the raw /models JSON, so no generated-client
   change is required for this mapping.
+
+## Disposition (2026-09-18)
+
+**Shipped.** Shipped: provider.ts maps `reasoning` on discovery.

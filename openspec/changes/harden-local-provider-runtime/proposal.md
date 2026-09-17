@@ -48,3 +48,7 @@ plumbing:
 - File-level locking of `~/.config/opencode/opencode.json` across processes.
 - Event-journal retention (tracked separately).
 - Loop durability (separate change; prerequisite for supervisor work).
+
+## Disposition (2026-09-18)
+
+**Shipped.** Shipped: config-lock, cancelled sidebar polls, fit under its own abort signal.

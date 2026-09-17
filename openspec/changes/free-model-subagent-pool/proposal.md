@@ -73,3 +73,7 @@ unverified candidate is not.
   search — investigate before creating a new module if one fits).
 - Modified: `packages/opencode/src/local/placement.ts` (pool extension, eligibility gate),
   `packages/opencode/src/tool/task.ts` (candidate pool now includes free-tier when applicable).
+
+## Disposition (2026-09-18)
+
+**Archived — superseded/obsolete.** Folded into skein-pool: an idle peer on a cloud model is a delegation target when every local host is full. No separate liveness-probed pool.

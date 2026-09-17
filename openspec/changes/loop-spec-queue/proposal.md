@@ -152,3 +152,7 @@ This change is not shippable before all three of:
   (show current change and gate), `packages/sdk/js/src/v2/loop-args.ts`.
 - Interacts with the permission system; needs review that the deny-list cannot be bypassed
   via a shell subprocess.
+
+## Disposition (2026-09-18)
+
+**Shipped.** Shipped: spec-queue module, QueueAuthority, `--queue`/`--gate-cwd`, tests.

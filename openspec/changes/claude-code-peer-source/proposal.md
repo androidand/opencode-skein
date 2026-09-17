@@ -123,3 +123,7 @@ not extend `fleet-instance-presence`'s network surface.
 - New: a Claude source module under `packages/opencode/src/agent/`, a topology reader, and
   their tests.
 - `/agents` gains an owner column and a slug column.
+
+## Disposition (2026-09-18)
+
+**Shipped.** Shipped. 3.1/3.2 (specsync topology annotation) descoped: `specsync topology` does not exist; directory + branch are already on every peer.

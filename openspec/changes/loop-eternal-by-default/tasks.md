@@ -85,3 +85,5 @@
       `openspec/changes/` has other eligible work; confirm it transitions to queue mode and keeps
       going, and that `--eternal=false` stops it at completion as before. Covered by an
       integration test (`queue-mode.test.ts`) but not yet observed on a real fleet run.
+
+> Unchecked items above: see Disposition in proposal.md (2026-09-18).

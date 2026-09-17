@@ -39,3 +39,5 @@
   - Validation: `git diff packages/console/app/src/asset/architecture.svg`
 - [x] 4.3. Ensure all documentation is consistent with the new design.
   - Validation: `git diff docs`
+
+> Unchecked items above: see Disposition in proposal.md (2026-09-18).

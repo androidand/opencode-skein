@@ -42,3 +42,7 @@ The streak increments only when `noToolCalls` is true. This means tool-call iter
 
 - Add test cases for: loop with tool calls across iterations, loop with structurally similar output, loop with semantic changes in long output
 - Ensure existing stall behavior is preserved for truly stalled loops (identical output, no tool calls)
+
+## Disposition (2026-09-18)
+
+**Shipped.** Shipped: similarity threshold 0.96 + tests.

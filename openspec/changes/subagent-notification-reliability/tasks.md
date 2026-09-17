@@ -50,3 +50,5 @@
       parent confirmed to keep making progress and then react to the injected result without any
       further human input. Also close the still-open `subagent-background-default` task 6 with
       this evidence.
+
+> Unchecked items above: see Disposition in proposal.md (2026-09-18).

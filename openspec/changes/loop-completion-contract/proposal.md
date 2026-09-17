@@ -91,3 +91,7 @@ help knows what the agent is being asked to emit.
 - Tests: `packages/opencode/test/loop/loop.test.ts` — the two tests that hand-feed the
   literal keep passing; new tests cover the matcher edge cases.
 - No API break: the default token is the existing constant.
+
+## Disposition (2026-09-18)
+
+**Shipped.** Shipped: completion token, contract part, `--completion-token`.

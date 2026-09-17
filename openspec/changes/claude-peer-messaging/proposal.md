@@ -167,3 +167,7 @@ not only in prose — the description is what the model actually reads.
 - New: a peer messaging client and a tool exposing it, both behind one flag.
 - Changed: capability publication in the presence source.
 - If Phase 0 says no, the impact is one archived proposal and a documented finding.
+
+## Disposition (2026-09-18)
+
+**Shipped.** Shipped both directions via the sidecar (on by default). 2.2 done 2026-09-18 (`canPrompt` = alive + messaging enabled); 3.3 moot (inbound exists); 4.1 verified live 2026-09-17; 4.2 covered by the protocol-version unit test.

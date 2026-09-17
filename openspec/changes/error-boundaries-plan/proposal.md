@@ -19,3 +19,7 @@ verifiable unit of work. Edit `tasks.md` to split, merge, or reorder as needed.
 - Implement the tasks listed in tasks.md
 - Add tests for any new behaviour
 - Verify with `go build ./...` and `go test ./...`
+
+## Disposition (2026-09-18)
+
+**Archived — superseded/obsolete.** Absorbed upstream Effect-migration notes; every named file matches upstream/dev. Nothing fork-owned.

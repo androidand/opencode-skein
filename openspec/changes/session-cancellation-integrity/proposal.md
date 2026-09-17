@@ -112,3 +112,7 @@ loop stays `cancelled`.
 - Provider stream path gains an inactivity deadline (`packages/llm/`).
 - `Runner` is shared by every session, not just loops — this touches the core turn
   lifecycle and needs the full session suite green.
+
+## Disposition (2026-09-18)
+
+**Shipped.** Shipped: Cancelling state, interrupt grace, loop cancel/finalize. Phase 2 stream watchdog later removed in a90c49880b for false positives.

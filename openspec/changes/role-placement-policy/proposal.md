@@ -86,3 +86,7 @@ providers with a local `baseURL`. A role that wants cloud simply says nothing an
 - Does not read skein's `chains:`. Those are auto-synthesized identically across all twelve
   roles today, so there is nothing role-specific to consume. If they ever diverge, this
   field is where that config would land.
+
+## Disposition (2026-09-18)
+
+**Shipped — live checks moved.** Shipped; live check 4.2 moved to fleet-live-verification.

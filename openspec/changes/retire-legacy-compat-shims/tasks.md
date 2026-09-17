@@ -99,3 +99,5 @@ patched) and a build smoke test. Do not start a phase until the previous one is 
       CrossSpawnSpawner, pty and mDNS tests, TestLLMServer)
 - [ ] 6.5 Consider one shard per CI job (SHARD_INDEX/SHARD_TOTAL) so the 4-vCPU
       runners parallelise instead of running four shards in series
+
+> Unchecked items above: see Disposition in proposal.md (2026-09-18).

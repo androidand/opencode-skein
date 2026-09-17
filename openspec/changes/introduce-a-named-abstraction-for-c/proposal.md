@@ -17,3 +17,7 @@ Introduce a named abstraction for context management to centralize and simplify 
 ## Risks
 - Scope creep — mitigated by breaking work into small, verifiable tasks
 - Unclear requirements — mitigated by the ANALYSIS phase before coding
+
+## Disposition (2026-09-18)
+
+**Shipped.** Shipped as packages/opencode/src/context (3 importers + test).

@@ -93,3 +93,7 @@ without depending on Claude compatibility at all. This spike references it only 
   and is deleted or explicitly promoted, never left half-wired.
 - Research touches read-only inspection of `~/.claude/` config/session state on this machine —
   read-only, isolated temp dirs for anything destructive, per the user's explicit instruction.
+
+## Disposition (2026-09-18)
+
+**Shipped.** GO verdict acted on: claude-code-peer-source + claude-peer-messaging shipped the peer end to end. Unexecuted slices 3.1/4.1/5.1 were verified live by the sidecar implementation instead.

@@ -288,3 +288,5 @@ display, report printing done (`--sync` remains). Remaining: 4.2 adversarial rev
     directory — i.e. this change removes 11 failures (the LAN-scan hermeticity fix)
     and adds none. The residual failures are timing-sensitive cancel/subtask tests
     whose count varies run to run (3–11) with machine load.
+
+> Unchecked items above: see Disposition in proposal.md (2026-09-18).

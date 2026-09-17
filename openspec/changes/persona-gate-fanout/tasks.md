@@ -56,3 +56,5 @@ Depends on `repo-agent-personas` for the agents to exist.
 - [x] 4.4 `bun test test/loop/ --timeout 90000` and `bun run typecheck` clean
   - 135/135 loop tests pass; workspace typecheck clean
 - [ ] 4.5 Live run of `/auto` on a real change; confirm the reviewer's parts render inline
+
+> Unchecked items above: see Disposition in proposal.md (2026-09-18).

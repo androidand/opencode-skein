@@ -39,3 +39,7 @@ profile and let the user tweak it without hand-editing YAML on the host.
   opencode is a view/editor over the API.
 - Per-model flag editing beyond what `/api/config/models/:id` PATCH already
   supports (ctx size / offload live there already).
+
+## Disposition (2026-09-18)
+
+**Shipped.** Shipped: dialog-tuning.tsx, sidebar `✓ tuned` badge, tuning.show keybind.

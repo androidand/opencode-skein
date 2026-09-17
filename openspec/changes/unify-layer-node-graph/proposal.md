@@ -114,3 +114,7 @@ new service until the graphs are unified or guarded.
   exports `defaultLayer`/`node`.
 - No user-facing behavior change is intended beyond eliminating a class of
   runtime crash / silent-dead-service bug.
+
+## Disposition (2026-09-18)
+
+**Archived — superseded/obsolete.** Unified upstream (451876b0bd): one LayerNode graph in app-runtime.ts and server.ts already includes the fork nodes. The fork's dead re-created defaultLayer graph was deleted 2026-09-18 under retire-legacy-compat-shims.

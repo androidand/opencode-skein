@@ -76,3 +76,7 @@ of where the subagent is placed.
   the session synthetic-message path (`session.synthetic` / equivalent), and
   `packages/opencode/src/session/processor.ts` (turn scheduling/wake semantics).
 - Fix location depends on root cause (Slice 1); tasks.md Slice 2 is intentionally conditional.
+
+## Disposition (2026-09-18)
+
+**Archived — superseded/obsolete.** Background results are injected via TaskTool.injectBackgroundResult (completed and error); the wall-clock ceiling exists (SUBAGENT_TASK_TIMEOUT_MS) and now bounds delegated tasks too (skein-pool). Reopen with a reproduction if the parent still idles.

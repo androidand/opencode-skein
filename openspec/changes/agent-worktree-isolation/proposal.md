@@ -85,3 +85,7 @@ This change is that separate change.
 - Modified: `packages/opencode/src/loop/*` (start/stop path, behind the flag).
 - Config: new `experimental.agent_worktree_isolation` boolean.
 - No effect on any existing behavior when the flag is off (the default).
+
+## Disposition (2026-09-18)
+
+**Archived — superseded/obsolete.** Dropped 2026-09-18: src/git/worktree.ts was never imported; upstream's Worktree service + TUI move-session-to-worktree covers per-session isolation. Queue-mode auto-isolation + merge-back can be a new change on upstream's service.

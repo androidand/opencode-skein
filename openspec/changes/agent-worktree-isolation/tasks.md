@@ -57,3 +57,5 @@
       in whatever surfaces `/loop`'s other experimental flags today (CLI
       help, `--help` output, or the relevant docs file — match however
       `local_subagent_placement` is documented, if at all).
+
+> Unchecked items above: see Disposition in proposal.md (2026-09-18).

@@ -57,3 +57,7 @@ block") instead of a "prefer" framing that no model actually needs to act on now
 - Not yet observed against a real fleet run with a weak local orchestrator - the
   originating symptom (single foreground delegation, idle fleet) should stop
   recurring once this ships to the hosts that opencode-skein itself runs on.
+
+## Disposition (2026-09-18)
+
+**Shipped — live checks moved.** Shipped; the remaining live fleet check moved to fleet-live-verification.
