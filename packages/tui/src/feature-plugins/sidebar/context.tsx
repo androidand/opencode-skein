@@ -183,11 +183,14 @@ function View(props: { api: TuiPluginApi; session_id: string }) {
 
   // String-equality memo: state() is a fresh object per message update, so
   // keying the effect on it directly would restart the poll every stream tick.
-  const hardwareBaseURL = createMemo(() => state().baseURL)
+  // Model identity is part of the key so switching models on one host resets
+  // and refetches instead of showing the previous model's sample.
+  const hardwareKey = createMemo(() => (state().baseURL ? `${state().baseURL}|${state().modelID ?? ""}` : null))
 
   createEffect(on(
-    hardwareBaseURL,
-    (url) => {
+    hardwareKey,
+    (key) => {
+      const url = key?.split("|")[0] || null
       // The last committed sample belongs to the previous provider — drop it
       // before polling the new one, or its totals render against the new host
       // (and stick forever if the new backend lacks /api/hardware).
