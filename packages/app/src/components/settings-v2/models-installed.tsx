@@ -11,6 +11,7 @@ import { useModels } from "@/context/models"
 import { useServerSDK } from "@/context/server-sdk"
 import { popularProviders } from "@/hooks/use-providers"
 import { Persist, persisted } from "@/utils/persist"
+import { SettingsModelsHostsV2 } from "./models-hosts"
 import { SettingsListV2 } from "./parts/list"
 import { SettingsRowV2 } from "./parts/row"
 
@@ -25,7 +26,7 @@ const PROVIDER_ICON_SIZE = 16
  * behavior here is unchanged from the pre-epic SettingsModelsV2 — moved, not
  * rewritten, so this stays a pure section split with no behavior risk.
  */
-export const SettingsModelsInstalledV2: Component = () => {
+export const SettingsModelsInstalledV2: Component<{ onOperation?: () => void }> = (props) => {
   const language = useLanguage()
   const models = useModels()
   const serverSdk = useServerSDK()
@@ -82,6 +83,8 @@ export const SettingsModelsInstalledV2: Component = () => {
           />
         </Show>
       </div>
+
+      <SettingsModelsHostsV2 onOperation={props.onOperation} />
 
       <div class="settings-v2-models">
         <Show
