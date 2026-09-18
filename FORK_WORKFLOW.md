@@ -50,8 +50,8 @@ binary with upstream's. All distribution targets now point at the fork:
 
 | Target | Value | Env override |
 |--------|-------|--------------|
-| install script | `raw.githubusercontent.com/androidand/opencode/dev/install` | `OPENCODE_INSTALL_URL` |
-| GitHub releases | `androidand/opencode` | `OPENCODE_RELEASE_REPO` |
+| install script | `raw.githubusercontent.com/androidand/opencode-skein/dev/install` | `OPENCODE_INSTALL_URL` |
+| GitHub releases | `androidand/opencode-skein` | `OPENCODE_RELEASE_REPO` |
 | brew tap/formula | `androidand/tap` / `opencode-skein` | `OPENCODE_BREW_TAP` / `OPENCODE_BREW_FORMULA` |
 | npm / scoop / choco | `opencode-skein` | `OPENCODE_NPM_PACKAGE` etc. |
 
@@ -60,10 +60,28 @@ imports `ForkDistribution`. The on-disk binary is still named `opencode` (renami
 the `bin` would break existing installs); collision is avoided by the updater only
 ever pulling fork artifacts.
 
-> **Publishing not wired yet.** Upstream's `publish.yml` is gated to
-> `github.repository == 'anomalyco/opencode'`, so it does not run on the fork. Until
-> a fork release pipeline exists, `opencode upgrade` will find no newer fork release
-> and simply no-op — which is the safe outcome (it will not pull upstream).
+### Releasing (the part everyone forgot)
+
+Nothing about the updater is broken — it was verified end to end on 2026-09-18
+(install `1.17.8-skein.3` into a clean HOME, run its own `opencode upgrade`,
+land on `1.18.18-skein.1`). What kept users from ever seeing an update was that
+**no release had been cut since July**: local `build:local` binaries are channel
+`local` and never check, and release builds only see what `releases/latest` says.
+
+To release, tag and push — `.github/workflows/skein-release.yml` does the rest
+(builds every platform, uploads assets, publishes the GitHub release):
+
+```bash
+git tag skein-v1.18.18-skein.2 -m "opencode-skein 1.18.18-skein.2"
+git push origin skein-v1.18.18-skein.2
+gh run watch -R androidand/opencode-skein   # ~10 minutes
+```
+
+Version scheme: `<upstream package.json version>-skein.<n>`. Installed release
+builds compare against `releases/latest`: a patch bump auto-installs silently at
+startup, a minor/major bump shows the update dialog (`autoupdate: "notify"`
+makes every bump a dialog). Upstream's `publish.yml` stays gated to
+`anomalyco/opencode` and never runs here.
 
 ## "New upstream version" = sync trigger, not an upgrade
 
