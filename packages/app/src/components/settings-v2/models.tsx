@@ -32,7 +32,7 @@ export const SettingsModelsV2: Component = () => {
       </div>
       <div class="settings-v2-tab-body">
         <TabsV2.Content value="installed">
-          <SettingsModelsInstalledV2 />
+          <SettingsModelsInstalledV2 onOperation={() => void startTransition(() => setTab("operations"))} />
         </TabsV2.Content>
         <TabsV2.Content value="discover">
           <SettingsModelsDiscoverV2 onInstalled={() => void startTransition(() => setTab("operations"))} />

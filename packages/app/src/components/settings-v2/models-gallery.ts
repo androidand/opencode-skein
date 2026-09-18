@@ -1,4 +1,10 @@
-import type { GalleryEntry, GalleryOperation, GalleryVariantFit } from "@opencode-ai/sdk/v2/client"
+import type {
+  GalleryEntry,
+  GalleryHostInventory,
+  GalleryInstalledModel,
+  GalleryOperation,
+  GalleryVariantFit,
+} from "@opencode-ai/sdk/v2/client"
 
 export type Numeric = number | "NaN" | "Infinity" | "-Infinity"
 
@@ -97,6 +103,43 @@ export function unwrap<T>(result: { data?: T; error?: unknown }, fallback: strin
   if (result.error !== undefined) throw new Error(errorMessage(result.error, fallback))
   if (result.data === undefined) throw new Error(fallback)
   return result.data
+}
+
+type Inventory = Pick<GalleryHostInventory, "hostId" | "hostName" | "online" | "storeKey"> & {
+  models: Array<Pick<GalleryInstalledModel, "id">>
+}
+type Installed = Pick<GalleryInstalledModel, "id" | "sourceRepository" | "activeOperationId">
+
+export function sharesStore(a: Pick<Inventory, "storeKey">, b: Pick<Inventory, "storeKey">): boolean {
+  return !!a.storeKey && a.storeKey === b.storeKey
+}
+
+export function storePeers<T extends Inventory>(inventories: T[], host: Pick<Inventory, "hostId" | "storeKey">): T[] {
+  return inventories.filter((other) => other.hostId !== host.hostId && sharesStore(other, host))
+}
+
+export function deleteAffects<T extends Inventory>(inventories: T[], host: Inventory, modelId: string): T[] {
+  return storePeers(inventories, host).filter((peer) => peer.models.some((m) => m.id === modelId))
+}
+
+export type CopyTarget<T extends Inventory> = { host: T; shared: boolean; hasModel: boolean; enabled: boolean }
+
+export function copyTargets<T extends Inventory>(inventories: T[], from: Inventory, modelId: string): CopyTarget<T>[] {
+  return inventories
+    .filter((host) => host.hostId !== from.hostId)
+    .map((host) => {
+      const shared = sharesStore(host, from)
+      const hasModel = host.models.some((m) => m.id === modelId)
+      return { host, shared, hasModel, enabled: host.online && !hasModel }
+    })
+}
+
+export function canCopy(model: Installed): boolean {
+  return !!model.sourceRepository && !model.activeOperationId
+}
+
+export function canManage(host: Pick<Inventory, "online">, model: Installed): boolean {
+  return host.online && !model.activeOperationId
 }
 
 export function succeededSince(previous: GalleryOperation[], next: GalleryOperation[]): GalleryOperation[] {

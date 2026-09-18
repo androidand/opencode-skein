@@ -198,14 +198,15 @@
     "packages/opencode/src/local/model-gallery/operations.ts",
     "packages/opencode/test/local/model-gallery-install.test.ts",
     "packages/app/src/components/settings-v2/models-discover.tsx",
-    "packages/app/src/components/settings-v2/models-installed.tsx",
     "packages/app/src/components/settings-v2/models-operations.tsx",
     "packages/tui/src/component/dialog-gallery.tsx",
     "packages/opencode/src/local/model-gallery/manage.ts",
     "packages/opencode/test/local/model-gallery-manage.test.ts",
     "packages/tui/src/component/dialog-model-manage.tsx",
     "packages/app/src/components/settings-v2/models-gallery.ts",
-    "packages/app/src/components/settings-v2/models-gallery.test.ts"
+    "packages/app/src/components/settings-v2/models-gallery.test.ts",
+    "packages/app/src/components/settings-v2/models-hosts.tsx",
+    "packages/app/src/components/settings-v2/models-installed.tsx"
   ],
   "_ownedRemoved_2026-09-05": {
     "note": "packages/opencode/src/session/stream-stalled.ts, packages/opencode/src/session/tool-activity.ts, and packages/opencode/test/session/tool-activity.test.ts were deleted by a90c49880b \u2014 confirmed intentional, not a merge regression: a full, reasoned commit message explains that the stream-inactivity watchdog these files implemented only ever fired on false positives (host-paced hybrid loads, foreground subagents, compaction's single big call, cold-load chunks \u2014 each already special-cased before this commit finished the trend) and never once caught a genuinely wedged socket, while its false positives were abandoning working turns fleet-wide. Same commit also removed the fork patches this manifest tracked in llm.ts (marker @/local/skein-loading \u2014 the SkeinLoading cold-load liveness tick that fed only this watchdog), message-v2.ts (marker StreamStalledError \u2014 the error-mapping case for the watchdog's failure type; message-v2.ts no longer diverges from upstream at all and was fully removed from `patched`), and tools.ts (marker \"fork: the stream watchdog must not count\" \u2014 the per-tool-call liveness ticks). llm.ts and tools.ts each still diverge from upstream for unrelated, still-live fork reasons and were re-registered in `patched` with fresh markers (see those entries) rather than dropped \u2014 only the watchdog-specific tracking was retired.",

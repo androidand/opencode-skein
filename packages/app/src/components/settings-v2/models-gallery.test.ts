@@ -1,7 +1,12 @@
 import { describe, expect, test } from "bun:test"
 import type { GalleryEntry, GalleryOperation, GalleryVariantFit } from "@opencode-ai/sdk/v2/client"
 import {
+  canCopy,
   canInstall,
+  canManage,
+  copyTargets,
+  deleteAffects,
+  storePeers,
   defaultVariant,
   formatBytes,
   formatContext,
@@ -91,6 +96,48 @@ describe("model gallery helpers", () => {
     expect(defaultVariant(entry({}))?.variantName).toBe("Q4_K_M")
     expect(defaultVariant(entry({ bestVariant: fit("missing") }))?.variantName).toBe("Q8_0")
     expect(defaultVariant(entry({ variants: [], bestVariant: fit("missing") }))).toBeUndefined()
+  })
+
+  const inventory = (hostId: string, storeKey: string, models: string[], online = true) => ({
+    hostId,
+    hostName: hostId,
+    online,
+    storeKey,
+    models: models.map((id) => ({ id, sourceRepository: "", activeOperationId: "" })),
+  })
+
+  test("groups hosts by shared store and reports which peers lose a deleted model", () => {
+    const a = inventory("a", "store-1", ["m1", "m2"])
+    const b = inventory("b", "store-1", ["m1"])
+    const c = inventory("c", "store-2", ["m1"])
+    const d = inventory("d", "", ["m1"])
+    const e = inventory("e", "", [])
+    const all = [a, b, c, d, e]
+    expect(storePeers(all, a).map((h) => h.hostId)).toEqual(["b"])
+    expect(storePeers(all, d)).toEqual([])
+    expect(deleteAffects(all, a, "m1").map((h) => h.hostId)).toEqual(["b"])
+    expect(deleteAffects(all, a, "m2")).toEqual([])
+  })
+
+  test("marks copy targets as shared-store, already-present or offline", () => {
+    const a = inventory("a", "store-1", ["m1"])
+    const b = inventory("b", "store-1", [])
+    const c = inventory("c", "store-2", ["m1"])
+    const d = inventory("d", "", [], false)
+    expect(copyTargets([a, b, c, d], a, "m1")).toEqual([
+      { host: b, shared: true, hasModel: false, enabled: true },
+      { host: c, shared: false, hasModel: true, enabled: false },
+      { host: d, shared: false, hasModel: false, enabled: false },
+    ])
+  })
+
+  test("gates copy and load/unload on provenance, host state and active operations", () => {
+    expect(canCopy({ id: "m", sourceRepository: "org/repo", activeOperationId: "" })).toBe(true)
+    expect(canCopy({ id: "m", sourceRepository: "", activeOperationId: "" })).toBe(false)
+    expect(canCopy({ id: "m", sourceRepository: "org/repo", activeOperationId: "op" })).toBe(false)
+    expect(canManage({ online: true }, { id: "m", sourceRepository: "", activeOperationId: "" })).toBe(true)
+    expect(canManage({ online: false }, { id: "m", sourceRepository: "", activeOperationId: "" })).toBe(false)
+    expect(canManage({ online: true }, { id: "m", sourceRepository: "", activeOperationId: "op" })).toBe(false)
   })
 
   test("only allows installing on online, compatible, idle hosts without the model", () => {
