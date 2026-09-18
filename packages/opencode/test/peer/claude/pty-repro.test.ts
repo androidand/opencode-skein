@@ -23,10 +23,15 @@
 // The two halves differ in exactly one variable: runFork vs runForkWith.
 // Reverting the fix makes the regression half fail.
 //
+// Additionally, a source-level guard asserts that lifecycle.ts itself uses
+// Effect.runForkWith (not bare Effect.runFork), because the probe's "fixed"
+// branch hardcodes its own runForkWith rather than calling the real one.
+// See test/tool/send-peer-message-text.test.ts for the same pattern.
+//
 // Skipped when `claude` is not on PATH — same gate the sidecar itself uses.
 import { afterEach, beforeEach, describe, expect, test } from "bun:test"
 import { spawn, type ChildProcess } from "child_process"
-import { mkdir, mkdtemp, readdir, rm } from "fs/promises"
+import { mkdir, mkdtemp, readFile, readdir, rm } from "fs/promises"
 import { tmpdir } from "os"
 import { join } from "path"
 import { connect } from "net"
@@ -105,6 +110,22 @@ describeIfClaudeCode("PTY repro: inbound message does not corrupt stdout", () =>
     expect(stdout).not.toContain("probe-line")
     expect(stdout).not.toContain("ERROR")
   }, 10_000)
+
+  test("lifecycle.ts uses Effect.runForkWith, not bare Effect.runFork", async () => {
+    // The probe's "fixed" branch hardcodes its own runForkWith; this guard
+    // asserts the real module uses the technique too. Paired with the
+    // experiment above, it closes the gap between "the mechanism works" and
+    // "the module uses it".
+    const source = await readFile(
+      join(import.meta.dir, "../../../src/peer/claude/lifecycle.ts"),
+      "utf8",
+    )
+    expect(source).toContain("Effect.runForkWith(")
+    // Match bare Effect.runFork( but not Effect.runForkWith( — the latter is
+    // the fix; the former (on line 67/125 in the original buggy code) would
+    // leak to stdout.
+    expect(source).not.toMatch(/Effect\.runFork\(/)
+  }, 5_000)
 
   test("sidecar deliver cycle leaves stdout clean", async () => {
     // Exercise the real sidecar + deliver path end-to-end. The sidecar spawns,
