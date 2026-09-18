@@ -13,12 +13,6 @@ import "./settings-v2.css"
  *   Installed    current discovered models and host/runtime state
  *   Discover     curated/live gallery
  *   Operations   active and recent host operations
- *
- * This is task 6.1's scope specifically — the section shell and Installed
- * (moved verbatim, unchanged behavior) plus real-but-minimal Discover and an
- * honest empty Operations. Search/filters/candidate cards (6.2), candidate
- * detail (6.3), host comparison (6.4), and the actual operations client
- * (7.2/7.3) are separate, later tasks.
  */
 type ModelsTab = "installed" | "discover" | "operations"
 
@@ -41,7 +35,7 @@ export const SettingsModelsV2: Component = () => {
           <SettingsModelsInstalledV2 />
         </TabsV2.Content>
         <TabsV2.Content value="discover">
-          <SettingsModelsDiscoverV2 />
+          <SettingsModelsDiscoverV2 onInstalled={() => void startTransition(() => setTab("operations"))} />
         </TabsV2.Content>
         <TabsV2.Content value="operations">
           <SettingsModelsOperationsV2 />
