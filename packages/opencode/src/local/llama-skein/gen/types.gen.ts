@@ -247,6 +247,10 @@ export type ConfigInfoResponse = {
    * Configured default model ID; omitted when no default is set.
    */
   default_model?: string
+  /**
+   * Stable identity of the model store this host serves from, read from a marker file llama-skein keeps in models_dir. Two hosts reporting the same store_id share the same files (one directory mounted twice, or two instances on one machine); omitted when models_dir is unknown or unwritable.
+   */
+  store_id?: string
 }
 
 export type ConfigModelInfo = {
@@ -979,6 +983,31 @@ export type ApiModel = {
   details?: {
     [key: string]: unknown
   }
+  /**
+   * Weights file the config points at exists on disk.
+   */
+  installed?: boolean
+  default?: boolean
+  /**
+   * On-disk size of the weights.
+   */
+  size_bytes?: number
+  /**
+   * Hugging Face repository the founding install operation fetched from; omitted for models registered by hand.
+   */
+  source_repository?: string
+  /**
+   * Immutable revision (commit SHA) of source_repository.
+   */
+  source_revision?: string
+  /**
+   * Repository-relative paths the founding install operation submitted.
+   */
+  artifact_paths?: Array<string>
+  /**
+   * Id of an in-flight operation on this model, when one exists.
+   */
+  active_operation_id?: string
 }
 
 export type ApiModelsResponse = {

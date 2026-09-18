@@ -84,6 +84,8 @@ describe("inventory", () => {
     expect(storeKeyFor("http://rocky:8080/v1", "/models")).toBe("rocky:/models")
     expect(storeKeyFor("http://other:8080/v1", "/models")).not.toBe("rocky:/models")
     expect(storeKeyFor("http://rocky:8080/v1", null)).toBeNull()
+    expect(storeKeyFor("http://rocky:8080/v1", "/models", "abc")).toBe("store:abc")
+    expect(storeKeyFor("http://other:8080/v1", "/nfs/models", "abc")).toBe("store:abc")
   })
   test("inventoryAcrossHosts skips offline hosts and tolerates a host that fails", async () => {
     const host = (id: string, online = true): GalleryHost => ({ id, name: id, baseURL: `http://${id}:1/v1`, source: "lan", online, installedModelIDs: [], defaultModel: null })

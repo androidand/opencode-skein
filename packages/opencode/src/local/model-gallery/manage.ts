@@ -45,22 +45,14 @@ export type HostInventory = {
   models: InstalledModel[]
 }
 
-// `/api/models` carries more than the contract's ApiModel declares
-// (installed, size, provenance) — read those fields loosely.
+// `details` is an open object in the contract; these are the keys llama-skein fills.
 export type RawModel = ApiModel & {
-  installed?: boolean
-  size_bytes?: number
-  default?: boolean
-  source_repository?: string
-  source_revision?: string
-  artifact_paths?: string[]
-  active_operation_id?: string
   details?: { format?: string; quantization?: string; parameter_size?: string }
 }
 
 export type ManageClient = {
   listModels: (signal?: AbortSignal) => Promise<RawModel[]>
-  configInfo: (signal?: AbortSignal) => Promise<{ models_dir: string } | null>
+  configInfo: (signal?: AbortSignal) => Promise<{ models_dir: string; store_id?: string } | null>
   deleteModel: (id: string) => Promise<{ deletedFiles: string[]; missingFiles: string[]; configRemoved: boolean }>
   removeConfig: (id: string) => Promise<void>
   load: (id: string) => Promise<void>
@@ -87,7 +79,7 @@ export function manageClient(baseURL: string): ManageClient {
     },
     configInfo: async (signal) => {
       const res = await llama.getConfigInfo({ signal }).catch(() => null)
-      return res?.data ? { models_dir: res.data.models_dir } : null
+      return res?.data ? { models_dir: res.data.models_dir, store_id: res.data.store_id } : null
     },
     deleteModel: async (id) => {
       const res = await llama.deleteModel({ path: { model: id } })
@@ -113,7 +105,14 @@ export function manageClient(baseURL: string): ManageClient {
   }
 }
 
-export function storeKeyFor(baseURL: string, modelsDir: string | null): string | null {
+/**
+ * llama-skein's `store_id` (a marker inside models_dir) is authoritative — the
+ * same directory mounted on two machines reports one id. Older hosts without it
+ * fall back to hostname + models_dir, which only catches two instances on one
+ * machine.
+ */
+export function storeKeyFor(baseURL: string, modelsDir: string | null, storeId?: string | null): string | null {
+  if (storeId) return `store:${storeId}`
   if (!modelsDir) return null
   try {
     return `${new URL(baseURL).hostname.toLowerCase()}:${modelsDir.replace(/\/+$/, "")}`
@@ -163,7 +162,7 @@ export async function inventoryAcrossHosts(
           hostName: host.name,
           online: true,
           modelsDir,
-          storeKey: storeKeyFor(host.baseURL, modelsDir),
+          storeKey: storeKeyFor(host.baseURL, modelsDir, info?.store_id),
           models: models.filter((m) => m.installed !== false).map(toInstalledModel),
         }
       }),
