@@ -58,6 +58,26 @@ export interface ResolveInput {
 
 const LiveLoopStatuses = new Set(["running", "paused"])
 
+// fork: SessionStatus and Permission (the only two signals statusFrom reads
+// besides loop state) are both per-process in-memory state — see
+// session/status.ts and permission/index.ts. A session another opencode
+// process is actively driving is therefore indistinguishable, from THIS
+// process's point of view, from one this process knows to be genuinely
+// idle: both are simply absent from `statuses`. Without this, opencode
+// peers were invisible to each other (only the separately, properly
+// cross-process-discovered Claude Code peer ever showed up), while
+// send_peer_message could still reach them directly by id — they were
+// real and reachable, just never discovered. A session updated moments ago
+// is almost certainly one of those two "someone is home" cases, not idle:
+// treat recent activity behind an unresolved idle status as busy rather
+// than silently dropping every peer this process didn't create itself.
+// Chosen generously above realistic turn/tool-call cadence so a session
+// mid-turn isn't dropped between DB writes; a false "busy" reading on a
+// session that went idle moments ago self-corrects within the window and
+// costs nothing (resolveMessageTargets already treats idle as a normal
+// target either way).
+const CrossProcessLivenessWindowMs = 45_000
+
 /**
  * True when a session is actually doing something. An idle session is not a
  * neighbour: a directory accumulates abandoned sessions, and a warning that
@@ -112,11 +132,22 @@ function projectPeers(input: ResolveInput, options: { includeIdle: boolean }): P
     if (descendsFromCaller(session.id)) continue
 
     const loop = loopBySession.get(session.id)
-    const status = statusFrom({
+    const rawStatus = statusFrom({
       session: input.statuses.get(session.id),
       permissionPending: input.pendingPermission.has(session.id),
       loop,
     })
+    const idleForMs = Math.max(0, input.now - session.updatedAt)
+    // Only for the awareness roster (resolvePeers): resolveMessageTargets
+    // treats idle as its normal, intended target and — unlike awareness —
+    // send_peer_message reads `status` back out to refuse delivery into a
+    // session it believes is genuinely mid-turn (send-peer-message.ts). This
+    // process cannot tell a foreign busy session from a foreign idle one
+    // either way (that refusal already only ever protected same-process
+    // targets), so guessing "busy" here would just make delivery to a real,
+    // reachable cross-process peer unreliable — the opposite of the fix.
+    const status: Status =
+      !options.includeIdle && rawStatus === "idle" && idleForMs < CrossProcessLivenessWindowMs ? "busy" : rawStatus
     if (!options.includeIdle && !isWorking(status, loop)) continue
 
     peers.push({
@@ -128,7 +159,7 @@ function projectPeers(input: ResolveInput, options: { includeIdle: boolean }): P
       ...(session.agent ? { agent: session.agent } : {}),
       ...(session.model ? { provider: session.model.providerID, model: session.model.id } : {}),
       ...(loop && LiveLoopStatuses.has(loop.status) ? { loopID: loop.id, loopIteration: loop.iteration } : {}),
-      idleForMs: Math.max(0, input.now - session.updatedAt),
+      idleForMs,
     })
   }
 
