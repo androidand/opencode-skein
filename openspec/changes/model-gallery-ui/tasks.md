@@ -340,8 +340,9 @@
 - [x] 11.4 llama-skein contract documents deleteModel/loadModel/unloadModel (routes existed, client regenerated)
 - [ ] 11.5 Models installed before provenance tracking have no `source_repository` and cannot be copied — add a
       llama-skein "import from peer host" (direct file transfer) or backfill provenance from GGUF metadata
-- [ ] 11.6 Store identity: replace the hostname+models_dir heuristic with a `store_id` llama-skein writes into
-      the store and reports in `/api/config/info` (network shares on different hosts)
+- [x] 11.6 Store identity: llama-skein now writes `.llama-skein-store-id` into models_dir and reports
+      `store_id` in `/api/config/info` (llama-skein 986aad1); opencode prefers it over the
+      hostname+models_dir heuristic
 - [ ] 11.7 Granular config edits from the UI (ttl, aliases, unlisted, cmd flags) via patchModelConfig
 - [ ] 11.8 Live: hide/delete/copy/move on the gpuhost4 ↔ second instance sharing `/Volumes/ExternalDrive/models/gguf`
 
