@@ -49,6 +49,7 @@ import { useRenderer, useTerminalDimensions, type JSX } from "@opentui/solid"
 import type { AssistantMessage, FilePart, UserMessage } from "@opencode-ai/sdk/v2"
 import { parseLoopArgs } from "@opencode-ai/sdk/v2"
 import { DialogLoopList } from "../dialog-loop-list"
+import { DialogAgent } from "../dialog-agent"
 import { Locale } from "../../util/locale"
 import { errorMessage } from "../../util/error"
 import { formatDuration } from "../../util/format"
@@ -1690,14 +1691,30 @@ function isRunControlInput(input: string): boolean {
                 <Show when={local.agent.current()} fallback={<box height={1} />}>
                   {(agent) => (
                     <>
-                      <text fg={fadeColor(highlight(), agentMetaAlpha())}>
-                        {store.mode === "shell" ? "Shell" : Locale.titlecase(agent().name)}
-                      </text>
+                      <Show
+                        when={store.mode !== "shell"}
+                        fallback={<text fg={fadeColor(highlight(), agentMetaAlpha())}>Shell</text>}
+                      >
+                        {/* Clickable like the loop/backlog badge below: opens the same
+                            picker /agents does, rather than a bare display label. */}
+                        <ClickText
+                          fg={fadeColor(highlight(), agentMetaAlpha())}
+                          onMouseUp={() => dialog.replace(() => <DialogAgent />)}
+                        >
+                          {Locale.titlecase(agent().name)}
+                        </ClickText>
+                      </Show>
                       <Show when={store.mode === "normal" && autoApprove()}>
                         {/* Distinct accent from the loop/backlog badge below (theme.success) so the
                             two read as separate states — permission auto-approve is not the same
-                            thing as an unattended loop/backlog run, and both can be active at once. */}
-                        <text fg={fadeColor(theme.warning, agentMetaAlpha())}>{"● auto"}</text>
+                            thing as an unattended loop/backlog run, and both can be active at once.
+                            Clickable: toggles the same permission.mode command /auto and <leader>p run. */}
+                        <ClickText
+                          fg={fadeColor(theme.warning, agentMetaAlpha())}
+                          onMouseUp={() => keymap.dispatchCommand("permission.mode")}
+                        >
+                          {"● auto"}
+                        </ClickText>
                       </Show>
                       <Show when={store.mode === "normal"}>
                         <Show when={activeLoop()}>
