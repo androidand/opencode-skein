@@ -100,7 +100,7 @@ constraint, not a convention — an unrecognised type is dropped.
 
 ## Infrastructure
 
-A broker already exists: **`hlab-mosquitto`, LXC on gpu-host-3, `192.0.2.131:1883`**,
+A broker already exists: **`hlab-mosquitto`, LXC on gpu-host-3, `<broker-host>:1883`**,
 verified reachable 2026-07-26. This removes the main argument against — there is nothing
 to deploy, and it is already part of a homelab that is monitored and restarted like
 everything else there.

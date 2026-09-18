@@ -15,7 +15,7 @@ decision gate with a real option to stop.
   - Validation: written finding naming which system owns human decisions
 
 - [ ] 0.3 Settle broker security before any publish
-  - `192.0.2.131:1883` is plain-text; 8883 and 9001 are closed. Decide: add TLS + credentials, or publish reduced records only
+  - `<broker-host>:1883` is plain-text; 8883 and 9001 are closed. Decide: add TLS + credentials, or publish reduced records only
   - Validation: decision recorded; if unresolved, this change stops here
 
 - [ ] 0.4 Weigh the shared-failure trade
