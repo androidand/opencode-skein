@@ -80,21 +80,34 @@ import type {
   FormatterStatusResponses,
   GalleryCancelErrors,
   GalleryCancelResponses,
+  GalleryCopyErrors,
+  GalleryCopyPayload,
+  GalleryCopyResponses,
   GalleryEvaluateErrors,
   GalleryEvaluatePayload,
   GalleryEvaluateResponses,
   GalleryHostsErrors,
   GalleryHostsResponses,
+  GalleryInstalledErrors,
+  GalleryInstalledResponses,
   GalleryInstallErrors,
   GalleryInstallPayload,
   GalleryInstallResponses,
+  GalleryLoadErrors,
+  GalleryLoadResponses,
+  GalleryModelRef,
   GalleryOperationRef,
   GalleryOperationsErrors,
   GalleryOperationsResponses,
   GalleryPlanErrors,
   GalleryPlanResponses,
+  GalleryRemoveErrors,
+  GalleryRemovePayload,
+  GalleryRemoveResponses,
   GallerySearchErrors,
   GallerySearchResponses,
+  GalleryUnloadErrors,
+  GalleryUnloadResponses,
   GlobalConfigGetErrors,
   GlobalConfigGetResponses,
   GlobalConfigUpdateErrors,
@@ -2703,6 +2716,180 @@ export class Gallery extends HeyApiClient {
     )
     return (options?.client ?? this.client).post<GalleryInstallResponses, GalleryInstallErrors, ThrowOnError>({
       url: "/gallery/install",
+      ...options,
+      ...params,
+      headers: {
+        "Content-Type": "application/json",
+        ...options?.headers,
+        ...params.headers,
+      },
+    })
+  }
+
+  /**
+   * List installed models per host
+   *
+   * Every discovered llama-skein host with the models it serves (size, loaded state, provenance) and a store key; hosts with equal keys share one model store.
+   */
+  public installed<ThrowOnError extends boolean = false>(
+    parameters?: {
+      directory?: string
+      workspace?: string
+    },
+    options?: Options<never, ThrowOnError>,
+  ) {
+    const params = buildClientParams(
+      [parameters],
+      [
+        {
+          args: [
+            { in: "query", key: "directory" },
+            { in: "query", key: "workspace" },
+          ],
+        },
+      ],
+    )
+    return (options?.client ?? this.client).get<GalleryInstalledResponses, GalleryInstalledErrors, ThrowOnError>({
+      url: "/gallery/installed",
+      ...options,
+      ...params,
+    })
+  }
+
+  /**
+   * Hide or delete an installed model
+   *
+   * `hide` drops the host's config entry and keeps the files; `delete` removes the artifact set from the store.
+   */
+  public remove<ThrowOnError extends boolean = false>(
+    parameters?: {
+      directory?: string
+      workspace?: string
+      galleryRemovePayload?: GalleryRemovePayload
+    },
+    options?: Options<never, ThrowOnError>,
+  ) {
+    const params = buildClientParams(
+      [parameters],
+      [
+        {
+          args: [
+            { in: "query", key: "directory" },
+            { in: "query", key: "workspace" },
+            { key: "galleryRemovePayload", map: "body" },
+          ],
+        },
+      ],
+    )
+    return (options?.client ?? this.client).post<GalleryRemoveResponses, GalleryRemoveErrors, ThrowOnError>({
+      url: "/gallery/model/remove",
+      ...options,
+      ...params,
+      headers: {
+        "Content-Type": "application/json",
+        ...options?.headers,
+        ...params.headers,
+      },
+    })
+  }
+
+  /**
+   * Load a model into memory on a host
+   */
+  public load<ThrowOnError extends boolean = false>(
+    parameters?: {
+      directory?: string
+      workspace?: string
+      galleryModelRef?: GalleryModelRef
+    },
+    options?: Options<never, ThrowOnError>,
+  ) {
+    const params = buildClientParams(
+      [parameters],
+      [
+        {
+          args: [
+            { in: "query", key: "directory" },
+            { in: "query", key: "workspace" },
+            { key: "galleryModelRef", map: "body" },
+          ],
+        },
+      ],
+    )
+    return (options?.client ?? this.client).post<GalleryLoadResponses, GalleryLoadErrors, ThrowOnError>({
+      url: "/gallery/model/load",
+      ...options,
+      ...params,
+      headers: {
+        "Content-Type": "application/json",
+        ...options?.headers,
+        ...params.headers,
+      },
+    })
+  }
+
+  /**
+   * Unload a model from memory on a host
+   */
+  public unload<ThrowOnError extends boolean = false>(
+    parameters?: {
+      directory?: string
+      workspace?: string
+      galleryModelRef?: GalleryModelRef
+    },
+    options?: Options<never, ThrowOnError>,
+  ) {
+    const params = buildClientParams(
+      [parameters],
+      [
+        {
+          args: [
+            { in: "query", key: "directory" },
+            { in: "query", key: "workspace" },
+            { key: "galleryModelRef", map: "body" },
+          ],
+        },
+      ],
+    )
+    return (options?.client ?? this.client).post<GalleryUnloadResponses, GalleryUnloadErrors, ThrowOnError>({
+      url: "/gallery/model/unload",
+      ...options,
+      ...params,
+      headers: {
+        "Content-Type": "application/json",
+        ...options?.headers,
+        ...params.headers,
+      },
+    })
+  }
+
+  /**
+   * Copy or move an installed model to another host
+   *
+   * Re-creates the model on the target from its recorded provenance (same repository, revision, artifacts, id). On a host sharing the source's store this is registration only. With `move`, the source is hidden or deleted once the target operation succeeds.
+   */
+  public copy<ThrowOnError extends boolean = false>(
+    parameters?: {
+      directory?: string
+      workspace?: string
+      galleryCopyPayload?: GalleryCopyPayload
+    },
+    options?: Options<never, ThrowOnError>,
+  ) {
+    const params = buildClientParams(
+      [parameters],
+      [
+        {
+          args: [
+            { in: "query", key: "directory" },
+            { in: "query", key: "workspace" },
+            { key: "galleryCopyPayload", map: "body" },
+          ],
+        },
+      ],
+    )
+    return (options?.client ?? this.client).post<GalleryCopyResponses, GalleryCopyErrors, ThrowOnError>({
+      url: "/gallery/model/copy",
       ...options,
       ...params,
       headers: {

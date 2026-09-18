@@ -2612,6 +2612,69 @@ export type GalleryOperation = {
   }>
 }
 
+export type GalleryInstalledModel = {
+  id: string
+  name: string
+  sizeBytes: number | "NaN" | "Infinity" | "-Infinity" | "Infinity" | "-Infinity" | "NaN"
+  loaded: boolean
+  state: string
+  default: boolean
+  format: string
+  quantization: string
+  parameterSize: string
+  sourceRepository: string
+  sourceRevision: string
+  artifactPaths: Array<string>
+  activeOperationId: string
+}
+
+export type GalleryHostInventory = {
+  hostId: string
+  hostName: string
+  online: boolean
+  storeKey: string
+  modelsDir: string
+  models: Array<GalleryInstalledModel>
+}
+
+export type GalleryRemovePayload = {
+  hostId: string
+  modelId: string
+  mode: "hide" | "delete"
+}
+
+export type GalleryRemoveResult = {
+  hostId: string
+  modelId: string
+  mode: "hide" | "delete"
+  deletedFiles: Array<string>
+  missingFiles: Array<string>
+}
+
+export type GalleryModelRef = {
+  hostId: string
+  modelId: string
+}
+
+export type GalleryModelState = {
+  hostId: string
+  modelId: string
+  loaded: boolean
+}
+
+export type GalleryCopyPayload = {
+  fromHostId: string
+  toHostId: string
+  modelId: string
+  move?: boolean
+}
+
+export type GalleryCopyResult = {
+  operation: GalleryOperation
+  sharedStore: boolean
+  sourceRemoval: "none" | "hide" | "delete"
+}
+
 export type GalleryOperationRef = {
   hostId: string
   id: string
@@ -9108,6 +9171,146 @@ export type GalleryInstallResponses = {
 }
 
 export type GalleryInstallResponse = GalleryInstallResponses[keyof GalleryInstallResponses]
+
+export type GalleryInstalledData = {
+  body?: never
+  path?: never
+  query?: {
+    directory?: string
+    workspace?: string
+  }
+  url: "/gallery/installed"
+}
+
+export type GalleryInstalledErrors = {
+  /**
+   * Bad request
+   */
+  400: BadRequestError
+}
+
+export type GalleryInstalledError = GalleryInstalledErrors[keyof GalleryInstalledErrors]
+
+export type GalleryInstalledResponses = {
+  /**
+   * Installed models per host, with store identity
+   */
+  200: Array<GalleryHostInventory>
+}
+
+export type GalleryInstalledResponse = GalleryInstalledResponses[keyof GalleryInstalledResponses]
+
+export type GalleryRemoveData = {
+  body?: GalleryRemovePayload
+  path?: never
+  query?: {
+    directory?: string
+    workspace?: string
+  }
+  url: "/gallery/model/remove"
+}
+
+export type GalleryRemoveErrors = {
+  /**
+   * InvalidRequestError
+   */
+  400: InvalidRequestError
+}
+
+export type GalleryRemoveError = GalleryRemoveErrors[keyof GalleryRemoveErrors]
+
+export type GalleryRemoveResponses = {
+  /**
+   * What was removed
+   */
+  200: GalleryRemoveResult
+}
+
+export type GalleryRemoveResponse = GalleryRemoveResponses[keyof GalleryRemoveResponses]
+
+export type GalleryLoadData = {
+  body?: GalleryModelRef
+  path?: never
+  query?: {
+    directory?: string
+    workspace?: string
+  }
+  url: "/gallery/model/load"
+}
+
+export type GalleryLoadErrors = {
+  /**
+   * InvalidRequestError
+   */
+  400: InvalidRequestError
+}
+
+export type GalleryLoadError = GalleryLoadErrors[keyof GalleryLoadErrors]
+
+export type GalleryLoadResponses = {
+  /**
+   * Loaded state after the request
+   */
+  200: GalleryModelState
+}
+
+export type GalleryLoadResponse = GalleryLoadResponses[keyof GalleryLoadResponses]
+
+export type GalleryUnloadData = {
+  body?: GalleryModelRef
+  path?: never
+  query?: {
+    directory?: string
+    workspace?: string
+  }
+  url: "/gallery/model/unload"
+}
+
+export type GalleryUnloadErrors = {
+  /**
+   * InvalidRequestError
+   */
+  400: InvalidRequestError
+}
+
+export type GalleryUnloadError = GalleryUnloadErrors[keyof GalleryUnloadErrors]
+
+export type GalleryUnloadResponses = {
+  /**
+   * Loaded state after the request
+   */
+  200: GalleryModelState
+}
+
+export type GalleryUnloadResponse = GalleryUnloadResponses[keyof GalleryUnloadResponses]
+
+export type GalleryCopyData = {
+  body?: GalleryCopyPayload
+  path?: never
+  query?: {
+    directory?: string
+    workspace?: string
+  }
+  url: "/gallery/model/copy"
+}
+
+export type GalleryCopyErrors = {
+  /**
+   * InvalidRequestError
+   */
+  400: InvalidRequestError
+}
+
+export type GalleryCopyError = GalleryCopyErrors[keyof GalleryCopyErrors]
+
+export type GalleryCopyResponses = {
+  /**
+   * The install operation on the target host
+   */
+  200: GalleryCopyResult
+}
+
+export type GalleryCopyResponse = GalleryCopyResponses[keyof GalleryCopyResponses]
 
 export type GalleryOperationsData = {
   body?: never

@@ -10,7 +10,9 @@ import { scoreRow } from "@/local/model-gallery/rank"
 import { loadCatalogCandidates } from "@/local/model-gallery/catalog"
 import { searchCatalog } from "@/local/model-gallery/search"
 import { buildInstallPlan, InstallPlanError, planBytes } from "@/local/model-gallery/install"
-import { listOperationsAcrossHosts, operationsClient, toGalleryOperation } from "@/local/model-gallery/operations"
+import { listOperationsAcrossHosts, operationsClient, toGalleryOperation, TERMINAL_PHASES } from "@/local/model-gallery/operations"
+import { copyPlan, inventoryAcrossHosts, manageClient, sharesStore, sourceRemovalMode } from "@/local/model-gallery/manage"
+import { createHuggingFaceCatalog } from "@/local/model-catalog/huggingface"
 import type { ModelCandidate, ModelVariant } from "@/local/model-catalog/types"
 import { InstanceHttpApi } from "../api"
 
@@ -171,8 +173,108 @@ export const galleryHandlers = HttpApiBuilder.group(InstanceHttpApi, "gallery", 
       return toGalleryOperation(host, op)
     })
 
+    const installed = Effect.fn("GalleryHttpApi.installed")(function* () {
+      const discovered = yield* Effect.promise(() => discoverGalleryHosts())
+      return yield* Effect.promise(() => inventoryAcrossHosts(discovered))
+    })
+
+    const hostFor = Effect.fn("GalleryHttpApi.hostFor")(function* (hostId: string) {
+      const discovered = yield* Effect.promise(() => discoverGalleryHosts())
+      const host = discovered.find((h) => h.id === hostId)
+      if (!host) return yield* badRequest(`unknown host ${hostId}`)
+      if (!host.online) return yield* badRequest(`host ${host.name} is offline`)
+      return host
+    })
+
+    const remove = Effect.fn("GalleryHttpApi.remove")(function* ({
+      payload,
+    }: {
+      payload: { hostId: string; modelId: string; mode: "hide" | "delete" }
+    }) {
+      const host = yield* hostFor(payload.hostId)
+      const client = manageClient(host.baseURL)
+      const result = yield* Effect.tryPromise({
+        try: () =>
+          payload.mode === "hide"
+            ? client.removeConfig(payload.modelId).then(() => ({ deletedFiles: [] as string[], missingFiles: [] as string[] }))
+            : client.deleteModel(payload.modelId),
+        catch: (e) => new InvalidRequestError({ message: String(e instanceof Error ? e.message : e) }),
+      })
+      return { hostId: host.id, modelId: payload.modelId, mode: payload.mode, deletedFiles: result.deletedFiles, missingFiles: result.missingFiles }
+    })
+
+    const setLoaded = (action: "load" | "unload") =>
+      Effect.fn(`GalleryHttpApi.${action}`)(function* ({ payload }: { payload: { hostId: string; modelId: string } }) {
+        const host = yield* hostFor(payload.hostId)
+        const client = manageClient(host.baseURL)
+        yield* Effect.tryPromise({
+          try: () => (action === "load" ? client.load(payload.modelId) : client.unload(payload.modelId)),
+          catch: (e) => new InvalidRequestError({ message: String(e instanceof Error ? e.message : e) }),
+        })
+        return { hostId: host.id, modelId: payload.modelId, loaded: action === "load" }
+      })
+
+    const copy = Effect.fn("GalleryHttpApi.copy")(function* ({
+      payload,
+    }: {
+      payload: { fromHostId: string; toHostId: string; modelId: string; move?: boolean }
+    }) {
+      if (payload.fromHostId === payload.toHostId) return yield* badRequest("source and target host are the same")
+      const discovered = yield* Effect.promise(() => discoverGalleryHosts())
+      const inventories = yield* Effect.promise(() => inventoryAcrossHosts(discovered))
+      const source = inventories.find((h) => h.hostId === payload.fromHostId)
+      const target = inventories.find((h) => h.hostId === payload.toHostId)
+      if (!source?.online) return yield* badRequest(`source host ${payload.fromHostId} is unknown or offline`)
+      if (!target?.online) return yield* badRequest(`target host ${payload.toHostId} is unknown or offline`)
+      const model = source.models.find((m) => m.id === payload.modelId)
+      if (!model) return yield* badRequest(`${payload.modelId} is not installed on ${source.hostName}`)
+      if (!model.sourceRepository) return yield* badRequest(`${payload.modelId} has no recorded source repository; it was not installed through llama-skein and cannot be re-created elsewhere`)
+      if (target.models.some((m) => m.id === model.id)) return yield* badRequest(`${model.id} is already on ${target.hostName}`)
+      const targetHost = discovered.find((h) => h.id === target.hostId)!
+      const sourceHost = discovered.find((h) => h.id === source.hostId)!
+
+      const candidate = yield* Effect.tryPromise({
+        try: () =>
+          createHuggingFaceCatalog().resolve({
+            repository: model.sourceRepository!,
+            ...(model.sourceRevision ? { revision: model.sourceRevision } : {}),
+          }),
+        catch: (e) => new InvalidRequestError({ message: `cannot resolve ${model.sourceRepository}: ${String(e instanceof Error ? e.message : e)}` }),
+      })
+      const plan = yield* Effect.try({
+        try: () => copyPlan(candidate, model),
+        catch: (e) => new InvalidRequestError({ message: String(e instanceof Error ? e.message : e) }),
+      })
+      const op = yield* Effect.tryPromise({
+        try: () => operationsClient(targetHost.baseURL).create(plan),
+        catch: (e) => new InvalidRequestError({ message: `host ${target.hostName} refused the plan: ${String(e instanceof Error ? e.message : e)}` }),
+      })
+
+      const shared = sharesStore(source, target)
+      const removal = payload.move ? sourceRemovalMode(source, inventories) : ("none" as const)
+      if (removal !== "none") {
+        // The source goes only once the target has the model; the host owns
+        // the operation, so watch it rather than assume.
+        yield* Effect.sync(() => {
+          void watchThenRemove({
+            opId: op.id,
+            targetBaseURL: targetHost.baseURL,
+            sourceBaseURL: sourceHost.baseURL,
+            modelId: model.id,
+            mode: removal,
+          }).catch(() => undefined)
+        })
+      }
+      return { operation: toGalleryOperation(targetHost, op), sharedStore: shared, sourceRemoval: removal }
+    })
+
     return handlers
       .handle("hosts", hosts)
+      .handle("installed", installed)
+      .handle("remove", remove)
+      .handle("load", setLoaded("load"))
+      .handle("unload", setLoaded("unload"))
+      .handle("copy", copy)
       .handle("search", search)
       .handle("evaluate", evaluate)
       .handle("plan", plan)
@@ -181,6 +283,28 @@ export const galleryHandlers = HttpApiBuilder.group(InstanceHttpApi, "gallery", 
       .handle("cancel", cancel)
   }),
 )
+
+async function watchThenRemove(input: {
+  opId: string
+  targetBaseURL: string
+  sourceBaseURL: string
+  modelId: string
+  mode: "hide" | "delete"
+}): Promise<void> {
+  const ops = operationsClient(input.targetBaseURL)
+  const deadline = Date.now() + 6 * 60 * 60 * 1000
+  while (Date.now() < deadline) {
+    await new Promise((r) => setTimeout(r, 3_000))
+    const op = await ops.get(input.opId).catch(() => undefined)
+    if (!op) return
+    if (!TERMINAL_PHASES.has(op.phase)) continue
+    if (op.phase !== "succeeded") return
+    const source = manageClient(input.sourceBaseURL)
+    if (input.mode === "hide") await source.removeConfig(input.modelId).catch(() => undefined)
+    else await source.deleteModel(input.modelId).catch(() => undefined)
+    return
+  }
+}
 
 function badRequest(message: string) {
   return Effect.fail(new InvalidRequestError({ message }))
