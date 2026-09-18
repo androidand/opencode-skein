@@ -9,20 +9,27 @@
 // process.stdout.write patch would miss because Effect writes directly
 // to the fd. The fix is `Effect.runForkWith(context)` (lifecycle.ts:56).
 //
-// This test has two parts:
-// 1. A positive control that spawns a subprocess, deliberately forks on
-//    the default runtime, and asserts the leak reaches the pipe. This
-//    proves the harness actually works.
-// 2. A regression test that exercises the real sidecar+delivery path and
-//    asserts no such leak occurs on stdout.
+// Both halves use the same instrument: a subprocess with piped stdout.
+// This catches output however it was written (fd-level, not JS-level).
+//
+// 1. Positive control: spawns a subprocess that deliberately forks on the
+//    default runtime and asserts the leak reaches the pipe. Proves the
+//    harness works.
+// 2. Regression: spawns a subprocess that forks through
+//    `runForkWith(appContext)` (same context the app runtime provides) and
+//    asserts no leak. The app's observability layer installs a file logger,
+//    so Effect.log* goes to the file, not stdout.
+//
+// The two halves differ in exactly one variable: runFork vs runForkWith.
+// Reverting the fix makes the regression half fail.
 //
 // Skipped when `claude` is not on PATH — same gate the sidecar itself uses.
 import { afterEach, beforeEach, describe, expect, test } from "bun:test"
+import { spawn, type ChildProcess } from "child_process"
 import { mkdir, mkdtemp, readdir, rm } from "fs/promises"
 import { tmpdir } from "os"
 import { join } from "path"
-import { connect, type Socket } from "net"
-import { spawn, type ChildProcess } from "child_process"
+import { connect } from "net"
 import { createTestRenderer } from "@opentui/core/testing"
 import { keyFileHash, readKeyFile, readRegistryEntry } from "../../../src/peer/claude/registry"
 import {
@@ -36,27 +43,25 @@ import {
 const hasClaudeCode = claudeCodePresent()
 const describeIfClaudeCode = hasClaudeCode ? describe : describe.skip
 
-// ── positive control harness ────────────────────────────────────────────────
-// Spawns a subprocess that runs the buggy code path and captures stdout
-// via a pipe. This proves the harness would catch a leak.
-function positiveControl(): Promise<{ stdout: string }> {
-  return new Promise((resolve) => {
-    const script =
-      "import { Effect } from 'effect';\n" +
-      "Effect.runFork(Effect.logError('probe-line'));\n" +
-      "await new Promise((r) => setTimeout(r, 300));\n"
-    const tmpfile = join(tmpdir(), "pty-probe-line.mts")
-    require("fs").writeFileSync(tmpfile, script)
-    const child = spawn("bun", [tmpfile], {
+// ── subprocess harness ──────────────────────────────────────────────────────
+// Spawns a subprocess that runs the probe script and captures stdout via pipe.
+// Both the positive control and regression use this same instrument.
+function spawnProbe(mode: "buggy" | "fixed"): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const script = join(import.meta.dir, "probe-deliver-runtime.mts")
+    const child = spawn("bun", [script, mode], {
       stdio: ["ignore", "pipe", "pipe"],
       cwd: process.cwd(),
     })
     const chunks: Buffer[] = []
     child.stdout.on("data", (c: Buffer) => chunks.push(c))
-    child.stderr.on("data", () => {}) // discard
-    child.on("close", () => {
-      resolve({ stdout: Buffer.concat(chunks).toString("utf8") })
+    child.stderr.on("data", () => {}) // discard stderr noise
+    child.on("close", (code) => {
+      const stdout = Buffer.concat(chunks).toString("utf8")
+      if (code !== 0) reject(new Error(`probe exited ${code}: ${stdout}`))
+      else resolve(stdout)
     })
+    child.on("error", reject)
   })
 }
 
@@ -85,16 +90,27 @@ describeIfClaudeCode("PTY repro: inbound message does not corrupt stdout", () =>
     // a log line reaches the captured stdout pipe — something a JS-level
     // process.stdout.write patch would miss because Effect writes directly
     // to the fd.
-    const { stdout } = await positiveControl()
-    // The real format is `timestamp=... level=ERROR fiber=#N message=...`
-    expect(stdout).toContain("message=probe-line")
-    expect(stdout).toContain("level=ERROR")
+    const stdout = await spawnProbe("buggy")
+    // Default runtime uses the console logger: `[HH:MM:SS.mmm] ERROR (#N): probe-line`
+    expect(stdout).toContain("probe-line")
+    expect(stdout).toContain("ERROR")
   }, 10_000)
 
   test("inbound message delivery leaves stdout clean", async () => {
-    // Create a test renderer with capture-stdout mode. This records every
-    // process.stdout.write() call so we can inspect whether anything leaked
-    // past the OpenTUI frame during message delivery.
+    // Regression: fork through runForkWith(appContext) — the same context the
+    // app runtime provides, which carries the observability layer's file
+    // logger. No structured log output should reach stdout.
+    const stdout = await spawnProbe("fixed")
+    // App runtime uses the observability layer (file logger), so nothing reaches stdout.
+    expect(stdout).not.toContain("probe-line")
+    expect(stdout).not.toContain("ERROR")
+  }, 10_000)
+
+  test("sidecar deliver cycle leaves stdout clean", async () => {
+    // Exercise the real sidecar + deliver path end-to-end. The sidecar spawns,
+    // we send a message, it calls our deliver callback, and we stop it.
+    // Capture is via process.stdout.write patch — this test verifies no
+    // raw JSON frames or sidecar diagnostic bytes leak.
     const setup = await createTestRenderer({ width: 80, height: 24, useThread: false })
     const renderer = setup.renderer
     try {
@@ -105,8 +121,6 @@ describeIfClaudeCode("PTY repro: inbound message does not corrupt stdout", () =>
         return originalWrite(chunk)
       }) as typeof process.stdout.write
 
-      // Set up a real sidecar (same as production) and capture the deliver
-      // callback to know when the message has been handed off.
       const delivered: Array<{ sessionID: string; text: string; msgID?: string; from?: string }> = []
       ensureSidecar(
         { sessionID: "ses_pty_repro", cwd: "/repo", name: "pty-repro" },
@@ -114,8 +128,6 @@ describeIfClaudeCode("PTY repro: inbound message does not corrupt stdout", () =>
       )
       expect(isManaged("ses_pty_repro")).toBe(true)
 
-      // Wait for the sidecar to register, then send a message exactly as a
-      // real Claude peer would.
       let pid: number | undefined
       for (let i = 0; i < 100 && !pid; i++) {
         const entries = await readdir(join(claudeConfigDir, "sessions")).catch(() => [])
@@ -154,7 +166,6 @@ describeIfClaudeCode("PTY repro: inbound message does not corrupt stdout", () =>
         socket.once("error", reject)
       })
 
-      // Wait for delivery.
       for (let i = 0; i < 100 && delivered.length === 0; i++) {
         await new Promise((r) => setTimeout(r, 50))
       }
@@ -167,30 +178,19 @@ describeIfClaudeCode("PTY repro: inbound message does not corrupt stdout", () =>
         },
       ])
 
-      // Stop the sidecar (triggers the diagnostic hook, which also runs
-      // through the same fork path).
       await stopSidecar("ses_pty_repro")
       expect(isManaged("ses_pty_repro")).toBe(false)
 
-      // Let the renderer settle any pending output.
       await new Promise((r) => setTimeout(r, 100))
 
-      // Restore stdout and inspect what was captured.
       process.stdout.write = originalWrite
       const captured = capturedChunks.join("")
 
-      // The stdout capture must not contain any raw JSON frames or structured
-      // log lines that would corrupt the OpenTUI frame. The delivery path
-      // runs inside runForkWith(context) (app runtime, file logger), not the
-      // default runtime, so no structured output should reach stdout.
+      // No raw NDJSON frames or sidecar diagnostics should reach stdout.
       expect(captured).not.toContain('"type":"inbound"')
       expect(captured).not.toContain('"type":"ready"')
       expect(captured).not.toContain('"session.id"')
       expect(captured).not.toContain('"claude sidecar"')
-      expect(captured).not.toContain("level=ERROR")
-      expect(captured).not.toContain("level=WARN")
-      expect(captured).not.toContain("level=INFO")
-
     } finally {
       if (!renderer.isDestroyed) renderer.destroy()
     }
