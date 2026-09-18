@@ -269,7 +269,7 @@ describe("isPrivateURL", () => {
     for (const url of [
       "http://127.0.0.1:11435/v1",
       "http://localhost:13305/v1",
-      "http://192.0.2.126:11435/v1",
+      "http://172.16.5.10:11435/v1",
       "http://10.1.2.3:8080",
       "http://172.20.0.1:8080",
       "http://gpuhost1.local:8080",
