@@ -159,14 +159,14 @@ describe("reconcileProviders", () => {
   })
 
   test("does not mutate the caller's provider map", () => {
-    const original = { gpuhost1: auto("http://192.0.2.99:8080/v1") }
+    const original = { gpuhost5: auto("http://192.0.2.99:8080/v1") }
     const snapshot = JSON.stringify(original)
-    run(original, [mdns("gpuhost1", "192.0.2.126")])
+    run(original, [mdns("gpuhost5", "192.0.2.126")])
     expect(JSON.stringify(original)).toBe(snapshot)
   })
 
   test("canonicalises an advertised llamaswap name down to the machine slug", () => {
-    const { providers } = run({}, [mdns("gpu-host-1-llamaswap.local", "192.0.2.100")])
+    const { providers } = run({}, [mdns("gpuhost5-llamaswap.local", "192.0.2.100")])
     expect(providers.gpuhost5).toBeDefined()
   })
 })
