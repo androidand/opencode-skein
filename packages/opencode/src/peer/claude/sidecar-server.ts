@@ -23,6 +23,8 @@ export interface InboundMessage {
   from?: string
   fromName?: string
   priority?: string
+  /** The frame's `msg_id`; the parent uses it to drop duplicate deliveries. */
+  msgID?: string
 }
 
 export interface StartSidecarInput {
@@ -41,6 +43,13 @@ export interface RunningSidecar {
   peerProtocol: 1
   /** Mirror the owner session's status into the registry so other processes read the truth, not a guess. */
   setStatus: (status: "idle" | "busy") => Promise<void>
+  /**
+   * Mirror the owner session's title. A session is registered the moment it
+   * is created, when its title is still a placeholder — the real one is
+   * generated after the first turn. Without this, every peer on the machine
+   * sees "New session - <timestamp>" forever and cannot address it by name.
+   */
+  setName: (name: string) => Promise<void>
   stop: () => Promise<void>
 }
 
@@ -56,7 +65,9 @@ function isAuthFrame(value: unknown): value is { type: "auth"; token: string } {
   return typeof value === "object" && value !== null && (value as Record<string, unknown>).type === "auth"
 }
 
-function isMessageFrame(value: unknown): value is { message?: { content?: unknown }; priority?: unknown } {
+function isMessageFrame(
+  value: unknown,
+): value is { message?: { content?: unknown }; priority?: unknown; msg_id?: unknown } {
   return typeof value === "object" && value !== null
 }
 
@@ -100,6 +111,7 @@ function handleConnection(socket: Socket, peerToken: string, onMessage: (m: Inbo
             from: parsed.from,
             fromName: parsed.fromName,
             priority: typeof frame.priority === "string" ? frame.priority : undefined,
+            msgID: typeof frame.msg_id === "string" ? frame.msg_id : undefined,
           })
         }
       }
@@ -155,8 +167,14 @@ export async function startSidecar(input: StartSidecarInput): Promise<RunningSid
     registration.status = status
     await updateSidecarRegistration(registration)
   }
+  const setName = async (name: string) => {
+    const next = `opencode:${name}`
+    if (stopped || registration.name === next) return
+    registration.name = next
+    await updateSidecarRegistration(registration)
+  }
 
-  return { pid, socketPath, peerProtocol: 1, stop, setStatus }
+  return { pid, socketPath, peerProtocol: 1, stop, setStatus, setName }
 }
 
 export * as SidecarServer from "./sidecar-server"

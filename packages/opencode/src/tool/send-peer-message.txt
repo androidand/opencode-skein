@@ -30,7 +30,19 @@ A target that doesn't match any opencode-skein session is then tried against liv
 sessions on this machine, matched by pid, session id, display name, or directory. If Claude
 Code peer messaging is disabled on this instance, a matching Claude session is reported found
 but not delivered, rather than a plain "not found" — that distinction matters, since it tells
-you whether the peer exists at all. When messaging is enabled, delivery to a Claude peer is
-outbound-only right now: the message goes out over Claude's own local socket protocol, but the
-Claude session has no way to reply back through it, so use it for one-way notifications only
-("endpoint X changed", "suite Y failed"), not a question you need an answer to.
+you whether the peer exists at all.
+
+An answer NEVER comes back as the result of this call. This tool hands the message over and
+returns; if the peer replies, that reply reaches you later as a new message that starts a new
+turn. So send once and move on. Do not send the same message again because no answer appeared,
+do not ask a peer whether it is done, and do not loop over a list of targets hoping one
+responds — sending the same text to the same peer twice in a row is refused, and a target that
+does not exist will not start existing on the second attempt. If you cannot continue without an
+answer, say that to your own user rather than asking the peer again.
+
+Peers can answer. A Claude Code or opencode-skein peer replies by messaging this session back,
+and the reply arrives here as a peer message that starts a new turn — you do not poll for it,
+and you must not send "are you done?" follow-ups. A successful send means the message reached
+the peer's inbox, not that the peer has read or acted on it. Ask a bounded question, say what
+form of answer you want (a file path, a commit, a yes/no), and continue with other work; if no
+answer comes, say so rather than assuming agreement.

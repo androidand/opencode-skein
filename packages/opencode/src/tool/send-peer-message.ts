@@ -4,7 +4,14 @@ import { Permission } from "@/permission"
 import { sendClaudeMessage } from "@/peer/claude/client"
 import { resolveClaudeTarget } from "@/peer/claude/resolve"
 import { settleTaskReply } from "@/peer/delegate"
-import { deliverToOpencodeSession, foreignRegistration, foreignRoster } from "@/peer/route"
+import { RepeatGuard } from "@/peer/repeat-guard"
+import {
+  deliverToOpencodeSession,
+  foreignRegistration,
+  foreignRoster,
+  liveSessionIDs,
+  returnAddressFor,
+} from "@/peer/route"
 import { Session } from "@/session/session"
 import { SessionID } from "@/session/schema"
 import { SessionStatus } from "@/session/status"
@@ -18,9 +25,36 @@ export const Parameters = Schema.Struct({
     description: "Session id, or an unambiguous prefix of the target session's title.",
   }),
   message: Schema.String.annotate({
-    description: "The message text to deliver. Keep it short — point to files, commits, or specs rather than pasting large context.",
+    description:
+      "The message text to deliver. Keep it short — point to files, commits, or specs rather than pasting large context.",
   }),
 })
+
+/** How many recent sessions machine-wide to consider for fuzzy matching. */
+const MachineRosterLimit = 200
+
+// A model that asks a question through a fire-and-forget tool gets back an
+// acknowledgement, not an answer, and its natural next move is to ask again.
+// These two guards make the second attempt say something different from the
+// first, which is the only thing that ends the loop. See `peer/repeat-guard.ts`
+// for the incident that motivated them.
+const DuplicateSendWindowMs = 90_000
+const UnresolvedTargetWindowMs = 180_000
+const duplicateSends = new RepeatGuard(DuplicateSendWindowMs)
+const unresolvedTargets = new RepeatGuard(UnresolvedTargetWindowMs)
+
+const SESSION_ID_RE = /^ses_[A-Za-z0-9]+$/
+
+/** The fields the peer roster projection needs; `list` and `listGlobal` both supply them. */
+type RosterSession = {
+  id: string
+  parentID?: string
+  directory: string
+  title: string
+  agent?: string
+  model?: { providerID: string; id: string }
+  time: { updated: number }
+}
 
 interface ResultMetadata {
   reason?:
@@ -32,6 +66,8 @@ interface ResultMetadata {
     | "identity-mismatch"
     | "no-token"
     | "messaging-disabled"
+    | "unaddressable"
+    | "duplicate"
   matches?: string[]
   sessionID?: string
   accepted?: boolean
@@ -67,28 +103,54 @@ export const SendPeerMessageTool = Tool.define(
           if (message === "")
             return { title: "No message sent", metadata: {}, output: "Message text is empty — nothing sent." }
 
-          const [sessions, statuses, permissions, foreign] = yield* Effect.all([
+          // A peer can be working in any repo on this machine, and this tool
+          // says so — but `session.list()` only ever returned the CALLER's
+          // project, and the sidecar roster only covers sessions some OTHER
+          // process registered. A sibling session in another project of this
+          // same process fell through both and was reported "not found" while
+          // sitting in the next tab. List globally instead. `own` is kept
+          // separately because it is what decides whether this process may
+          // prompt the target itself.
+          const requested = params.target.trim()
+          const [own, everywhere, statuses, permissions, foreign, live] = yield* Effect.all([
             session.list(),
+            session.listGlobal({ limit: MachineRosterLimit }),
             status.list(),
             permission.list(),
             Effect.promise(() => foreignRoster()),
+            Effect.promise(() => liveSessionIDs()),
           ])
+          const ownIDs = new Set<string>(own.map((item) => item.id))
+          const byID = new Map<string, RosterSession>()
+          for (const item of [...everywhere, ...own]) byID.set(item.id, item)
+          // The global roster is bounded by recency, so an exact id naming a
+          // real but older session would otherwise be reported as no such
+          // session — a lie about something that exists. `session.get` is not
+          // project-scoped, so look that one up directly.
+          if (!byID.has(requested) && SESSION_ID_RE.test(requested)) {
+            const direct = yield* session.get(SessionID.make(requested)).pipe(Effect.orElseSucceed(() => undefined))
+            if (direct) byID.set(direct.id, direct)
+          }
+          const sessions = [...byID.values()]
 
           const peers = resolveMessageTargets({
-            sessions: foreign.merge(sessions.map((item) => ({
-              id: item.id,
-              parentID: item.parentID,
-              directory: item.directory,
-              title: item.title,
-              agent: item.agent,
-              model: item.model ? { providerID: item.model.providerID, id: item.model.id } : undefined,
-              updatedAt: item.time.updated,
-            }))),
+            sessions: foreign.merge(
+              sessions.map((item) => ({
+                id: item.id,
+                parentID: item.parentID,
+                directory: item.directory,
+                title: item.title,
+                agent: item.agent,
+                model: item.model ? { providerID: item.model.providerID, id: item.model.id } : undefined,
+                updatedAt: item.time.updated,
+              })),
+            ),
             statuses,
             pendingPermission: new Set(permissions.map((item) => item.sessionID)),
             loops: [],
             callerID: ctx.sessionID,
             foreign: foreign.statuses,
+            live,
             now: Date.now(),
           })
 
@@ -123,9 +185,16 @@ export const SendPeerMessageTool = Tool.define(
                 title: "Peer not found",
                 metadata: { reason: "not-found" },
                 output:
-                  `No opencode-skein or Claude Code session anywhere on this machine matches "${params.target}" ` +
-                  "(idle sessions are valid targets here, unlike the `peers` tool's awareness roster — but your " +
-                  "own session and any subagent you spawned are excluded either way).",
+                  (unresolvedTargets.record(`${ctx.sessionID}|${params.target}`) > 0
+                    ? `"${params.target}" still does not exist — you already tried to reach it. Stop trying this ` +
+                      "target: retrying will not make it appear, and calling `peers` again will return the same " +
+                      "roster. Use a target from that roster, or carry on without this peer and say in your reply " +
+                      "that it could not be reached. "
+                    : "") +
+                  `No opencode-skein or Claude Code session matches "${params.target}". Searched: every session ` +
+                  `updated recently on this machine (any project), any session addressed by its exact id, and ` +
+                  "live Claude Code sessions. Idle sessions are valid targets here, unlike the `peers` tool's " +
+                  "awareness roster; your own session and any subagent you spawned are excluded either way.",
               }
             }
             if (flags.disableClaudeCodePeerMessaging) {
@@ -140,10 +209,14 @@ export const SendPeerMessageTool = Tool.define(
             }
 
             const caller = yield* session.get(ctx.sessionID).pipe(Effect.orElseSucceed(() => undefined))
+            // Claude's reply rule is "send to `from`", so `from` has to be this
+            // session's real sidecar socket for an answer to ever arrive.
+            const returnAddress = returnAddressFor(ctx.sessionID)
             const claudeResult = yield* Effect.promise(() =>
               sendClaudeMessage({
                 targetPid: claudeResolved.record.pid,
                 fromSessionID: ctx.sessionID,
+                fromAddress: returnAddress.address,
                 fromName: caller?.title ?? ctx.sessionID,
                 // A tool call only happens while the calling session is
                 // actively generating — "idle" was never true here.
@@ -162,9 +235,14 @@ export const SendPeerMessageTool = Tool.define(
               title: `Message sent to Claude Code session ${claudeResolved.record.pid}`,
               metadata: { sessionID: claudeResolved.record.sessionId, accepted: true, harness: "claude-code" },
               output:
-                `Delivered to Claude Code session pid ${claudeResolved.record.pid} ` +
-                `("${claudeResolved.record.name ?? "unnamed"}"). This channel is outbound-only right now — ` +
-                "the Claude session cannot reply back through it.",
+                `Accepted for delivery to Claude Code session pid ${claudeResolved.record.pid} ` +
+                `("${claudeResolved.record.name ?? "unnamed"}"). Accepted means the frames reached its socket, not ` +
+                "that it has read or acted on them. " +
+                (returnAddress.reachable
+                  ? "It can reply: an answer arrives in this session as a peer message, so if you asked a question, " +
+                    "carry on with other work rather than polling."
+                  : "This session has no live inbox of its own right now, so it cannot receive a reply — treat this " +
+                    "as a one-way notification."),
             }
           }
           const peer = resolved.peer
@@ -205,8 +283,25 @@ export const SendPeerMessageTool = Tool.define(
             }
           }
 
+          // The same text to the same peer twice in quick succession is a model
+          // waiting for an answer that this tool never returns. Tell it that
+          // rather than delivering the same message again.
+          const repeats = duplicateSends.record(`${ctx.sessionID}|${peer.sessionID}|${message}`)
+          if (repeats > 0) {
+            return {
+              title: "Already sent — not sent again",
+              metadata: { reason: "duplicate", sessionID: peer.sessionID },
+              output:
+                `You already sent this exact message to ${peer.sessionID} ("${peer.title}") moments ago, and it was ` +
+                "accepted. It has not been sent again. An answer never arrives as the result of this call — if the " +
+                "peer replies, it reaches you later as a new message that starts a new turn. Do not resend and do " +
+                "not poll. Continue with other work now, and if you need an answer before you can continue, say so " +
+                "to your own user instead of asking the peer again.",
+            }
+          }
+
           const text = formatPeerMessage(
-            { sessionID: ctx.sessionID, title: caller?.title ?? "(unknown session)" },
+            { sessionID: ctx.sessionID, title: caller?.title ?? "(unknown session)", reply: { target: ctx.sessionID } },
             message,
           )
 
@@ -219,6 +314,7 @@ export const SendPeerMessageTool = Tool.define(
             fromSessionID: ctx.sessionID,
             fromName: caller?.title ?? ctx.sessionID,
             text: message,
+            owned: ownIDs.has(peer.sessionID),
             local: () =>
               ops
                 .prompt({
@@ -228,10 +324,24 @@ export const SendPeerMessageTool = Tool.define(
                 })
                 .pipe(Effect.ignore, Effect.forkIn(scope, { startImmediately: true })),
           })
+          if (outcome.via === "unaddressable") {
+            return {
+              title: "Peer has no live address",
+              metadata: { reason: "unaddressable", sessionID: peer.sessionID },
+              output:
+                `Peer session ${peer.sessionID} ("${peer.title}") exists, but it is driven by another opencode ` +
+                "process and has not registered an address, so there is no safe way to deliver to it — prompting " +
+                "it from here would run its turn in the wrong process. It registers one as soon as it next does " +
+                "something; retry then, or reach whoever is at that session another way.",
+            }
+          }
           if (outcome.via === "socket" && !outcome.result.ok) {
             return {
               title: "Peer unreachable",
-              metadata: { reason: outcome.result.reason === "not-found" ? "unreachable" : outcome.result.reason, sessionID: peer.sessionID },
+              metadata: {
+                reason: outcome.result.reason === "not-found" ? "unreachable" : outcome.result.reason,
+                sessionID: peer.sessionID,
+              },
               output: `Peer session ${peer.sessionID} ("${peer.title}") is owned by another opencode process that did not accept the message: ${outcome.result.reason}${outcome.result.detail ? ` (${outcome.result.detail})` : ""}.`,
             }
           }
@@ -239,7 +349,13 @@ export const SendPeerMessageTool = Tool.define(
           return {
             title: `Message sent to ${peer.title}`,
             metadata: { sessionID: peer.sessionID, accepted: true },
-            output: `Accepted for delivery to peer session ${peer.sessionID} ("${peer.title}")${outcome.via === "socket" ? " via its owner process" : ""}.`,
+            output:
+              `Accepted for delivery to peer session ${peer.sessionID} ("${peer.title}")` +
+              `${outcome.via === "socket" ? " via its owner process" : ""}. ` +
+              (peer.reachable
+                ? "A process is attending that session, so it picks the message up on its next turn."
+                : "No process is attending that session — its turn will run here, but nobody is watching it, so " +
+                  "do not wait on an answer."),
           }
         }),
     }

@@ -449,6 +449,10 @@ export const TaskTool = Tool.define(
             fromSessionID: ctx.sessionID,
             fromName: parent.title,
             text: envelope,
+            // `all` is this instance's own project listing, so a candidate in
+            // it is one this process may prompt directly; anything else has to
+            // go through its owner's socket.
+            owned: all.some((item) => item.id === peer.id),
             local: () =>
               ops
                 .prompt({

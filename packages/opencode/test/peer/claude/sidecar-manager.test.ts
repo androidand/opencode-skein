@@ -10,7 +10,13 @@ import { tmpdir } from "os"
 import { join } from "path"
 import { connect } from "net"
 import { keyFileHash, readKeyFile, readRegistryEntry } from "../../../src/peer/claude/registry"
-import { claudeCodePresent, ensureSidecar, isManaged, stopAllSidecars, stopSidecar } from "../../../src/peer/claude/sidecar-manager"
+import {
+  claudeCodePresent,
+  ensureSidecar,
+  isManaged,
+  stopAllSidecars,
+  stopSidecar,
+} from "../../../src/peer/claude/sidecar-manager"
 
 const hasClaudeCode = claudeCodePresent()
 const describeIfClaudeCode = hasClaudeCode ? describe : describe.skip
@@ -34,11 +40,11 @@ describeIfClaudeCode("sidecar manager (requires claude on PATH)", () => {
   })
 
   test("a real inbound message reaches the injected deliver callback", async () => {
-    const delivered: Array<{ sessionID: string; text: string }> = []
+    const delivered: Array<{ sessionID: string; text: string; msgID?: string; from?: string }> = []
 
     ensureSidecar(
       { sessionID: "ses_manager_test", cwd: "/repo", name: "manager-test" },
-      (sessionID, text) => delivered.push({ sessionID, text }),
+      ({ sessionID, text, msgID, from }) => delivered.push({ sessionID, text, msgID, from }),
     )
     expect(isManaged("ses_manager_test")).toBe(true)
 
@@ -69,7 +75,8 @@ describeIfClaudeCode("sidecar manager (requires claude on PATH)", () => {
             type: "user",
             message: {
               role: "user",
-              content: '<cross-session-message from="uds:/tmp/x.sock" from-name="peer" from-mode="idle">\nhello via manager\n</cross-session-message>',
+              content:
+                '<cross-session-message from="uds:/tmp/x.sock" from-name="peer" from-mode="idle">\nhello via manager\n</cross-session-message>',
             },
             priority: "next",
             from: "uds:/tmp/x.sock",
@@ -84,7 +91,11 @@ describeIfClaudeCode("sidecar manager (requires claude on PATH)", () => {
     for (let i = 0; i < 100 && delivered.length === 0; i++) {
       await new Promise((r) => setTimeout(r, 50))
     }
-    expect(delivered).toEqual([{ sessionID: "ses_manager_test", text: "hello via manager" }])
+    // `msg_id` and `from` survive the hop: the parent needs the id to drop a
+    // replayed frame and the address to tell the session where to answer.
+    expect(delivered).toEqual([
+      { sessionID: "ses_manager_test", text: "hello via manager", msgID: "manager-test-1", from: "uds:/tmp/x.sock" },
+    ])
 
     await stopSidecar("ses_manager_test")
     expect(isManaged("ses_manager_test")).toBe(false)

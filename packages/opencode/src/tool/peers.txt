@@ -1,5 +1,30 @@
-List the other agent sessions currently active on this machine — opencode-skein sessions in
-any directory, and Claude Code sessions if any are running.
+List the other agent sessions on this machine — opencode-skein sessions in any directory, and
+Claude Code sessions if any are running.
+
+Sessions are grouped by how their work can collide with yours, because that decides what
+coordinating with them even means:
+
+- Your working tree. One checkout, one index, one set of files. You must divide the work with
+  these sessions — agree who owns which files or which task before either of you edits, because
+  neither of you will notice the damage until it is done.
+- The same repository, another worktree. Separate files, but shared branches, tags and history.
+  Coordinate on branch names, rebases, merges and pushes, not on file edits.
+- A different repository. Nothing can collide. The reason to talk is the opposite one: a shared
+  interface, a contract, an issue that spans both. Tell them what you changed and what it means
+  for them; do not ask them to stay out of your way.
+
+Each line also says what the session is available for, which is not the same as what it is
+doing. "Busy" covers a session mid-turn, which a message would race, and that delivery is
+refused. "Not working" covers a session free to help AND a session stuck behind a permission
+prompt or a stalled loop, which will not read anything until a human answers it, and a session
+whose process is gone, which will never read anything at all. Read the availability clause at
+the end of each line rather than assuming idle means free.
+
+A finished session is a row in the store whose process is gone; those are reported as a count,
+not as targets. Nobody will pick up the phone there.
+
+An id or name you were given that appears in none of these is genuinely not on this machine.
+Do not conclude a session is absent just because you only see Claude Code sessions listed.
 
 Call this before starting work that touches shared state — a branch, the git index, a
 migration, a config file, a package manifest — and whenever you are about to begin
@@ -15,11 +40,25 @@ is currently messageable (Claude Code peer messaging may be disabled on this ins
 which case a Claude peer is visible but not yet reachable).
 
 Your own session is never listed, and neither are subagents you spawned — everything
-returned is genuinely someone else. Peers are not scoped to your own directory: a session
-can be working anywhere on this machine and still show up here.
+returned is genuinely someone else. Your own id and title are stated on the first line, so you
+can tell another session how to reach you. Peers are not scoped to your own directory: a
+session can be working anywhere on this machine and still show up here.
 
-An empty result means nobody else is active anywhere on this machine right now, not that the
-tool failed.
+An empty result means no other session exists anywhere on this machine right now, not that the
+tool failed. Only the longest-idle sessions are trimmed from the list, and the count says how
+many were left out.
+
+The result also lists the local inference hosts and, for each, which sessions are pointed at it.
+Read that as a capacity map, not trivia. These hosts usually accept one request at a time, so a
+session sitting on a host holds that host: its model is loaded and its cache is warm, and giving
+it a piece of work costs one turn on capacity that is already committed. Spawning a subagent
+instead takes a slot of its own and may force the host to load a different model first. When
+every reachable host is occupied, a new subagent does not add parallelism at all — it queues.
+So when work could go either way, ask the colleague who is already there before you spawn
+someone new, and say what you need in one message rather than a conversation.
+
+Trust the slot counts over the names. The counts come from the hosts themselves, so a slot held
+by another process or another client is counted with nobody named beside it.
 
 Titles/names are the useful field. Two sessions titled "Merge five specsync worktrees into
 main" and "Finishing specsync and merging worktrees" are the same job being done twice. If a
