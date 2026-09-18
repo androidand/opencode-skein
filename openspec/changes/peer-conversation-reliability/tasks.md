@@ -102,14 +102,19 @@
       once a request carries a `[peer ...]` header. Without `peerBody` every
       delegated task would time out silently — see peerBody's contract in
       `@/peer/envelope`. Tested in `test/peer/delegate.test.ts`.
-- [ ] 3.3 (step-boundary loss window) The remaining half — changing the
-      `local()` closure from
-      `ops.prompt(...).pipe(Effect.forkIn(scope, { startImmediately: true }))`
-      to a safe-boundary enqueue — needs the runner/core safe-boundary enqueue
-      that `steer-running-work` and design.md point to. That lives in the runner
-      (`packages/core`/`effect/runner.ts`), which is the lead's 3.5/runner work,
-      not in `tool/send-peer-message.ts`. Left for the lead's slice; the
-      delegation-guard half above is complete and green.
+- [x] 3.3 (step-boundary loss window) Fixed 2026-09-19 at e40f6567f3:
+      `SessionPrompt.prompt` now asks whether the turn that just finished actually
+      answered the message it persisted. An assistant message parented to it means
+      it was processed however the turn ended — error, step cap or normal finish
+      all parent to it. No such message means nothing ran it, so a fresh run
+      starts. Exactly one retry. No new queue, no wait-until-idle mechanism.
+      Note: the runner test covers the recovery the fix depends on (work dropped
+      by a join does run when resubmitted after the run ends) but there is no
+      end-to-end reproduction of the race itself — hitting the window between the
+      loop's exit check and the runner reaching Idle is not reachable from the
+      public API without instrumenting the runner. The trigger condition rests on
+      the code path and the runner's semantics, not on a failing-first
+      integration test.
 - [x] 3.4 Update peer tool descriptions and injected coordination text so agents
       know how to answer, how to preserve correlation, and that peer content is
       not permission. `send-peer-message.txt` documents notify vs request mode
@@ -163,6 +168,9 @@
 - [x] 5.2 Run package typechecks for `packages/opencode` and `packages/tui`.
       2026-09-19 @ 60208d22f2: `tsgo --noEmit` clean in both.
 - [ ] 5.3 Perform a live opencode-to-opencode request/reply exchange.
+      2026-09-19: initiated at e04026f8b2 — sent a request to an idle opencode
+      session (ses_f49f0d331ffec3zDuvO0CYEJmi) asking for a "pong" reply with
+      correlation id test-5.3-1. Awaiting reply.
 - [x] 5.4 Perform a live opencode-to-Claude exchange if the private adapter still
       supports the selected semantics, recording any capability limitation.
       2026-09-18/19: a Claude Code session and opencode sessions exchanged messages
