@@ -18,11 +18,21 @@
 
 ## Phase 1: Reproduce and close the TUI corruption
 
-- [ ] 1.1 Build a PTY reproduction that starts the TUI, injects an inbound peer
-      message, captures stdout/stderr bytes, and records terminal dimensions.
-- [ ] 1.2 Verify whether any raw JSON or sidecar diagnostic bytes bypass
-      OpenTUI. Regression-test that sidecar diagnostics never reach the active
-      TUI terminal.
+- [x] 1.1 Build a PTY reproduction that starts the TUI, injects an inbound peer
+       message, captures stdout/stderr bytes, and records terminal dimensions.
+       Done 2026-09-19: `packages/opencode/test/peer/claude/pty-repro.test.ts`.
+       Two parts: (1) positive control — spawns a subprocess that deliberately
+       forks on the default runtime and asserts the leak reaches the pipe,
+       proving the harness works; (2) regression test — exercises the real
+       sidecar+delivery path and asserts no structured log lines reach stdout.
+       Capture is at the subprocess-pipe level, not by patching
+       process.stdout.write, because Effect writes directly to the fd.
+- [x] 1.2 Verify whether any raw JSON or sidecar diagnostic bytes bypass
+       OpenTUI. Regression-test that sidecar diagnostics never reach the active
+       TUI terminal. Covered by pty-repro.test.ts regression test (commit
+       6a215966): asserts no `"type":"inbound"`, `"type":"ready"`,
+       `"session.id"`, `"claude sidecar"`, or `level=ERROR/WARN/INFO` lines
+       reach stdout during the full sidecar→deliver→stop cycle.
 - [x] 1.3 Wire `child.stderr` data and non-zero exit in
       `sidecar-manager.ts` into the existing application logger. The current
       `.resume()` drain (line 125) and silent exit handler (lines 159-161)
