@@ -983,7 +983,16 @@ function App(props: { onSnapshot?: () => Promise<string[]>; pluginHost: TuiPlugi
         // command (then named /auto, since renamed to /backlog below because
         // this command is the real owner of that word) — this one wasn't;
         // it's the same permission.toggle() upstream still ships.
+        //
+        // fork: /auto was freed up specifically for this command when the
+        // queue/backlog command renamed away from it (see that command's own
+        // comment below) — "Auto mode" is upstream's name for permission
+        // auto-approve, not for the queue driver. It was never actually
+        // wired up here, leaving this toggle reachable only via <leader>p or
+        // the command palette despite everything else with a slash-visible
+        // counterpart having one.
         name: "permission.mode",
+        slashName: "auto",
         title:
           local.permission.mode === "auto" || sync.data.config.auto_mode
             ? "Disable auto-approve permissions"
