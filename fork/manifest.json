@@ -84,6 +84,7 @@
     "packages/opencode/src/server/routes/instance/httpapi/handlers/gallery.ts",
     "packages/opencode/src/server/routes/instance/httpapi/handlers/local.ts",
     "packages/opencode/src/server/routes/instance/httpapi/handlers/loop.ts",
+    "packages/opencode/src/session/loop-detect.ts",
     "packages/opencode/src/session/peers.ts",
     "packages/opencode/src/session/prompt/instella.txt",
     "packages/opencode/src/side-question/index.ts",
@@ -135,6 +136,7 @@
     "packages/opencode/test/server/local-ctx-size-guard.test.ts",
     "packages/opencode/test/server/local-sdk-contract.test.ts",
     "packages/opencode/test/session/host-paced-deadline.test.ts",
+    "packages/opencode/test/session/loop-detect.test.ts",
     "packages/opencode/test/session/peers.test.ts",
     "packages/opencode/test/tui/jsx-component-contract.test.ts",
     "packages/tui/src/component/dialog-loop-list.tsx",
@@ -732,6 +734,16 @@
       "file": "packages/tui/src/config/index.tsx",
       "marker": "transcript_window",
       "note": "Fork edit: adds the optional `transcript_window` TUI config key (TranscriptWindow schema + TranscriptWindowDefault) consumed by the session route's transcript windowing."
+    },
+    {
+      "file": "packages/tui/src/feature-plugins/home/tips-view.tsx",
+      "marker": "permissionMode",
+      "note": "Fork edit to an upstream file (+4/-0 vs baseline). Marker is a string the fork's edit introduces and upstream does not contain, so a merge that reverts the edit fails fork:verify."
+    },
+    {
+      "file": "packages/opencode/test/tool/task.test.ts",
+      "marker": "execute creates a child when task_id is not a valid session id",
+      "note": "Fork edit to an upstream file (+41/-0 vs baseline). Marker is a string the fork's edit introduces and upstream does not contain, so a merge that reverts the edit fails fork:verify."
     }
   ],
   "divergence": {
