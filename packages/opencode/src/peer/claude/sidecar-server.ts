@@ -10,7 +10,13 @@ import { chmod, mkdir } from "fs/promises"
 import { createServer, type Server, type Socket } from "net"
 import { Process } from "@/util/process"
 import { parseEnvelope } from "./codec"
-import { MANAGED_BY, removeSidecarRegistration, writeSidecarRegistration, type SidecarRegistration } from "./sidecar-registry"
+import {
+  MANAGED_BY,
+  removeSidecarRegistration,
+  updateSidecarRegistration,
+  writeSidecarRegistration,
+  type SidecarRegistration,
+} from "./sidecar-registry"
 
 export interface InboundMessage {
   text: string
@@ -33,6 +39,8 @@ export interface RunningSidecar {
   pid: number
   socketPath: string
   peerProtocol: 1
+  /** Mirror the owner session's status into the registry so other processes read the truth, not a guess. */
+  setStatus: (status: "idle" | "busy") => Promise<void>
   stop: () => Promise<void>
 }
 
@@ -142,8 +150,13 @@ export async function startSidecar(input: StartSidecarInput): Promise<RunningSid
     await new Promise<void>((resolve) => server.close(() => resolve()))
     await removeSidecarRegistration(pid, socketPath)
   }
+  const setStatus = async (status: "idle" | "busy") => {
+    if (stopped || registration.status === status) return
+    registration.status = status
+    await updateSidecarRegistration(registration)
+  }
 
-  return { pid, socketPath, peerProtocol: 1, stop }
+  return { pid, socketPath, peerProtocol: 1, stop, setStatus }
 }
 
 export * as SidecarServer from "./sidecar-server"

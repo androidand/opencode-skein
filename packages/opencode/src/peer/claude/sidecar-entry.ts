@@ -41,6 +41,28 @@ export async function runSidecarEntry() {
 
   process.stdout.write(`${JSON.stringify({ type: "ready", pid: sidecar.pid, socketPath: sidecar.socketPath })}\n`)
 
+  // The parent mirrors the owner session's status down this pipe so the
+  // registry entry other processes read says busy/idle truthfully.
+  let stdinBuffer = ""
+  process.stdin.on("data", (chunk: Buffer) => {
+    stdinBuffer += chunk.toString("utf8")
+    let newline: number
+    while ((newline = stdinBuffer.indexOf("\n")) >= 0) {
+      const line = stdinBuffer.slice(0, newline)
+      stdinBuffer = stdinBuffer.slice(newline + 1)
+      if (!line.trim()) continue
+      try {
+        const event = JSON.parse(line) as { type?: string; status?: string }
+        if (event.type === "status" && (event.status === "idle" || event.status === "busy")) {
+          void sidecar.setStatus(event.status).catch(() => undefined)
+        }
+      } catch {
+        // ignore malformed control lines
+      }
+    }
+  })
+  process.stdin.on("error", () => undefined)
+
   let shuttingDown = false
   const shutdown = () => {
     if (shuttingDown) return

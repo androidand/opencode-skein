@@ -336,3 +336,31 @@ describe("describePeer", () => {
     expect(line).toContain("2m ago")
   })
 })
+
+describe("foreign (other-process) status", () => {
+  test("registry status wins over the recency guess and shows a busy sibling", () => {
+    const peers = resolve({
+      sessions: [session("me"), session("other", { updatedAt: NOW - 1_000 })],
+      foreign: new Map([["other", "busy"]]),
+    })
+    expect(peers.map((p) => [p.sessionID, p.status])).toEqual([["other", "busy"]])
+  })
+  test("a registered idle sibling is idle even when recently updated", () => {
+    const peers = resolve({
+      sessions: [session("me"), session("other", { updatedAt: NOW - 1_000 })],
+      foreign: new Map([["other", "idle"]]),
+    })
+    expect(peers).toHaveLength(0)
+  })
+  test("message targets carry the registry status too", () => {
+    const peers = resolveMsg({
+      sessions: [session("me"), session("other")],
+      foreign: new Map([["other", "busy"]]),
+    })
+    expect(peers[0]?.status).toBe("busy")
+  })
+  test("unregistered recent sessions keep the recency guess", () => {
+    const peers = resolve({ sessions: [session("me"), session("other", { updatedAt: NOW - 1_000 })] })
+    expect(peers.map((p) => p.status)).toEqual(["busy"])
+  })
+})

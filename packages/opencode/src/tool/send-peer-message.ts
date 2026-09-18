@@ -4,6 +4,7 @@ import { Permission } from "@/permission"
 import { sendClaudeMessage } from "@/peer/claude/client"
 import { resolveClaudeTarget } from "@/peer/claude/resolve"
 import { settleTaskReply } from "@/peer/delegate"
+import { deliverToOpencodeSession, foreignStatuses } from "@/peer/route"
 import { Session } from "@/session/session"
 import { SessionID } from "@/session/schema"
 import { SessionStatus } from "@/session/status"
@@ -66,10 +67,11 @@ export const SendPeerMessageTool = Tool.define(
           if (message === "")
             return { title: "No message sent", metadata: {}, output: "Message text is empty — nothing sent." }
 
-          const [sessions, statuses, permissions] = yield* Effect.all([
+          const [sessions, statuses, permissions, foreign] = yield* Effect.all([
             session.list(),
             status.list(),
             permission.list(),
+            Effect.promise(() => foreignStatuses()),
           ])
 
           const peers = resolveMessageTargets({
@@ -86,6 +88,7 @@ export const SendPeerMessageTool = Tool.define(
             pendingPermission: new Set(permissions.map((item) => item.sessionID)),
             loops: [],
             callerID: ctx.sessionID,
+            foreign,
             now: Date.now(),
           })
 
@@ -204,24 +207,36 @@ export const SendPeerMessageTool = Tool.define(
             message,
           )
 
-          // Fire-and-forget, same pattern as the background-subagent result
-          // injection in task.ts: the target's own turn (and any reply it
-          // generates) is not this tool call's concern, and awaiting it would
-          // block the sender on however long the peer takes to respond. This
-          // means the honest claim available here is "accepted for delivery",
-          // not "confirmed the peer has seen and acted on it".
-          yield* ops
-            .prompt({
-              sessionID: targetSessionID,
-              agent: target.agent ?? ctx.agent,
-              parts: [{ type: "text", synthetic: true, text }],
-            })
-            .pipe(Effect.ignore, Effect.forkIn(scope, { startImmediately: true }))
+          // A session this process owns is prompted here, fire-and-forget (its
+          // turn is not this tool call's concern). A session another opencode
+          // process owns is reached over that process's sidecar socket — the
+          // only way its own TUI sees the message and runs the turn.
+          const outcome = yield* deliverToOpencodeSession({
+            targetSessionID: peer.sessionID,
+            fromSessionID: ctx.sessionID,
+            fromName: caller?.title ?? ctx.sessionID,
+            text: message,
+            local: () =>
+              ops
+                .prompt({
+                  sessionID: targetSessionID,
+                  agent: target.agent ?? ctx.agent,
+                  parts: [{ type: "text", synthetic: true, text }],
+                })
+                .pipe(Effect.ignore, Effect.forkIn(scope, { startImmediately: true })),
+          })
+          if (outcome.via === "socket" && !outcome.result.ok) {
+            return {
+              title: "Peer unreachable",
+              metadata: { reason: outcome.result.reason === "not-found" ? "unreachable" : outcome.result.reason, sessionID: peer.sessionID },
+              output: `Peer session ${peer.sessionID} ("${peer.title}") is owned by another opencode process that did not accept the message: ${outcome.result.reason}${outcome.result.detail ? ` (${outcome.result.detail})` : ""}.`,
+            }
+          }
 
           return {
             title: `Message sent to ${peer.title}`,
             metadata: { sessionID: peer.sessionID, accepted: true },
-            output: `Accepted for delivery to peer session ${peer.sessionID} ("${peer.title}").`,
+            output: `Accepted for delivery to peer session ${peer.sessionID} ("${peer.title}")${outcome.via === "socket" ? " via its owner process" : ""}.`,
           }
         }),
     }
