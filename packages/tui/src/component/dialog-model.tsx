@@ -7,6 +7,7 @@ import { createDialogProviderOptions, DialogProvider } from "./dialog-provider"
 import { DialogVariant } from "./dialog-variant"
 import { DialogModelCtx } from "./dialog-model-ctx"
 import { DialogModelBrowse } from "./dialog-gallery"
+import { DialogModelManage } from "./dialog-model-manage"
 import * as fuzzysort from "fuzzysort"
 import { useConnected } from "./use-connected"
 import { useToast } from "../ui/toast"
@@ -246,6 +247,13 @@ export function DialogModel(props: { providerID?: string }) {
           title: connected() ? "Connect provider" : "View all providers",
           onTrigger() {
             dialog.replace(() => <DialogProvider />)
+          },
+        },
+        {
+          command: "model.manage",
+          title: "Manage models",
+          onTrigger() {
+            dialog.replace(() => <DialogModelManage />)
           },
         },
         {

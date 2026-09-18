@@ -50,6 +50,7 @@ import { DialogSessionList } from "./component/dialog-session-list"
 import { DialogLoopList } from "./component/dialog-loop-list"
 import { DialogTuning } from "./component/dialog-tuning"
 import { DialogGalleryOperations, DialogModelBrowse } from "./component/dialog-gallery"
+import { DialogModelManage } from "./component/dialog-model-manage"
 import { DialogWorkspaceList } from "./component/dialog-workspace-list"
 import { DialogConsoleOrg } from "./component/dialog-console-org"
 import { ThemeProvider, useTheme } from "./context/theme"
@@ -676,6 +677,15 @@ function App(props: { onSnapshot?: () => Promise<string[]>; pluginHost: TuiPlugi
         slashAliases: ["gallery"],
         run: () => {
           dialog.replace(() => <DialogModelBrowse />)
+        },
+      },
+      {
+        name: "model.manage",
+        title: "Manage installed models",
+        category: "Local",
+        slashName: "manage",
+        run: () => {
+          dialog.replace(() => <DialogModelManage />)
         },
       },
       {

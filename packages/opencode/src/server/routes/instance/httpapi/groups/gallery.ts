@@ -162,6 +162,74 @@ export const GalleryOperationRef = Schema.Struct({
   id: Schema.String,
 }).annotate({ identifier: "GalleryOperationRef" })
 
+export const GalleryInstalledModel = Schema.Struct({
+  id: Schema.String,
+  name: Schema.NullOr(Schema.String),
+  sizeBytes: Schema.NullOr(Schema.Number),
+  loaded: Schema.Boolean,
+  state: Schema.String,
+  default: Schema.Boolean,
+  format: Schema.NullOr(Schema.String),
+  quantization: Schema.NullOr(Schema.String),
+  parameterSize: Schema.NullOr(Schema.String),
+  sourceRepository: Schema.NullOr(Schema.String),
+  sourceRevision: Schema.NullOr(Schema.String),
+  artifactPaths: Schema.Array(Schema.String),
+  activeOperationId: Schema.NullOr(Schema.String),
+}).annotate({ identifier: "GalleryInstalledModel" })
+
+export const GalleryHostInventory = Schema.Struct({
+  hostId: Schema.String,
+  hostName: Schema.String,
+  online: Schema.Boolean,
+  /** Hosts with the same storeKey serve the same files; hiding on one leaves the files for the other. */
+  storeKey: Schema.NullOr(Schema.String),
+  modelsDir: Schema.NullOr(Schema.String),
+  models: Schema.Array(GalleryInstalledModel),
+}).annotate({ identifier: "GalleryHostInventory" })
+export interface GalleryHostInventory extends Schema.Schema.Type<typeof GalleryHostInventory> {}
+
+export const GalleryModelRef = Schema.Struct({
+  hostId: Schema.String,
+  modelId: Schema.String,
+}).annotate({ identifier: "GalleryModelRef" })
+
+export const GalleryRemovePayload = Schema.Struct({
+  hostId: Schema.String,
+  modelId: Schema.String,
+  /** `hide` removes this host's config entry only; `delete` removes the files (and the entry) — on every host sharing the store. */
+  mode: Schema.Literals(["hide", "delete"]),
+}).annotate({ identifier: "GalleryRemovePayload" })
+
+export const GalleryRemoveResult = Schema.Struct({
+  hostId: Schema.String,
+  modelId: Schema.String,
+  mode: Schema.Literals(["hide", "delete"]),
+  deletedFiles: Schema.Array(Schema.String),
+  missingFiles: Schema.Array(Schema.String),
+}).annotate({ identifier: "GalleryRemoveResult" })
+
+export const GalleryCopyPayload = Schema.Struct({
+  fromHostId: Schema.String,
+  toHostId: Schema.String,
+  modelId: Schema.String,
+  /** Remove from the source once the copy has succeeded (hide when the hosts share a store, delete otherwise). */
+  move: Schema.optional(Schema.Boolean),
+}).annotate({ identifier: "GalleryCopyPayload" })
+
+export const GalleryCopyResult = Schema.Struct({
+  operation: GalleryOperation,
+  /** True when the target already serves the same store: registration only, nothing downloads. */
+  sharedStore: Schema.Boolean,
+  sourceRemoval: Schema.Literals(["none", "hide", "delete"]),
+}).annotate({ identifier: "GalleryCopyResult" })
+
+export const GalleryModelState = Schema.Struct({
+  hostId: Schema.String,
+  modelId: Schema.String,
+  loaded: Schema.Boolean,
+}).annotate({ identifier: "GalleryModelState" })
+
 export const GalleryApi = HttpApi.make("gallery").add(
   HttpApiGroup.make("gallery")
     .add(
@@ -199,6 +267,54 @@ export const GalleryApi = HttpApi.make("gallery").add(
           summary: "Install a model on a host",
           description:
             "Submit the install plan to the chosen llama-skein host. Returns immediately with the operation; poll `gallery.operations` for progress. The host owns the operation — opencode never retries or replays it.",
+        }),
+      ),
+      HttpApiEndpoint.get("installed", `${root}/installed`, {
+        query: WorkspaceRoutingQuery,
+        success: described(Schema.Array(GalleryHostInventory), "Installed models per host, with store identity"),
+      }).annotateMerge(
+        OpenApi.annotations({
+          identifier: "gallery.installed",
+          summary: "List installed models per host",
+          description:
+            "Every discovered llama-skein host with the models it serves (size, loaded state, provenance) and a store key; hosts with equal keys share one model store.",
+        }),
+      ),
+      HttpApiEndpoint.post("remove", `${root}/model/remove`, {
+        query: WorkspaceRoutingQuery,
+        payload: GalleryRemovePayload,
+        success: described(GalleryRemoveResult, "What was removed"),
+        error: InvalidRequestError,
+      }).annotateMerge(
+        OpenApi.annotations({
+          identifier: "gallery.remove",
+          summary: "Hide or delete an installed model",
+          description: "`hide` drops the host's config entry and keeps the files; `delete` removes the artifact set from the store.",
+        }),
+      ),
+      HttpApiEndpoint.post("load", `${root}/model/load`, {
+        query: WorkspaceRoutingQuery,
+        payload: GalleryModelRef,
+        success: described(GalleryModelState, "Loaded state after the request"),
+        error: InvalidRequestError,
+      }).annotateMerge(OpenApi.annotations({ identifier: "gallery.load", summary: "Load a model into memory on a host" })),
+      HttpApiEndpoint.post("unload", `${root}/model/unload`, {
+        query: WorkspaceRoutingQuery,
+        payload: GalleryModelRef,
+        success: described(GalleryModelState, "Loaded state after the request"),
+        error: InvalidRequestError,
+      }).annotateMerge(OpenApi.annotations({ identifier: "gallery.unload", summary: "Unload a model from memory on a host" })),
+      HttpApiEndpoint.post("copy", `${root}/model/copy`, {
+        query: WorkspaceRoutingQuery,
+        payload: GalleryCopyPayload,
+        success: described(GalleryCopyResult, "The install operation on the target host"),
+        error: InvalidRequestError,
+      }).annotateMerge(
+        OpenApi.annotations({
+          identifier: "gallery.copy",
+          summary: "Copy or move an installed model to another host",
+          description:
+            "Re-creates the model on the target from its recorded provenance (same repository, revision, artifacts, id). On a host sharing the source's store this is registration only. With `move`, the source is hidden or deleted once the target operation succeeds.",
         }),
       ),
       HttpApiEndpoint.get("operations", `${root}/operations`, {

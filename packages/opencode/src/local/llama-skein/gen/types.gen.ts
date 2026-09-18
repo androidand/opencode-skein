@@ -681,10 +681,6 @@ export type ModelFit = {
    */
   max_fit_ctx?: number
   /**
-   * Largest --ctx-size that fits in raw VRAM bytes with NO safety margin applied: no vramSafetyFrac headroom cap, no promptMarginFrac prompt-budget trim. Only the real physical requirements (weights, KV cache, compute/activation overhead) are subtracted. This is what will load without OOMing, not what is comfortable to run at — expect it to sit close to 100% VRAM with little headroom for fluctuation. max_fit_ctx/max_safe_ctx are the conservative recommendations; this is the true ceiling for a caller who wants to choose their own risk. 0 when VRAM is unknown.
-   */
-  max_physical_ctx?: number
-  /**
    * How the model would run given memory.
    */
   run_mode?: "gpu" | "tensor_parallel" | "moe_offload" | "cpu_offload" | "cpu_only"
@@ -1344,6 +1340,28 @@ export type PlacementAttempt = {
    * The failure this rung was a response to.
    */
   failure?: string
+}
+
+export type ModelDeleteResponse = {
+  model: string
+  /**
+   * Primary weights path that was removed.
+   */
+  deleted?: string
+  deleted_files: Array<string>
+  /**
+   * Artifacts the install recorded but that were already gone.
+   */
+  missing_files: Array<string>
+  config_removed: boolean
+}
+
+export type ModelLoadFailure = {
+  model: string
+  state: string
+  loaded: boolean
+  load_request_status: number
+  last_error?: LastError
 }
 
 export type GetSystemVersionData = {
@@ -2250,3 +2268,123 @@ export type StreamModelOperationEventsResponses = {
 
 export type StreamModelOperationEventsResponse =
   StreamModelOperationEventsResponses[keyof StreamModelOperationEventsResponses]
+
+export type DeleteModelData = {
+  body?: never
+  path: {
+    /**
+     * Model ID (or alias) as served by this host.
+     */
+    model: string
+  }
+  query?: never
+  url: "/api/models/{model}"
+}
+
+export type DeleteModelErrors = {
+  /**
+   * Model not found.
+   */
+  404: unknown
+  /**
+   * Model has no removable artifact set, or an operation is in flight.
+   */
+  422: unknown
+  /**
+   * Deletion failed part way; see message.
+   */
+  500: unknown
+}
+
+export type DeleteModelResponses = {
+  /**
+   * Deleted.
+   */
+  200: ModelDeleteResponse
+}
+
+export type DeleteModelResponse = DeleteModelResponses[keyof DeleteModelResponses]
+
+export type LoadModelData = {
+  body?: never
+  path: {
+    /**
+     * Model ID (or alias) as served by this host.
+     */
+    model: string
+  }
+  query?: never
+  url: "/api/models/load/{model}"
+}
+
+export type LoadModelErrors = {
+  /**
+   * Model not found or not served locally.
+   */
+  404: unknown
+  /**
+   * The backend failed to start.
+   */
+  502: ModelLoadFailure
+}
+
+export type LoadModelError = LoadModelErrors[keyof LoadModelErrors]
+
+export type LoadModelResponses = {
+  /**
+   * OK
+   */
+  200: string
+}
+
+export type LoadModelResponse = LoadModelResponses[keyof LoadModelResponses]
+
+export type UnloadModelData = {
+  body?: never
+  path: {
+    /**
+     * Model ID (or alias) as served by this host.
+     */
+    model: string
+  }
+  query?: never
+  url: "/api/models/unload/{model}"
+}
+
+export type UnloadModelErrors = {
+  /**
+   * Model not found or not served locally.
+   */
+  404: unknown
+  /**
+   * Model still reported loaded after unload.
+   */
+  500: ErrorResponse
+}
+
+export type UnloadModelError = UnloadModelErrors[keyof UnloadModelErrors]
+
+export type UnloadModelResponses = {
+  /**
+   * OK
+   */
+  200: string
+}
+
+export type UnloadModelResponse = UnloadModelResponses[keyof UnloadModelResponses]
+
+export type UnloadAllModelsData = {
+  body?: never
+  path?: never
+  query?: never
+  url: "/api/models/unload"
+}
+
+export type UnloadAllModelsResponses = {
+  /**
+   * OK
+   */
+  200: string
+}
+
+export type UnloadAllModelsResponse = UnloadAllModelsResponses[keyof UnloadAllModelsResponses]

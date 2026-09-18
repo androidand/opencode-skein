@@ -17,6 +17,9 @@ import type {
   CreateModelOperationData,
   CreateModelOperationErrors,
   CreateModelOperationResponses,
+  DeleteModelData,
+  DeleteModelErrors,
+  DeleteModelResponses,
   GetApiModelsData,
   GetApiModelsResponses,
   GetConfigHistoryData,
@@ -66,6 +69,9 @@ import type {
   ListRuntimesResponses,
   ListTuningProfilesData,
   ListTuningProfilesResponses,
+  LoadModelData,
+  LoadModelErrors,
+  LoadModelResponses,
   PatchGroupData,
   PatchGroupErrors,
   PatchGroupResponses,
@@ -95,6 +101,11 @@ import type {
   StreamModelOperationEventsData,
   StreamModelOperationEventsErrors,
   StreamModelOperationEventsResponses,
+  UnloadAllModelsData,
+  UnloadAllModelsResponses,
+  UnloadModelData,
+  UnloadModelErrors,
+  UnloadModelResponses,
   UpgradeRuntimeData,
   UpgradeRuntimeErrors,
   UpgradeRuntimeResponses,
@@ -626,5 +637,47 @@ export class LlamaSkeinClient extends HeyApiClient {
       StreamModelOperationEventsErrors,
       ThrowOnError
     >({ url: "/api/models/operations/{id}/events", ...options })
+  }
+
+  /**
+   * Delete an installed model: its complete artifact set on disk and its config entry.
+   *
+   * Resolves the full artifact set the founding install recorded before touching disk, so a model is never half-deleted. Refuses while an operation on the model is in flight.
+   */
+  public deleteModel<ThrowOnError extends boolean = false>(options: Options<DeleteModelData, ThrowOnError>) {
+    return (options.client ?? this.client).delete<DeleteModelResponses, DeleteModelErrors, ThrowOnError>({
+      url: "/api/models/{model}",
+      ...options,
+    })
+  }
+
+  /**
+   * Load a model into memory now (warm swap-in) without waiting for a real request.
+   */
+  public loadModel<ThrowOnError extends boolean = false>(options: Options<LoadModelData, ThrowOnError>) {
+    return (options.client ?? this.client).post<LoadModelResponses, LoadModelErrors, ThrowOnError>({
+      url: "/api/models/load/{model}",
+      ...options,
+    })
+  }
+
+  /**
+   * Stop one loaded model and free its memory.
+   */
+  public unloadModel<ThrowOnError extends boolean = false>(options: Options<UnloadModelData, ThrowOnError>) {
+    return (options.client ?? this.client).post<UnloadModelResponses, UnloadModelErrors, ThrowOnError>({
+      url: "/api/models/unload/{model}",
+      ...options,
+    })
+  }
+
+  /**
+   * Stop every loaded model.
+   */
+  public unloadAllModels<ThrowOnError extends boolean = false>(options?: Options<UnloadAllModelsData, ThrowOnError>) {
+    return (options?.client ?? this.client).post<UnloadAllModelsResponses, unknown, ThrowOnError>({
+      url: "/api/models/unload",
+      ...options,
+    })
   }
 }
