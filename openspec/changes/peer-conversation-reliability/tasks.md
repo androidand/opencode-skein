@@ -104,10 +104,33 @@
 ## Phase 5: Verification and integration
 
 - [ ] 5.1 Run opencode peer tests and TUI tests from their package directories.
-- [ ] 5.2 Run package typechecks for `packages/opencode` and `packages/tui`.
+      2026-09-19 @ 60208d22f2: `packages/opencode` peer + session/peers + tool +
+      util/git-branch + local/ctx-fit tests (a subset; a wider run of provider,
+      local, peer, session, tool and util is reported at 1901 by the A2A AX spec
+      review session, unverified here): 144 pass, 0 fail. `packages/tui`
+      (`bun test --timeout 30000`): 209 pass, 9 fail, all "Permission context must
+      be used within a context provider" in the sync/hydration suites. This branch
+      changes no `packages/tui` files; not yet confirmed against `dev`, so left
+      unchecked until the 9 are shown to be pre-existing.
+- [x] 5.2 Run package typechecks for `packages/opencode` and `packages/tui`.
+      2026-09-19 @ 60208d22f2: `tsgo --noEmit` clean in both.
 - [ ] 5.3 Perform a live opencode-to-opencode request/reply exchange.
-- [ ] 5.4 Perform a live opencode-to-Claude exchange if the private adapter still
+- [x] 5.4 Perform a live opencode-to-Claude exchange if the private adapter still
       supports the selected semantics, recording any capability limitation.
+      2026-09-18/19: a Claude Code session and opencode sessions exchanged messages
+      both ways through the sidecar (opencode sessions appear in the Claude
+      roster as `opencode:<title>`). Evidence of the fix: a session started
+      before the 2686ea754e build advertised a non-connectable return address
+      (`uds:opencode-skein:ses_…`) and the Claude-side reply failed with ENOENT;
+      sessions started after the install of `~/.local/bin/opencode`
+      (1.18.18-dev+60208d22f2-dirty, mtime 23:25:33) advertised
+      `uds:/tmp/cc-socks/<pid>.sock`, and a ping from Claude Code to
+      `opencode:Greeting` (sidecar pid 74887, started 23:45:33) was answered with
+      a "pong". Sessions started earlier (e.g. pid 41291, 22:59) still run the
+      old build. Limitations: the answer was a fresh message, not a correlated
+      reply, and no `msg_id` echo was seen, so request/reply correlation (3.1/3.5)
+      is not exercised; the build was `-dirty`. Two sessions can share a title, so
+      a title alone is ambiguous as an address.
 - [ ] 5.5 Reassess whether the change is mature enough for `specsync` and a GitHub
       issue; do that only after the second-agent review and Phase 1 evidence.
 
