@@ -269,3 +269,65 @@ export function peerBody(text: string): string {
 export function expectsReply(envelope: PeerEnvelope): boolean {
   return envelope.mode === "request"
 }
+
+// ── reply correlation ────────────────────────────────────────────────────────
+//
+// `settleTaskReply` in peer/delegate.ts correlates pool-overflow tasks with
+// the older `[peer-task-result <id>]` marker. This is the envelope counterpart:
+// when a reply arrives carrying `[peer reply id=<mid> in-reply-to=<orig>]`,
+// match it against a pending request so the sender can await a synchronous
+// answer. The marker remains the fallback during migration; this path only
+// fires when the peer includes the structured envelope in its reply text.
+//
+// Both registries are in-memory and process-scoped. A sidecar restart loses
+// all correlations — see tasks 2.3/2.4 for the durability discussion.
+
+export type PeerReplyResult = { ok: true; text: string } | { ok: false; reason: "timeout" | "cancelled" }
+
+const pendingReplies = new Map<string, { settle: (r: PeerReplyResult) => void; timer: ReturnType<typeof setTimeout> }>()
+
+/**
+ * Register a pending request by its `messageID` and return a Promise that
+ * resolves when a reply carrying `in-reply-to=<messageID>` arrives.
+ */
+export function awaitPeerReply(messageID: string, timeoutMs: number): Promise<PeerReplyResult> {
+  return new Promise((resolve) => {
+    const settle = (result: PeerReplyResult) => {
+      // Resolve directly — cancelPeerReply deletes the entry before calling
+      // settle, and a timeout that races a settle would otherwise find nothing
+      // and return without resolving. The entry is cleaned up by the caller
+      // (timeout timer, cancelPeerReply, or settlePeerReply) so we never
+      // double-resolve.
+      resolve(result)
+    }
+    const timer = setTimeout(() => {
+      pendingReplies.delete(messageID)
+      settle({ ok: false, reason: "timeout" })
+    }, timeoutMs)
+    ;(timer as { unref?: () => void }).unref?.()
+    pendingReplies.set(messageID, { settle, timer })
+  })
+}
+
+/**
+ * True when the text carries a structured envelope reply, and if so whether it
+ * settled a pending request. A reply whose `in-reply-to` does not match any
+ * pending request is ignored (not consumed).
+ */
+export function settlePeerReply(text: string): boolean {
+  const parsed = parsePeerEnvelope(text)
+  if (!parsed || parsed.envelope.mode !== "reply" || !parsed.envelope.inReplyTo) return false
+  const entry = pendingReplies.get(parsed.envelope.inReplyTo)
+  if (!entry) return false
+  entry.settle({ ok: true, text: parsed.body })
+  return true
+}
+
+/** Cancel a pending reply wait before it times out. */
+export function cancelPeerReply(messageID: string): void {
+  const entry = pendingReplies.get(messageID)
+  if (!entry) return
+  clearTimeout(entry.timer)
+  pendingReplies.delete(messageID)
+  entry.settle({ ok: false, reason: "cancelled" })
+}

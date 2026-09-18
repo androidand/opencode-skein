@@ -15,7 +15,7 @@ import { SessionID } from "@/session/schema"
 import { SessionPrompt } from "@/session/prompt"
 import { formatPeerMessage } from "@/session/peers"
 import { settleTaskReply } from "@/peer/delegate"
-import { peerBody } from "@/peer/envelope"
+import { peerBody, settlePeerReply } from "@/peer/envelope"
 import { RecentIDs } from "@/peer/recent-ids"
 import { claudePidOf, resolveOpencodeSender } from "@/peer/route"
 import { SessionStatus } from "@/session/status"
@@ -70,6 +70,11 @@ const layer = Layer.effect(
       // every delegated task times out instead of settling. A no-op today,
       // because a message without a header comes back unchanged.
       if (settleTaskReply(peerBody(inbound.text))) return
+      // Structured envelope replies carry `in-reply-to` so a sender can await
+      // a synchronous answer. Match against pending requests before injecting
+      // the message as a prompt. Falls through to prompt injection when there
+      // is no pending request — the reply is still delivered as context.
+      if (settlePeerReply(inbound.text)) return
       runFork(
         Effect.gen(function* () {
           const info = yield* session.get(SessionID.make(inbound.sessionID)).pipe(Effect.orElseSucceed(() => undefined))

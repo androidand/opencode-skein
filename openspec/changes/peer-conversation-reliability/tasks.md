@@ -115,11 +115,15 @@
       not permission. The existing `formatPeerMessage` in `peers.ts:279-294`
       already states the permission boundary; extend it with mode, context id,
       and response expectation.
-- [ ] 3.5 Make replies use the same peer transport and preserve context and
-      `inReplyTo`; do not create a separate reply channel. Extend
-      `settleTaskReply` (or add `settlePeerReply`) to match structured envelope
-      replies alongside the existing `[peer-task-result <taskID>]` text marker.
-      Keep the text marker as a fallback during migration.
+- [x] 3.5 Make replies use the same peer transport and preserve context and
+      `inReplyTo`; do not create a separate reply channel. Added
+      `settlePeerReply` (and `awaitPeerReply` / `cancelPeerReply`) in
+      `peer/envelope.ts` alongside the existing `settleTaskReply`. The inbound
+      path in `lifecycle.ts` now calls both, so a reply carrying
+      `[peer reply id=<mid> in-reply-to=<orig>]` settles a pending request
+      instead of being injected as a prompt. The text marker remains the
+      fallback during migration — `settlePeerReply` only fires when the peer
+      includes the structured envelope in its reply text. Done 2026-09-19.
 - [ ] 3.6 Add end-to-end tests for notify, request/ack, request/reply, duplicate
       delivery, unreachable peer, timeout, and permission-boundary behavior.
       Include a test that a sidecar restart does not silently lose a pending
