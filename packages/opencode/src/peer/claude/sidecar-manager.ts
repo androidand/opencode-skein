@@ -67,16 +67,15 @@ export interface EnsureSidecarInput {
   name: string
 }
 
+export type Deliver = (sessionID: string, text: string, fromName?: string, from?: string) => void
+
 /**
- * Spawns a sidecar for this session if one isn't already running. A no-op
- * when Claude Code isn't installed on this machine, or one is already
- * active for this session id.
+ * Spawns a sidecar for this session if one isn't already running. The
+ * sidecar is the session's address for every other agent process on this
+ * machine — opencode siblings as much as Claude Code — so it runs whether or
+ * not Claude Code is installed.
  */
-export function ensureSidecar(
-  input: EnsureSidecarInput,
-  deliver: (sessionID: string, text: string, fromName?: string) => void,
-): void {
-  if (!claudeCodePresent()) return
+export function ensureSidecar(input: EnsureSidecarInput, deliver: Deliver): void {
   if (active.has(input.sessionID)) return
 
   const child = Process.spawn(sidecarCommand(), {
@@ -85,6 +84,7 @@ export function ensureSidecar(
       OPENCODE_SIDECAR_CWD: input.cwd,
       OPENCODE_SIDECAR_NAME: input.name,
     },
+    stdin: "pipe",
     stdout: "pipe",
     stderr: "pipe",
   })
@@ -118,7 +118,12 @@ export function ensureSidecar(
         if (typeof e.pid === "number") managed.pid = e.pid
         if (typeof e.socketPath === "string") managed.socketPath = e.socketPath
       } else if (e.type === "inbound" && typeof e.text === "string") {
-        deliver(input.sessionID, e.text, typeof e.fromName === "string" ? e.fromName : undefined)
+        deliver(
+          input.sessionID,
+          e.text,
+          typeof e.fromName === "string" ? e.fromName : undefined,
+          typeof e.from === "string" ? e.from : undefined,
+        )
       }
     }
   })
@@ -129,6 +134,18 @@ export function ensureSidecar(
       console.error(`[claude-sidecar ${input.sessionID}] exited with code ${code}${signal ? ` (${signal})` : ""}`)
     }
   })
+}
+
+/** Mirror a session's status into its registry entry; a no-op for sessions without a sidecar. */
+export function setSidecarStatus(sessionID: string, status: "idle" | "busy"): void {
+  const managed = active.get(sessionID)
+  const stdin = managed?.child.stdin as { write?: (chunk: string) => unknown } | null | undefined
+  if (!stdin?.write) return
+  try {
+    stdin.write(`${JSON.stringify({ type: "status", status })}\n`)
+  } catch {
+    // sidecar gone; the exit handler cleans up
+  }
 }
 
 export async function stopSidecar(sessionID: string): Promise<void> {

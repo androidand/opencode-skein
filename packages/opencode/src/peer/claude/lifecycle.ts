@@ -15,7 +15,9 @@ import { SessionID } from "@/session/schema"
 import { SessionPrompt } from "@/session/prompt"
 import { formatPeerMessage } from "@/session/peers"
 import { settleTaskReply } from "@/peer/delegate"
-import { ensureSidecar, stopAllSidecars, stopSidecar, sweepOrphanedSidecars } from "./sidecar-manager"
+import { opencodeSenderOf } from "@/peer/route"
+import { SessionStatus } from "@/session/status"
+import { ensureSidecar, setSidecarStatus, stopAllSidecars, stopSidecar, sweepOrphanedSidecars } from "./sidecar-manager"
 
 export class Service extends Context.Service<Service, {}>()("@opencode/ClaudeSidecarLifecycle") {}
 
@@ -32,7 +34,7 @@ const layer = Layer.effect(
 
     yield* Effect.promise(() => sweepOrphanedSidecars()).pipe(Effect.ignore)
 
-    const deliver = (sessionID: string, text: string, fromName?: string) => {
+    const deliver = (sessionID: string, text: string, fromName?: string, from?: string) => {
       if (settleTaskReply(text)) return
       Effect.gen(function* () {
         const info = yield* session.get(SessionID.make(sessionID)).pipe(Effect.orElseSucceed(() => undefined))
@@ -47,7 +49,10 @@ const layer = Layer.effect(
         // only, per findings.md's own security note (never authorization),
         // but still worth surfacing so a multi-peer setup can tell which
         // Claude session actually sent this.
-        const wrapped = formatPeerMessage({ sessionID: "claude-code", title: fromName ?? "a Claude Code peer" }, text)
+        const sender = opencodeSenderOf(from)
+        const wrapped = sender
+          ? formatPeerMessage({ sessionID: sender, title: fromName ?? sender }, text)
+          : formatPeerMessage({ sessionID: "claude-code", title: fromName ?? "a Claude Code peer" }, text)
         yield* promptSvc
           .prompt({
             sessionID: SessionID.make(sessionID),
@@ -80,6 +85,14 @@ const layer = Layer.effect(
       return Effect.promise(() => stopSidecar(data.sessionID)).pipe(Effect.ignore)
     })
     yield* Effect.addFinalizer(() => unsubscribeDeleted)
+
+    const unsubscribeStatus = yield* events.listen((event) => {
+      if (event.type !== SessionStatus.Event.Status.type) return Effect.void
+      const data = event.data as { sessionID: string; status: { type: string } }
+      setSidecarStatus(data.sessionID, data.status.type === "idle" ? "idle" : "busy")
+      return Effect.void
+    })
+    yield* Effect.addFinalizer(() => unsubscribeStatus)
 
     // A normal server stop must not leave live sidecar processes and their
     // registrations behind — this is the graceful counterpart to

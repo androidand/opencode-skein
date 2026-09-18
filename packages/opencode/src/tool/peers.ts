@@ -5,6 +5,7 @@ import { RuntimeFlags } from "@/effect/runtime-flags"
 import { LocalPlacement } from "@/local/placement"
 import { Permission } from "@/permission"
 import { Provider } from "@/provider/provider"
+import { foreignStatuses } from "@/peer/route"
 import { Session } from "@/session/session"
 import { SessionStatus } from "@/session/status"
 import { describePeer, resolvePeers } from "@/session/peers"
@@ -36,8 +37,9 @@ export const PeersTool = Tool.define(
             session.get(ctx.sessionID).pipe(Effect.orElseSucceed(() => undefined)),
           ])
 
-          const [claudePeers, hosts] = yield* Effect.all([
+          const [claudePeers, foreign, hosts] = yield* Effect.all([
             Effect.promise(() => fetchClaudeAgentRecords({ enabled: !flags.disableClaudeCodePeerSource })),
+            Effect.promise(() => foreignStatuses()),
             provider
               ? provider.list().pipe(
                   Effect.flatMap((providers) => Effect.promise(() => LocalPlacement.hostCapacity(providers))),
@@ -70,6 +72,7 @@ export const PeersTool = Tool.define(
             loops: [],
             callerID: ctx.sessionID,
             branches,
+            foreign,
             now: Date.now(),
           })
 

@@ -51,6 +51,36 @@ export async function writeSidecarRegistration(registration: SidecarRegistration
   )
 }
 
+/** Rewrites only the registration (status changes); the key file and token are untouched. */
+export async function updateSidecarRegistration(registration: SidecarRegistration): Promise<void> {
+  await writeFile(`${sessionsDir()}/${registration.pid}.json`, JSON.stringify(registration), { mode: 0o644 })
+}
+
+/** Every live-looking registration this fork wrote, whichever opencode process owns it. */
+export async function listManagedRegistrations(): Promise<SidecarRegistration[]> {
+  const dir = sessionsDir()
+  let entries: string[]
+  try {
+    entries = await readdir(dir)
+  } catch {
+    return []
+  }
+  const out: SidecarRegistration[] = []
+  for (const entry of entries) {
+    if (!entry.endsWith(".json")) continue
+    try {
+      const parsed: unknown = JSON.parse(await readFile(`${dir}/${entry}`, "utf8"))
+      if (!isManagedEntry(parsed)) continue
+      const v = parsed as Partial<SidecarRegistration>
+      if (typeof v.ownerSessionID !== "string" || typeof v.messagingSocketPath !== "string") continue
+      out.push(v as SidecarRegistration)
+    } catch {
+      // Malformed file — not ours to judge here either.
+    }
+  }
+  return out
+}
+
 /** Removes exactly this sidecar's own two files. Called on its own clean shutdown. */
 export async function removeSidecarRegistration(pid: number, messagingSocketPath: string): Promise<void> {
   const dir = sessionsDir()

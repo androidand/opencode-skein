@@ -26,6 +26,11 @@
 - [x] 2.4 Deadline: the existing `SUBAGENT_TASK_TIMEOUT_MS` bounds the delegated wait too;
       expiry surfaces as a task error the parent is notified of (absorbs
       `ctx-aware-subagent-placement` task 5 for the delegated path)
+- [x] 2.6 Cross-process routing (`peer/route.ts`): a sibling opencode session owned by
+      another process is reached over its owner's sidecar socket, never prompted from the
+      sender's process; the owner mirrors busy/idle into its registry entry so `peers`
+      reads truth instead of guessing from recency; sidecars now run without Claude Code
+      installed. Found by the m3 test (2026-09-18) where opencode↔opencode A2A did not work.
 - [ ] 2.5 Live: local parent on a full host + idle Claude Code peer → task lands on the peer,
       reply arrives as the task result; same with an idle opencode peer on a cloud model
 

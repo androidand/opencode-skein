@@ -53,6 +53,12 @@ export interface ResolveInput {
   callerID: string
   /** directory -> current branch, when known. See `@/util/git-branch`. */
   branches?: ReadonlyMap<string, string>
+  /**
+   * Status of sessions owned by OTHER opencode processes, read from their
+   * sidecar registrations (`peer/route.ts`). This process's own status map
+   * knows nothing about them; without this they all read idle.
+   */
+  foreign?: ReadonlyMap<string, "idle" | "busy">
   now: number
 }
 
@@ -146,8 +152,16 @@ function projectPeers(input: ResolveInput, options: { includeIdle: boolean }): P
     // either way (that refusal already only ever protected same-process
     // targets), so guessing "busy" here would just make delivery to a real,
     // reachable cross-process peer unreliable — the opposite of the fix.
+    // A registry entry from the owning process is the truth and applies to
+    // both rosters; the recency guess above is only for sessions no process
+    // has registered.
+    const foreign = input.foreign?.get(session.id)
     const status: Status =
-      !options.includeIdle && rawStatus === "idle" && idleForMs < CrossProcessLivenessWindowMs ? "busy" : rawStatus
+      rawStatus === "idle" && foreign !== undefined
+        ? foreign
+        : !options.includeIdle && rawStatus === "idle" && foreign === undefined && idleForMs < CrossProcessLivenessWindowMs
+          ? "busy"
+          : rawStatus
     if (!options.includeIdle && !isWorking(status, loop)) continue
 
     peers.push({

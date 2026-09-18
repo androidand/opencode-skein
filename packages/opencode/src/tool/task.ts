@@ -30,6 +30,7 @@ import {
   type PeerCandidate,
   type TaskReplyResult,
 } from "@/peer/delegate"
+import { deliverToOpencodeSession, foreignStatuses } from "@/peer/route"
 
 export interface TaskPromptOps {
   cancel(sessionID: SessionID): Effect.Effect<void>
@@ -357,11 +358,12 @@ export const TaskTool = Tool.define(
       if (!ops) return yield* Effect.fail(new Error("TaskTool requires promptOps in ctx.extra"))
       const delegate = Effect.fn("TaskTool.delegate")(function* () {
         if (!sessionStatus || !permission) return undefined
-        const [all, statuses, permissions, providers] = yield* Effect.all([
+        const [all, statuses, permissions, providers, foreign] = yield* Effect.all([
           sessions.list(),
           sessionStatus.list(),
           permission.list(),
           provider ? provider.list() : Effect.succeed({} as Record<string, Provider.Info>),
+          Effect.promise(() => foreignStatuses()),
         ])
         const localProviderIDs = new Set(
           Object.values(providers)
@@ -382,6 +384,7 @@ export const TaskTool = Tool.define(
           pendingPermission: new Set(permissions.map((item) => item.sessionID)),
           loops: [],
           callerID: ctx.sessionID,
+          foreign,
           now: Date.now(),
         }).map(
           (peer): PeerCandidate => ({
@@ -445,19 +448,31 @@ export const TaskTool = Tool.define(
             cancelTaskReply(nextSession.id)
             return undefined
           }
-          yield* ops
-            .prompt({
-              sessionID: target.id,
-              agent: target.agent ?? ctx.agent,
-              parts: [
-                {
-                  type: "text",
-                  synthetic: true,
-                  text: formatPeerMessage({ sessionID: ctx.sessionID, title: parent.title }, envelope),
-                },
-              ],
-            })
-            .pipe(Effect.ignore, Effect.forkIn(scope, { startImmediately: true }))
+          const outcome = yield* deliverToOpencodeSession({
+            targetSessionID: target.id,
+            fromSessionID: ctx.sessionID,
+            fromName: parent.title,
+            text: envelope,
+            local: () =>
+              ops
+                .prompt({
+                  sessionID: target.id,
+                  agent: target.agent ?? ctx.agent,
+                  parts: [
+                    {
+                      type: "text",
+                      synthetic: true,
+                      text: formatPeerMessage({ sessionID: ctx.sessionID, title: parent.title }, envelope),
+                    },
+                  ],
+                })
+                .pipe(Effect.ignore, Effect.forkIn(scope, { startImmediately: true })),
+          })
+          if (outcome.via === "socket" && !outcome.result.ok) {
+            cancelTaskReply(nextSession.id)
+            yield* Effect.logWarning("peer delegation: opencode peer unreachable", { peer: peer.id, reason: outcome.result.reason })
+            return undefined
+          }
         }
         yield* Effect.logInfo("delegated subagent task to idle peer", {
           owner: peer.owner,
