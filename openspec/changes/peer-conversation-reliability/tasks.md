@@ -206,11 +206,11 @@ These overlap items above; the numbers refer to the sections they satisfy.
       longer say the channel is outbound-only; `peers.txt` and the send tool now
       agree. Guarded by `test/tool/send-peer-message-text.test.ts`.
 - [ ] I.7 Still open from this slice: `mode`/`context` parameters (3.1–3.2),
-      the step-boundary fix (3.3 — note the race is `prompt()` persisting the
-      message and then `Runner.ensureRunning` joining a run that already passed
-      its exit check, see `findings.md` "Busy handling"; the fork is not itself
-      the hazard), the PTY reproduction (1.1), and a live Claude reply
-      round-trip (5.4).
+        the step-boundary fix (3.3 — note the race is `prompt()` persisting the
+        message and then `Runner.ensureRunning` joining a run that already passed
+        its exit check, see `findings.md` "Busy handling"; the fork is not itself
+        the hazard), and a live Claude reply round-trip (5.4). PTY reproduction
+        (1.1) done 2026-09-19, verified by spec review.
 
 ## Addressing fixes 2026-09-18 (from a real failed send)
 
