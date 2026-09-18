@@ -32,11 +32,14 @@
         not by patching process.stdout.write, because Effect writes directly to
         the fd.
 - [x] 1.2 Verify whether any raw JSON or sidecar diagnostic bytes bypass
-        OpenTUI. The NDJSON part is always true (parent consumes both child
-        pipes). The diagnostics half runs through the same fork path as 1.1 and
-        is covered by the source-level guard (lifecycle.ts uses
-        runForkWith). The sidecar deliver cycle test in pty-repro.test.ts still
-        asserts no raw JSON/diagnostic leakage. Done 2026-09-19.
+        OpenTUI. The NDJSON part is always true by construction, not by test:
+        the parent consumes both child pipes, so no frame can reach the
+        terminal regardless of what the code does. The diagnostics half is the
+        part that needed proving — with the source-level guard (lifecycle.ts
+        uses runForkWith, asserted with a negative-lookahead regex that catches
+        both the called and point-free forms) and the control-and-treatment
+        experiment (runFork leaks to stdout, runForkWith does not), the chain is
+        complete. Done 2026-09-19.
 - [x] 1.3 Wire `child.stderr` data and non-zero exit in
       `sidecar-manager.ts` into the existing application logger. The current
       `.resume()` drain (line 125) and silent exit handler (lines 159-161)

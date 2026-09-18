@@ -121,10 +121,11 @@ describeIfClaudeCode("PTY repro: inbound message does not corrupt stdout", () =>
       "utf8",
     )
     expect(source).toContain("Effect.runForkWith(")
-    // Match bare Effect.runFork( but not Effect.runForkWith( — the latter is
-    // the fix; the former (on line 67/125 in the original buggy code) would
-    // leak to stdout.
-    expect(source).not.toMatch(/Effect\.runFork\(/)
+    // Match Effect.runFork followed by anything that is not With — catches both
+    // the called form (Effect.runFork(...)) and the point-free form
+    // (Effect.runFork,) that the original buggy code used. Does not match
+    // Effect.runForkWith( — that is the fix.
+    expect(source).not.toMatch(/Effect\.runFork(?!With)/)
   }, 5_000)
 
   test("sidecar deliver cycle leaves stdout clean", async () => {
