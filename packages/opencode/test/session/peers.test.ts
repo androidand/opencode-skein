@@ -17,7 +17,9 @@ function session(id: string, over: Partial<ResolveInput["sessions"][number]> = {
     id,
     directory: DIR,
     title: `session ${id}`,
-    updatedAt: NOW - 5_000,
+    // Clearly outside the cross-process liveness window (see peers.ts) so
+    // existing fixtures aren't accidentally treated as recently active.
+    updatedAt: NOW - 86_400_000,
     ...over,
   }
 }
@@ -65,6 +67,36 @@ describe("resolvePeers", () => {
     const peers = resolve({
       sessions: [session("me"), session("stale", { updatedAt: NOW - 86_400_000 })],
       statuses: new Map([["stale", { type: "idle" }]]),
+    })
+    expect(peers).toEqual([])
+  })
+
+  // The core opencode-to-opencode discovery bug: SessionStatus is per-process
+  // in-memory state, so a sibling opencode process's genuinely active session
+  // is absent from `statuses` here exactly like a truly idle one would be.
+  // Recent DB activity is the only cross-process signal available.
+  test("a session with no known status but recently updated is treated as a peer", () => {
+    const peers = resolve({
+      sessions: [session("me"), session("sibling-process", { updatedAt: NOW - 5_000 })],
+      statuses: new Map(),
+    })
+    expect(peers).toHaveLength(1)
+    expect(peers[0].sessionID).toBe("sibling-process")
+    expect(peers[0].status).toBe("busy")
+  })
+
+  test("a session with no known status and stale updatedAt is not a peer", () => {
+    const peers = resolve({
+      sessions: [session("me"), session("long-gone", { updatedAt: NOW - 86_400_000 })],
+      statuses: new Map(),
+    })
+    expect(peers).toEqual([])
+  })
+
+  test("an explicitly idle status is not overridden by recency alone past the window", () => {
+    const peers = resolve({
+      sessions: [session("me"), session("just-finished", { updatedAt: NOW - 60_000 })],
+      statuses: new Map(),
     })
     expect(peers).toEqual([])
   })
