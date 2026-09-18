@@ -8,7 +8,7 @@ import { resolveClaudePeers } from "../../src/agent/presence-claude"
 const realRegistryEntry = {
   pid: 3866,
   sessionId: "d1d25a93-76b4-4b14-8fdf-3a9896202a4c",
-  cwd: "~/dev/opencode-skein",
+  cwd: "/home/user/dev/opencode-skein",
   startedAt: 1788621312135,
   procStart: "Sat Sep  5 15:15:11 2026",
   version: "2.1.261",
@@ -34,7 +34,7 @@ describe("resolveClaudePeers", () => {
       owner: "claude-code",
       instanceID: "3866",
       sessionID: "d1d25a93-76b4-4b14-8fdf-3a9896202a4c",
-      directory: "~/dev/opencode-skein",
+      directory: "/home/user/dev/opencode-skein",
       status: "busy",
       lastEventAt: 1788637560798,
       heartbeatAt: 2000,

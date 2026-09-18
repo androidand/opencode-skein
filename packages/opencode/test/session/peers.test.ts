@@ -236,8 +236,8 @@ describe("resolveMessageTargets", () => {
     const targets = resolveMsg({
       sessions: [
         session("me"),
-        session("portal-work", { directory: "~/example-corp/portal" }),
-        session("nexus-work", { directory: "~/example-corp/nexus" }),
+        session("portal-work", { directory: "/home/user/work/portal" }),
+        session("nexus-work", { directory: "/home/user/work/nexus" }),
       ],
       statuses: new Map([
         ["portal-work", { type: "idle" as const }],

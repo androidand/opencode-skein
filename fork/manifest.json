@@ -47,6 +47,7 @@
     "packages/opencode/src/local/llama-skein/gen/sdk.gen.ts",
     "packages/opencode/src/local/llama-skein/gen/types.gen.ts",
     "packages/opencode/src/local/mdns.ts",
+    "packages/opencode/src/local/peer-registry-node.ts",
     "packages/opencode/src/local/model-catalog/adoption-manifest.ts",
     "packages/opencode/src/local/model-catalog/cache.ts",
     "packages/opencode/src/local/model-catalog/family.ts",

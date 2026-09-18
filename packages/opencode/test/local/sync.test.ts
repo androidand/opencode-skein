@@ -166,7 +166,7 @@ describe("reconcileProviders", () => {
   })
 
   test("canonicalises an advertised llamaswap name down to the machine slug", () => {
-    const { providers } = run({}, [mdns("gpuhost5-llamaswap.local", "192.0.2.7")])
+    const { providers } = run({}, [mdns("gpu-host-1-llamaswap.local", "192.0.2.100")])
     expect(providers.gpuhost5).toBeDefined()
   })
 })
