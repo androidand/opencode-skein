@@ -2099,6 +2099,7 @@ export type Config = {
     mcp_protocol_mode?: McpProtocolMode
     local_subagent_placement?: boolean
     local_subagent_placement_models?: Array<string>
+    peer_delegation?: boolean
     queue_gate?: {
       cwd?: string
       test_command?: string
@@ -2213,7 +2214,7 @@ export type Provider = {
 }
 
 export type AgentPresence = {
-  owner: "opencode-skein"
+  owner: "opencode-skein" | "claude-code"
   instanceID: string
   sessionID: string
   loopID?: string
@@ -2540,6 +2541,80 @@ export type LocalCapacitySnapshot = {
   probedAt: number | "NaN" | "Infinity" | "-Infinity" | "Infinity" | "-Infinity" | "NaN"
   ageMs: number | "NaN" | "Infinity" | "-Infinity" | "Infinity" | "-Infinity" | "NaN"
   stale: boolean
+}
+
+export type GalleryVariant = {
+  id: string
+  quantization: string
+  format: string
+  totalBytes: number | "NaN" | "Infinity" | "-Infinity" | "Infinity" | "-Infinity" | "NaN"
+  complete: boolean
+}
+
+export type GalleryCandidate = {
+  id: string
+  name: string
+  author: string
+  repository: string
+  parameterCount: number | "NaN" | "Infinity" | "-Infinity" | "Infinity" | "-Infinity" | "NaN"
+  trainedContext: number | "NaN" | "Infinity" | "-Infinity" | "Infinity" | "-Infinity" | "NaN"
+  license: string
+  pipelineTag: string
+  capabilities: Array<string>
+  downloads: number | "NaN" | "Infinity" | "-Infinity" | "Infinity" | "-Infinity" | "NaN"
+  likes: number | "NaN" | "Infinity" | "-Infinity" | "Infinity" | "-Infinity" | "NaN"
+  freshness: string
+  variants: Array<GalleryVariant>
+}
+
+export type GalleryInstallPayload = {
+  hostId: string
+  candidateId: string
+  variantId?: string
+  modelId?: string
+}
+
+export type GalleryInstallPlanView = {
+  hostId: string
+  hostName: string
+  repository: string
+  revision: string
+  modelId: string
+  backend: string
+  license: string
+  bytes: number | "NaN" | "Infinity" | "-Infinity" | "Infinity" | "-Infinity" | "NaN"
+  artifacts: Array<{
+    path: string
+    bytes: number | "NaN" | "Infinity" | "-Infinity" | "Infinity" | "-Infinity" | "NaN"
+    role: string
+  }>
+}
+
+export type GalleryOperation = {
+  hostId: string
+  hostName: string
+  id: string
+  phase: string
+  modelId: string
+  bytesDownloaded: number | "NaN" | "Infinity" | "-Infinity" | "Infinity" | "-Infinity" | "NaN"
+  bytesTotal: number | "NaN" | "Infinity" | "-Infinity" | "Infinity" | "-Infinity" | "NaN"
+  createdAt: string
+  updatedAt: string
+  error: {
+    code: string
+    message: string
+  }
+  warnings: Array<string>
+  artifacts: Array<{
+    path: string
+    bytesDownloaded: number | "NaN" | "Infinity" | "-Infinity" | "Infinity" | "-Infinity" | "NaN"
+    bytesTotal: number | "NaN" | "Infinity" | "-Infinity" | "Infinity" | "-Infinity" | "NaN"
+  }>
+}
+
+export type GalleryOperationRef = {
+  hostId: string
+  id: string
 }
 
 export type GalleryHostInfo = {
@@ -8947,6 +9022,148 @@ export type LocalCapacityResponses = {
 }
 
 export type LocalCapacityResponse = LocalCapacityResponses[keyof LocalCapacityResponses]
+
+export type GallerySearchData = {
+  body?: never
+  path?: never
+  query?: {
+    directory?: string
+    workspace?: string
+    q?: string
+    limit?: string
+  }
+  url: "/gallery/search"
+}
+
+export type GallerySearchErrors = {
+  /**
+   * Bad request
+   */
+  400: BadRequestError
+}
+
+export type GallerySearchError = GallerySearchErrors[keyof GallerySearchErrors]
+
+export type GallerySearchResponses = {
+  /**
+   * Catalog candidates matching the query
+   */
+  200: Array<GalleryCandidate>
+}
+
+export type GallerySearchResponse = GallerySearchResponses[keyof GallerySearchResponses]
+
+export type GalleryPlanData = {
+  body?: GalleryInstallPayload
+  path?: never
+  query?: {
+    directory?: string
+    workspace?: string
+  }
+  url: "/gallery/plan"
+}
+
+export type GalleryPlanErrors = {
+  /**
+   * InvalidRequestError
+   */
+  400: InvalidRequestError
+}
+
+export type GalleryPlanError = GalleryPlanErrors[keyof GalleryPlanErrors]
+
+export type GalleryPlanResponses = {
+  /**
+   * What an install would do, for confirmation
+   */
+  200: GalleryInstallPlanView
+}
+
+export type GalleryPlanResponse = GalleryPlanResponses[keyof GalleryPlanResponses]
+
+export type GalleryInstallData = {
+  body?: GalleryInstallPayload
+  path?: never
+  query?: {
+    directory?: string
+    workspace?: string
+  }
+  url: "/gallery/install"
+}
+
+export type GalleryInstallErrors = {
+  /**
+   * InvalidRequestError
+   */
+  400: InvalidRequestError
+}
+
+export type GalleryInstallError = GalleryInstallErrors[keyof GalleryInstallErrors]
+
+export type GalleryInstallResponses = {
+  /**
+   * The queued llama-skein operation
+   */
+  200: GalleryOperation
+}
+
+export type GalleryInstallResponse = GalleryInstallResponses[keyof GalleryInstallResponses]
+
+export type GalleryOperationsData = {
+  body?: never
+  path?: never
+  query?: {
+    directory?: string
+    workspace?: string
+  }
+  url: "/gallery/operations"
+}
+
+export type GalleryOperationsErrors = {
+  /**
+   * Bad request
+   */
+  400: BadRequestError
+}
+
+export type GalleryOperationsError = GalleryOperationsErrors[keyof GalleryOperationsErrors]
+
+export type GalleryOperationsResponses = {
+  /**
+   * Active and recent operations across online hosts
+   */
+  200: Array<GalleryOperation>
+}
+
+export type GalleryOperationsResponse = GalleryOperationsResponses[keyof GalleryOperationsResponses]
+
+export type GalleryCancelData = {
+  body?: GalleryOperationRef
+  path?: never
+  query?: {
+    directory?: string
+    workspace?: string
+  }
+  url: "/gallery/operations/cancel"
+}
+
+export type GalleryCancelErrors = {
+  /**
+   * InvalidRequestError
+   */
+  400: InvalidRequestError
+}
+
+export type GalleryCancelError = GalleryCancelErrors[keyof GalleryCancelErrors]
+
+export type GalleryCancelResponses = {
+  /**
+   * The operation after the cancel request
+   */
+  200: GalleryOperation
+}
+
+export type GalleryCancelResponse = GalleryCancelResponses[keyof GalleryCancelResponses]
 
 export type GalleryHostsData = {
   body?: never

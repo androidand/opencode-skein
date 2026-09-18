@@ -6,6 +6,7 @@ import { useDialog } from "../ui/dialog"
 import { createDialogProviderOptions, DialogProvider } from "./dialog-provider"
 import { DialogVariant } from "./dialog-variant"
 import { DialogModelCtx } from "./dialog-model-ctx"
+import { DialogModelBrowse } from "./dialog-gallery"
 import * as fuzzysort from "fuzzysort"
 import { useConnected } from "./use-connected"
 import { useToast } from "../ui/toast"
@@ -195,7 +196,20 @@ export function DialogModel(props: { providerID?: string }) {
       ]
     }
 
-    return [...favoriteOptions, ...recentOptions, ...providerOptions, ...popularProviders]
+    const browseRow = showSections
+      ? [
+          {
+            value: { providerID: "gallery", modelID: "browse" },
+            title: "Browse models…",
+            description: "search Hugging Face and install on a local host",
+            category: "Gallery",
+            onSelect: () => {
+              dialog.replace(() => <DialogModelBrowse />)
+            },
+          },
+        ]
+      : []
+    return [...browseRow, ...favoriteOptions, ...recentOptions, ...providerOptions, ...popularProviders]
   })
 
   const provider = createMemo(() =>
@@ -232,6 +246,13 @@ export function DialogModel(props: { providerID?: string }) {
           title: connected() ? "Connect provider" : "View all providers",
           onTrigger() {
             dialog.replace(() => <DialogProvider />)
+          },
+        },
+        {
+          command: "model.browse",
+          title: "Browse models",
+          onTrigger() {
+            dialog.replace(() => <DialogModelBrowse initialQuery={query().trim()} />)
           },
         },
         {

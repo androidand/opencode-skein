@@ -78,11 +78,23 @@ import type {
   FindTextResponses,
   FormatterStatusErrors,
   FormatterStatusResponses,
+  GalleryCancelErrors,
+  GalleryCancelResponses,
   GalleryEvaluateErrors,
   GalleryEvaluatePayload,
   GalleryEvaluateResponses,
   GalleryHostsErrors,
   GalleryHostsResponses,
+  GalleryInstallErrors,
+  GalleryInstallPayload,
+  GalleryInstallResponses,
+  GalleryOperationRef,
+  GalleryOperationsErrors,
+  GalleryOperationsResponses,
+  GalleryPlanErrors,
+  GalleryPlanResponses,
+  GallerySearchErrors,
+  GallerySearchResponses,
   GlobalConfigGetErrors,
   GlobalConfigGetResponses,
   GlobalConfigUpdateErrors,
@@ -2593,6 +2605,181 @@ export class Local extends HeyApiClient {
 }
 
 export class Gallery extends HeyApiClient {
+  /**
+   * Search the model catalog
+   *
+   * Live Hugging Face search (GGUF repositories), falling back to the bundled seed catalog when Hugging Face is unreachable. An `owner/repo` query resolves that repository directly.
+   */
+  public search<ThrowOnError extends boolean = false>(
+    parameters?: {
+      directory?: string
+      workspace?: string
+      q?: string
+      limit?: string
+    },
+    options?: Options<never, ThrowOnError>,
+  ) {
+    const params = buildClientParams(
+      [parameters],
+      [
+        {
+          args: [
+            { in: "query", key: "directory" },
+            { in: "query", key: "workspace" },
+            { in: "query", key: "q" },
+            { in: "query", key: "limit" },
+          ],
+        },
+      ],
+    )
+    return (options?.client ?? this.client).get<GallerySearchResponses, GallerySearchErrors, ThrowOnError>({
+      url: "/gallery/search",
+      ...options,
+      ...params,
+    })
+  }
+
+  /**
+   * Preview an install plan
+   *
+   * Resolve candidate, variant and host into the immutable plan llama-skein would execute, without submitting it.
+   */
+  public plan<ThrowOnError extends boolean = false>(
+    parameters?: {
+      directory?: string
+      workspace?: string
+      galleryInstallPayload?: GalleryInstallPayload
+    },
+    options?: Options<never, ThrowOnError>,
+  ) {
+    const params = buildClientParams(
+      [parameters],
+      [
+        {
+          args: [
+            { in: "query", key: "directory" },
+            { in: "query", key: "workspace" },
+            { key: "galleryInstallPayload", map: "body" },
+          ],
+        },
+      ],
+    )
+    return (options?.client ?? this.client).post<GalleryPlanResponses, GalleryPlanErrors, ThrowOnError>({
+      url: "/gallery/plan",
+      ...options,
+      ...params,
+      headers: {
+        "Content-Type": "application/json",
+        ...options?.headers,
+        ...params.headers,
+      },
+    })
+  }
+
+  /**
+   * Install a model on a host
+   *
+   * Submit the install plan to the chosen llama-skein host. Returns immediately with the operation; poll `gallery.operations` for progress. The host owns the operation — opencode never retries or replays it.
+   */
+  public install<ThrowOnError extends boolean = false>(
+    parameters?: {
+      directory?: string
+      workspace?: string
+      galleryInstallPayload?: GalleryInstallPayload
+    },
+    options?: Options<never, ThrowOnError>,
+  ) {
+    const params = buildClientParams(
+      [parameters],
+      [
+        {
+          args: [
+            { in: "query", key: "directory" },
+            { in: "query", key: "workspace" },
+            { key: "galleryInstallPayload", map: "body" },
+          ],
+        },
+      ],
+    )
+    return (options?.client ?? this.client).post<GalleryInstallResponses, GalleryInstallErrors, ThrowOnError>({
+      url: "/gallery/install",
+      ...options,
+      ...params,
+      headers: {
+        "Content-Type": "application/json",
+        ...options?.headers,
+        ...params.headers,
+      },
+    })
+  }
+
+  /**
+   * List host operations
+   *
+   * Install/download operations on every online llama-skein host, newest first.
+   */
+  public operations<ThrowOnError extends boolean = false>(
+    parameters?: {
+      directory?: string
+      workspace?: string
+    },
+    options?: Options<never, ThrowOnError>,
+  ) {
+    const params = buildClientParams(
+      [parameters],
+      [
+        {
+          args: [
+            { in: "query", key: "directory" },
+            { in: "query", key: "workspace" },
+          ],
+        },
+      ],
+    )
+    return (options?.client ?? this.client).get<GalleryOperationsResponses, GalleryOperationsErrors, ThrowOnError>({
+      url: "/gallery/operations",
+      ...options,
+      ...params,
+    })
+  }
+
+  /**
+   * Cancel a host operation
+   *
+   * Ask the owning llama-skein host to cancel an operation by id.
+   */
+  public cancel<ThrowOnError extends boolean = false>(
+    parameters?: {
+      directory?: string
+      workspace?: string
+      galleryOperationRef?: GalleryOperationRef
+    },
+    options?: Options<never, ThrowOnError>,
+  ) {
+    const params = buildClientParams(
+      [parameters],
+      [
+        {
+          args: [
+            { in: "query", key: "directory" },
+            { in: "query", key: "workspace" },
+            { key: "galleryOperationRef", map: "body" },
+          ],
+        },
+      ],
+    )
+    return (options?.client ?? this.client).post<GalleryCancelResponses, GalleryCancelErrors, ThrowOnError>({
+      url: "/gallery/operations/cancel",
+      ...options,
+      ...params,
+      headers: {
+        "Content-Type": "application/json",
+        ...options?.headers,
+        ...params.headers,
+      },
+    })
+  }
+
   /**
    * List gallery hosts
    *
