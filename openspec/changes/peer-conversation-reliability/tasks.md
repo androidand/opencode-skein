@@ -20,17 +20,23 @@
 
 - [x] 1.1 Build a PTY reproduction that starts the TUI, injects an inbound peer
         message, captures stdout/stderr bytes, and records terminal dimensions.
-        Done 2026-09-19 (restructured 2026-09-19): `packages/opencode/test/peer/claude/pty-repro.test.ts`.
-        Three parts: (1) positive control — spawns a subprocess that deliberately
-        forks on the default runtime and asserts the leak reaches the pipe,
-        proving the harness works; (2) regression — spawns a subprocess that
-        forks through `runForkWith(appContext)` and asserts stdout is clean,
-        proving the mechanism matters; (3) source-level guard — asserts
-        `lifecycle.ts` contains `Effect.runForkWith(` and no bare
-        `Effect.runFork(`, closing the gap between "the technique works" and
-        "the module uses it". Capture is at the subprocess-pipe level throughout,
-        not by patching process.stdout.write, because Effect writes directly to
-        the fd.
+        Done 2026-09-19 (restructured 2026-09-19, verified 2026-09-19):
+        `packages/opencode/test/peer/claude/pty-repro.test.ts`. Three parts:
+        (1) positive control — spawns a subprocess that deliberately forks on
+        the default runtime and asserts the leak reaches the pipe, proving the
+        harness works; (2) regression — spawns a subprocess that forks through
+        `runForkWith(appContext)` and asserts stdout is clean, proving the
+        mechanism matters; (3) source-level guard — asserts `lifecycle.ts`
+        contains `Effect.runForkWith(` and no bare `Effect.runFork` (negative
+        lookahead catches both called and point-free forms), closing the gap
+        between "the technique works" and "the module uses it". Capture is at the
+        subprocess-pipe level throughout, not by patching process.stdout.write,
+        because Effect writes directly to the fd. The spec reviewer verified
+        (round 4) that the regex catches the genuine pre-fix shape on
+        fe56a6b331 and passes on the current code. What 1.1 rests on: the
+        experiment shows the mechanism matters (one instrument, one variable),
+        the source guard shows the module uses it, and the sidecar cycle covers
+        the raw-frame case. Neither half alone would have been evidence.
 - [x] 1.2 Verify whether any raw JSON or sidecar diagnostic bytes bypass
         OpenTUI. The NDJSON part is always true by construction, not by test:
         the parent consumes both child pipes, so no frame can reach the
