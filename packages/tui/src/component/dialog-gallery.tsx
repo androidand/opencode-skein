@@ -88,7 +88,10 @@ export function DialogModelBrowse(props: { initialQuery?: string }) {
         value: { kind: "candidate", candidate: c },
         title: c.name,
         description: meta || undefined,
-        footer: `${fmtCount(c.downloads)}↓ · ${c.variants.length} variant${c.variants.length === 1 ? "" : "s"}`,
+        footer:
+          c.variants.length > 0
+            ? `${fmtCount(c.downloads)}↓ · ${c.variants.length} variant${c.variants.length === 1 ? "" : "s"}`
+            : `${fmtCount(c.downloads)}↓`,
         category: seed ? "Catalog (offline seed)" : "Catalog",
       })
     }
