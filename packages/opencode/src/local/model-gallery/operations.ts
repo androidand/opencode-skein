@@ -6,6 +6,7 @@ import { createClient, createConfig } from "../llama-skein/gen/client"
 import { LlamaSkeinClient } from "../llama-skein/gen/sdk.gen"
 import type { ModelInstallPlan, ModelOperation } from "../llama-skein/gen/types.gen"
 import type { GalleryHost } from "./hosts"
+import { controlPlaneURL } from "./fit"
 
 export type GalleryOperation = {
   hostId: string
@@ -30,7 +31,7 @@ export type OperationsClient = {
 }
 
 export function operationsClient(baseURL: string): OperationsClient {
-  const llama = new LlamaSkeinClient({ client: createClient(createConfig({ baseUrl: baseURL })) })
+  const llama = new LlamaSkeinClient({ client: createClient(createConfig({ baseUrl: controlPlaneURL(baseURL) })) })
   const unwrap = <T>(res: { data?: T; error?: unknown; response?: Response }): T => {
     if (res.error !== undefined || res.data === undefined) {
       const detail =

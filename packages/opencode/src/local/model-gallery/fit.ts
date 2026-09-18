@@ -98,9 +98,16 @@ export type HypotheticalFitter = {
 const DEFAULT_CONCURRENCY = 4
 const DEFAULT_TIMEOUT_MS = 8000
 
+// Discovery hands back the OpenAI-compatible base (`…/v1`); llama-skein's
+// control plane lives one level up. Confirmed live 2026-09-18: every fit call
+// 404'd on `/v1/api/fit/hypothetical` until this strip.
+export function controlPlaneURL(baseURL: string): string {
+  return baseURL.replace(/\/+$/, "").replace(/\/v1$/, "")
+}
+
 function defaultFitter(baseURL: string): HypotheticalFitter {
   return new LlamaSkeinClient({
-    client: createClient(createConfig({ baseUrl: baseURL })),
+    client: createClient(createConfig({ baseUrl: controlPlaneURL(baseURL) })),
   }) as unknown as HypotheticalFitter
 }
 
