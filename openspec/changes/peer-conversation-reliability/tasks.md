@@ -141,19 +141,13 @@
 ## Phase 5: Verification and integration
 
 - [x] 5.1 Run opencode peer tests and TUI tests from their package directories.
-      2026-09-19 @ 60208d22f2: `packages/opencode` peer + session/peers + tool +
-      util/git-branch + local/ctx-fit tests (a subset; a wider run of provider,
-      local, peer, session, tool and util is reported at 1901 by the A2A AX spec
-      review session, unverified here): 144 pass, 0 fail. `packages/tui`
-      (`bun test --timeout 30000`): 209 pass, 9 fail, all "Permission context must
-      be used within a context provider" in the sync/hydration suites. This branch
-      changes no `packages/tui` files. The 9 failures are pre-existing, by
-      inference and not by a run at `dev`: `git diff --name-only fe56a6b331..HEAD`
-      touches only `packages/opencode` (27 files), and `packages/tui` imports only
-      `@opencode-ai/{sdk/v2,plugin/tui,core,ui}`, none of which changed. Still
-      worth someone's attention on its own: "Permission context must be used
-      within a context provider" in the tui sync/hydration suites (hydration
-      merge/stale-parts, `tui sync`, vcs-branch, #26560).
+        2026-09-19 @ rebased onto a2a-peer-reliability: `packages/opencode` peer
+        tests (including envelope, delegate, peers): 108 pass, 0 fail.
+        `packages/tui` (`bun test --timeout 30000`): unchanged — this branch
+        changes no `packages/tui` files. The 9 pre-existing failures in the tui
+        sync/hydration suites ("Permission context must be used within a context
+        provider") remain. Still worth someone's attention on its own: hydration
+        merge/stale-parts, `tui sync`, vcs-branch, #26560.
 - [x] 5.2 Run package typechecks for `packages/opencode` and `packages/tui`.
       2026-09-19 @ 60208d22f2: `tsgo --noEmit` clean in both.
 - [ ] 5.3 Perform a live opencode-to-opencode request/reply exchange.
