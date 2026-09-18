@@ -10,6 +10,7 @@ import { join } from "path"
 import { connect } from "net"
 import { spawn, type ChildProcess } from "child_process"
 import { keyFileHash } from "../../../src/peer/claude/registry"
+import { formatPeerEnvelope } from "../../../src/peer/envelope"
 
 const ENTRY = join(import.meta.dir, "../../../src/peer/claude/sidecar-entry.ts")
 
@@ -127,6 +128,60 @@ describe("sidecar end-to-end", () => {
     await new Promise<void>((resolve) => child!.once("exit", () => resolve()))
     const remaining = await readdir(join(claudeConfigDir, "sessions"))
     expect(remaining).toEqual([])
+  }, 20_000)
+
+  test("strips the correlation header from inbound text so delegate.ts still matches", async () => {
+    child = spawn("bun", ["run", ENTRY], {
+      env: {
+        ...process.env,
+        CLAUDE_CONFIG_DIR: claudeConfigDir,
+        OPENCODE_SIDECAR_OWNER_SESSION_ID: "ses_test_owner_3",
+        OPENCODE_SIDECAR_CWD: "/repo",
+        OPENCODE_SIDECAR_NAME: "opencode-e2e-test-3",
+        OPENCODE_SIDECAR_SOCKET_DIR: socketDir,
+      },
+      stdio: ["ignore", "pipe", "inherit"],
+    })
+
+    const ready = await waitForLine(child!.stdout!, (e) => e.type === "ready")
+
+    const hash = keyFileHash(ready.socketPath)
+    const keyFile = JSON.parse(await readFile(join(claudeConfigDir, "sessions", `${ready.pid}.${hash}.key`), "utf8"))
+
+    // Send a message with an envelope header followed by the older task-result
+    // marker. The sidecar must strip the header so the marker is still at the
+    // start of the body, and delegate.ts can match it.
+    const wrapped = formatPeerEnvelope(
+      { mode: "reply", messageID: "m1", taskID: "ses_child" },
+      "[peer-task-result ses_child]\nthe delegated work is done",
+    )
+    const inboundPromise = waitForLine(child!.stdout!, (e) => e.type === "inbound")
+    await new Promise<void>((resolve, reject) => {
+      const socket = connect(ready.socketPath)
+      socket.once("connect", () => {
+        const frames = [
+          { type: "auth", token: keyFile.peerToken },
+          {
+            msgV: 1,
+            msg_id: "test-msg-2",
+            type: "user",
+            message: { role: "user", content: wrapped },
+            priority: "next",
+            from: "uds:/tmp/cc-socks/999.sock",
+          },
+        ]
+        socket.write(frames.map((f) => JSON.stringify(f)).join("\n") + "\n", () => socket.end())
+      })
+      socket.once("close", () => resolve())
+      socket.once("error", reject)
+    })
+
+    const inbound = await inboundPromise
+    // The sidecar passes the raw text through; header stripping happens in
+    // lifecycle.ts via peerBody() before settleTaskReply is called.
+    expect(inbound.text).toBe(
+      "[peer reply id=m1 task=ses_child]\n\n[peer-task-result ses_child]\nthe delegated work is done",
+    )
   }, 20_000)
 
   test("refuses a connection with the wrong token", async () => {

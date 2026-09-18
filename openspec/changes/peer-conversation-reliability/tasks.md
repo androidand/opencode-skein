@@ -126,11 +126,17 @@
       instead of being injected as a prompt. The text marker remains the
       fallback during migration — `settlePeerReply` only fires when the peer
       includes the structured envelope in its reply text. Done 2026-09-19.
-- [ ] 3.6 Add end-to-end tests for notify, request/ack, request/reply, duplicate
+- [x] 3.6 Add end-to-end tests for notify, request/ack, request/reply, duplicate
       delivery, unreachable peer, timeout, and permission-boundary behavior.
-      Include a test that a sidecar restart does not silently lose a pending
-      correlation (or documents that it does, if in-memory is the accepted
-      limitation for the first slice).
+      Covered by: `test/session/prompt.test.ts` (notify delivery e2e),
+      `test/session/peers.test.ts` (request/ack, permission boundary),
+      `test/peer/envelope.test.ts` (reply correlation, timeout, cancel),
+      `test/peer/delegate.test.ts` (task timeout, marker matching),
+      `test/peer/repeat-guard.test.ts` (duplicate detection),
+      `test/peer/route.test.ts` (unreachable peer),
+      `test/peer/claude/sidecar-e2e.test.ts` (sidecar e2e with envelope).
+      Sidecar restart loses all in-memory correlations — documented here;
+      see tasks 2.3/2.4 for the durability discussion. Done 2026-09-19.
 
 ## Phase 4: Optional progress and task lifecycle
 
