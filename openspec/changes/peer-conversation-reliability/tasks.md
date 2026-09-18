@@ -110,11 +110,13 @@
       (`packages/core`/`effect/runner.ts`), which is the lead's 3.5/runner work,
       not in `tool/send-peer-message.ts`. Left for the lead's slice; the
       delegation-guard half above is complete and green.
-- [ ] 3.4 Update peer tool descriptions and injected coordination text so agents
+- [x] 3.4 Update peer tool descriptions and injected coordination text so agents
       know how to answer, how to preserve correlation, and that peer content is
-      not permission. The existing `formatPeerMessage` in `peers.ts:279-294`
-      already states the permission boundary; extend it with mode, context id,
-      and response expectation.
+      not permission. `send-peer-message.txt` documents notify vs request mode
+      and correlation ids. `formatPeerMessage` (session/peers.ts) renders a
+      reply lead for requests (telling the receiver to answer) and a neutral
+      lead for notifies. Guarded by `test/tool/send-peer-message-text.test.ts`
+      and `test/session/peers.test.ts`. Done 2026-09-19.
 - [x] 3.5 Make replies use the same peer transport and preserve context and
       `inReplyTo`; do not create a separate reply channel. Added
       `settlePeerReply` (and `awaitPeerReply` / `cancelPeerReply`) in
