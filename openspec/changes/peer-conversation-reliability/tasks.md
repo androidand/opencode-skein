@@ -63,16 +63,30 @@
       `send_peer_message` without requiring callers to handcraft ids. Extend
       the sidecar NDJSON frame with the structured envelope fields alongside
       the existing `type`, `text`, `from`, `fromName` fields.
-- [ ] 3.2 Add an explicit `notify` versus `request` mode, with request mode
+- [x] 3.2 Add an explicit `notify` versus `request` mode, with request mode
       producing a clear response expectation in the receiving prompt. The
       existing `peer/delegate.ts` path is implicitly `request`; the new `notify`
-      mode is the addition.
-- [ ] 3.3 Change the `local()` closure in `send-peer-message.ts:222-229` from
-      `ops.prompt({ synthetic: true }).pipe(Effect.forkIn(scope, { startImmediately: true }))`
-      to a safe-boundary enqueue. The current fork races an active provider turn;
-      the `steer-running-work` findings require delivery at a safe loop boundary.
-      This is the highest-risk change in the slice and should be tested
-      independently before the envelope work.
+      mode is the addition. Done 2026-09-19 on a2a/3.3: the mode renders the
+      `peer` header via `@/peer/envelope` (request carries a correlation id, the
+      default notify does not), the id is returned in the tool metadata so a
+      reply can be traced, and the response contract lives in `formatPeerMessage`
+      (session/peers.ts) — a request tells the receiver to answer, a notify does
+      not. `formatPeerMessage` renders the reply lead only for a request or a
+      caller that never set a mode, preserving the pre-mode contract.
+
+- [x] 3.3 (delegation guard) `send-peer-message.ts` strips the header before
+      `settleTaskReply`, so the `[peer-task-result <id>]` marker still matches
+      once a request carries a `[peer ...]` header. Without `peerBody` every
+      delegated task would time out silently — see peerBody's contract in
+      `@/peer/envelope`. Tested in `test/peer/delegate.test.ts`.
+- [ ] 3.3 (step-boundary loss window) The remaining half — changing the
+      `local()` closure from
+      `ops.prompt(...).pipe(Effect.forkIn(scope, { startImmediately: true }))`
+      to a safe-boundary enqueue — needs the runner/core safe-boundary enqueue
+      that `steer-running-work` and design.md point to. That lives in the runner
+      (`packages/core`/`effect/runner.ts`), which is the lead's 3.5/runner work,
+      not in `tool/send-peer-message.ts`. Left for the lead's slice; the
+      delegation-guard half above is complete and green.
 - [ ] 3.4 Update peer tool descriptions and injected coordination text so agents
       know how to answer, how to preserve correlation, and that peer content is
       not permission. The existing `formatPeerMessage` in `peers.ts:279-294`

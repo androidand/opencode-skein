@@ -2,6 +2,12 @@ Send a short message to another agent session on this machine — an opencode-sk
 anywhere (not just this directory), idle, busy, awaiting-permission, or stalled, or a live
 Claude Code session. Your own session and any subagent you spawned are excluded.
 
+By default a message is a notify: context handed off with no reply expected, and the receiver
+does not feel it has to answer. Set mode to "request" when you need an answer — it carries a
+correlation id so a reply lines back up with this message, and the receiver is told to answer
+by calling send_peer_message. Use "request" for a bounded question you are blocked on, not for
+anything you could answer yourself or find in the files.
+
 `peers` only lists opencode-skein sessions that are actively working (it's a
 collision-awareness tool, and an idle session isn't a collision risk), so it will not show
 every valid opencode-skein target here — Claude Code peers it lists are always valid targets

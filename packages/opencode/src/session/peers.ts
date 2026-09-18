@@ -556,12 +556,20 @@ export type PeerReplyPath =
   /** The sender has no inbox this message can be answered to. */
   | { unreachable: true }
 
+export type PeerMessageMode = "notify" | "request"
+
 export interface PeerMessageSource {
   /** The sender's session id, or for a Claude Code peer its pid. */
   sessionID: string
   title: string
   /** Which harness sent this; defaults to opencode-skein. */
   harness?: PeerHarness
+  /**
+   * How the receiver should treat this message. `request` expects an answer and
+   * carries a reply target; `notify` is fire-and-forget context with no reply
+   * obligation. Omitted → treated as a notify, the pre-mode behaviour.
+   */
+  mode?: PeerMessageMode
   /** How (or whether) an answer can get back. Omitted → no guidance line is added. */
   reply?: PeerReplyPath
 }
@@ -585,8 +593,19 @@ export function formatPeerMessage(from: PeerMessageSource, text: string): string
   // and session id, which a Claude peer supplies through its envelope.
   const oneLine = (value: string) => value.replace(/[\r\n]+/g, " ")
   const harness = from.harness ?? "opencode-skein"
+  // The `reply` path already encodes the response contract: a `target` means an
+  // answer can get back, `unreachable` means it cannot, and neither means a
+  // reply is required. A `request` mode makes that an obligation — the receiver
+  // is told to answer; a `notify` carries no obligation, so it must not present
+  // a reply target as one. The pre-mode callers (and every inbound path that
+  // never set a mode) keep the reply lead, which is what they expect.
+  const request = from.mode === "request"
   const lead: string[] = []
-  if (from.reply && "target" in from.reply) {
+  // A reply lead renders for a request (an answer is required) or for a caller
+  // that never set a mode (the pre-mode contract). A notify with a target
+  // falls through to the neutral lead so the receiver does not feel it has to
+  // answer.
+  if (from.reply !== undefined && "target" in from.reply && (request || from.mode === undefined)) {
     lead.push(
       "Another agent session is asking you something. Deal with it in this turn: do the small",
       "thing it needs, then answer it by calling send_peer_message.",
@@ -594,7 +613,7 @@ export function formatPeerMessage(from: PeerMessageSource, text: string): string
       "do, pointing at files and commits rather than pasting them. Do not reply to a reply",
       "unless it asks something new, and never send follow-ups asking whether a peer is done.",
     )
-  } else if (from.reply && "unreachable" in from.reply) {
+  } else if (from.reply !== undefined && "unreachable" in from.reply) {
     lead.push(
       "Another agent session sent you this for your information. It has no inbox, so there is",
       "nowhere to reply — take it into account and carry on with what you were doing.",

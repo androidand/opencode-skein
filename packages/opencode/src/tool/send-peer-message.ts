@@ -4,6 +4,7 @@ import { Permission } from "@/permission"
 import { sendClaudeMessage } from "@/peer/claude/client"
 import { resolveClaudeTarget } from "@/peer/claude/resolve"
 import { settleTaskReply } from "@/peer/delegate"
+import { formatPeerEnvelope, newMessageID, peerBody, type PeerMode } from "@/peer/envelope"
 import { RepeatGuard } from "@/peer/repeat-guard"
 import {
   deliverToOpencodeSession,
@@ -20,15 +21,29 @@ import type { TaskPromptOps } from "./task"
 import DESCRIPTION from "./send-peer-message.txt"
 import * as Tool from "./tool"
 
-export const Parameters = Schema.Struct({
-  target: Schema.String.annotate({
-    description: "Session id, or an unambiguous prefix of the target session's title.",
-  }),
-  message: Schema.String.annotate({
-    description:
-      "The message text to deliver. Keep it short — point to files, commits, or specs rather than pasting large context.",
-  }),
+/**
+ * How the receiver should treat this message. `request` expects an answer and
+ * carries a correlation header so a reply lines up with it; `notify` is
+ * fire-and-forget context with no reply obligation. The default keeps anything
+ * that never set the parameter behaving exactly as before — a plain notify.
+ */
+export type PeerSendMode = "notify" | "request"
+
+const ModeParameter = Schema.optional(Schema.Literals(["notify", "request"])).annotate({
+  description:
+    'How the target should treat this message. "request" expects an answer and carries a correlation id so a reply lines up; "notify" is fire-and-forget. Defaults to "notify".',
 })
+
+export const Parameters = Schema.Struct({
+   target: Schema.String.annotate({
+     description: "Session id, or an unambiguous prefix of the target session's title.",
+   }),
+   message: Schema.String.annotate({
+     description:
+       "The message text to deliver. Keep it short — point to files, commits, or specs rather than pasting large context.",
+   }),
+   mode: ModeParameter,
+ })
 
 /** How many recent sessions machine-wide to consider for fuzzy matching. */
 const MachineRosterLimit = 200
@@ -44,6 +59,18 @@ const duplicateSends = new RepeatGuard(DuplicateSendWindowMs)
 const unresolvedTargets = new RepeatGuard(UnresolvedTargetWindowMs)
 
 const SESSION_ID_RE = /^ses_[A-Za-z0-9]+$/
+
+/**
+ * Resolves the caller's requested mode and, for a request, produces the
+ * correlation envelope the header carries. A notify (the default, and the
+ * value for anything sent before the parameter existed) carries no id and no
+ * reply expectation. The id is generated once here and reused as the transport
+ * frame's `msg_id` so the two never diverge.
+ */
+function resolveSendMode(mode: PeerSendMode | undefined): { mode: PeerSendMode; messageID: string | undefined } {
+  if (mode === "request") return { mode: "request", messageID: newMessageID() }
+  return { mode: "notify", messageID: undefined }
+}
 
 /** The fields the peer roster projection needs; `list` and `listGlobal` both supply them. */
 type RosterSession = {
@@ -69,10 +96,11 @@ interface ResultMetadata {
     | "unaddressable"
     | "duplicate"
   matches?: string[]
-  sessionID?: string
-  accepted?: boolean
-  harness?: "claude-code"
-}
+   sessionID?: string
+   accepted?: boolean
+   messageID?: string
+   harness?: "claude-code"
+ }
 
 export const SendPeerMessageTool = Tool.define(
   "send_peer_message",
@@ -87,7 +115,7 @@ export const SendPeerMessageTool = Tool.define(
       description: DESCRIPTION,
       parameters: Parameters,
       execute: (
-        params: { target: string; message: string },
+        params: { target: string; message: string; mode?: PeerSendMode },
         ctx: Tool.Context,
       ): Effect.Effect<Tool.ExecuteResult<ResultMetadata>> =>
         Effect.gen(function* () {
@@ -99,9 +127,23 @@ export const SendPeerMessageTool = Tool.define(
           // invariant checks in this codebase).
           if (!ops) return yield* Effect.die(new Error("send_peer_message requires promptOps in ctx.extra"))
 
-          const message = params.message.trim()
-          if (message === "")
-            return { title: "No message sent", metadata: {}, output: "Message text is empty — nothing sent." }
+           const message = params.message.trim()
+           if (message === "")
+             return { title: "No message sent", metadata: {}, output: "Message text is empty — nothing sent." }
+
+           // Mode drives everything below: a request carries a correlation
+           // header and returns its id so a reply can be traced back; a notify
+           // is the default and changes nothing about what is sent. The header
+           // rides inside the text because both transports reuse the plain
+           // message frame with no metadata slot, so a header that only survived
+           // one path would not be a header at all.
+           const { mode: sendMode, messageID } = resolveSendMode(params.mode)
+           const envelope = sendMode === "request" && messageID
+             ? { mode: sendMode as PeerMode, messageID }
+             : undefined
+           const deliveredText = envelope
+             ? formatPeerEnvelope(envelope, message)
+             : message
 
           // A peer can be working in any repo on this machine, and this tool
           // says so — but `session.list()` only ever returned the CALLER's
@@ -217,12 +259,12 @@ export const SendPeerMessageTool = Tool.define(
                 targetPid: claudeResolved.record.pid,
                 fromSessionID: ctx.sessionID,
                 fromAddress: returnAddress.address,
-                fromName: caller?.title ?? ctx.sessionID,
-                // A tool call only happens while the calling session is
-                // actively generating — "idle" was never true here.
-                fromMode: "prompting",
-                text: message,
-              }),
+                 fromName: caller?.title ?? ctx.sessionID,
+                 // A tool call only happens while the calling session is
+                 // actively generating — "idle" was never true here.
+                 fromMode: "prompting",
+                 text: deliveredText,
+               }),
             )
             if (!claudeResult.ok) {
               return {
@@ -231,9 +273,14 @@ export const SendPeerMessageTool = Tool.define(
                 output: `Not delivered to Claude Code session pid ${claudeResolved.record.pid}: ${claudeResult.reason}${claudeResult.detail ? ` (${claudeResult.detail})` : ""}.`,
               }
             }
-            return {
-              title: `Message sent to Claude Code session ${claudeResolved.record.pid}`,
-              metadata: { sessionID: claudeResolved.record.sessionId, accepted: true, harness: "claude-code" },
+             return {
+               title: `Message sent to Claude Code session ${claudeResolved.record.pid}`,
+               metadata: {
+                 sessionID: claudeResolved.record.sessionId,
+                 accepted: true,
+                 messageID,
+                 harness: "claude-code",
+               },
               output:
                 `Accepted for delivery to Claude Code session pid ${claudeResolved.record.pid} ` +
                 `("${claudeResolved.record.name ?? "unnamed"}"). Accepted means the frames reached its socket, not ` +
@@ -275,15 +322,19 @@ export const SendPeerMessageTool = Tool.define(
             }
           }
 
-          if (settleTaskReply(message)) {
-            return {
-              title: `Task result delivered to ${peer.title}`,
-              metadata: { sessionID: peer.sessionID, accepted: true },
-              output: `Delivered as the result of the task ${peer.title} delegated to you.`,
+           // settleTaskReply matches the older `[peer-task-result <id>]` marker
+           // anchored at the START of the text; once a request carries a header
+           // that anchor no longer matches and every delegated task would time
+            // out silently, so strip the header first. See peerBody's contract.
+            if (settleTaskReply(peerBody(message))) {
+              return {
+                title: `Task result delivered to ${peer.title}`,
+                metadata: { sessionID: peer.sessionID, accepted: true },
+                output: `Delivered as the result of the task ${peer.title} delegated to you.`,
+              }
             }
-          }
 
-          // The same text to the same peer twice in quick succession is a model
+           // The same text to the same peer twice in quick succession is a model
           // waiting for an answer that this tool never returns. Tell it that
           // rather than delivering the same message again.
           const repeats = duplicateSends.record(`${ctx.sessionID}|${peer.sessionID}|${message}`)
@@ -300,30 +351,35 @@ export const SendPeerMessageTool = Tool.define(
             }
           }
 
-          const text = formatPeerMessage(
-            { sessionID: ctx.sessionID, title: caller?.title ?? "(unknown session)", reply: { target: ctx.sessionID } },
-            message,
-          )
+           const text = formatPeerMessage(
+             {
+               sessionID: ctx.sessionID,
+               title: caller?.title ?? "(unknown session)",
+               mode: sendMode,
+               reply: { target: ctx.sessionID },
+             },
+             message,
+           )
 
           // A session this process owns is prompted here, fire-and-forget (its
           // turn is not this tool call's concern). A session another opencode
           // process owns is reached over that process's sidecar socket — the
           // only way its own TUI sees the message and runs the turn.
-          const outcome = yield* deliverToOpencodeSession({
-            targetSessionID: peer.sessionID,
-            fromSessionID: ctx.sessionID,
-            fromName: caller?.title ?? ctx.sessionID,
-            text: message,
-            owned: ownIDs.has(peer.sessionID),
-            local: () =>
-              ops
-                .prompt({
-                  sessionID: targetSessionID,
-                  agent: target?.agent ?? ctx.agent,
-                  parts: [{ type: "text", synthetic: true, text }],
-                })
-                .pipe(Effect.ignore, Effect.forkIn(scope, { startImmediately: true })),
-          })
+           const outcome = yield* deliverToOpencodeSession({
+             targetSessionID: peer.sessionID,
+             fromSessionID: ctx.sessionID,
+             fromName: caller?.title ?? ctx.sessionID,
+             text: deliveredText,
+             owned: ownIDs.has(peer.sessionID),
+             local: () =>
+               ops
+                 .prompt({
+                   sessionID: targetSessionID,
+                   agent: target?.agent ?? ctx.agent,
+                   parts: [{ type: "text", synthetic: true, text }],
+                 })
+                 .pipe(Effect.ignore, Effect.forkIn(scope, { startImmediately: true })),
+           })
           if (outcome.via === "unaddressable") {
             return {
               title: "Peer has no live address",
@@ -346,11 +402,11 @@ export const SendPeerMessageTool = Tool.define(
             }
           }
 
-          return {
-            title: `Message sent to ${peer.title}`,
-            metadata: { sessionID: peer.sessionID, accepted: true },
-            output:
-              `Accepted for delivery to peer session ${peer.sessionID} ("${peer.title}")` +
+           return {
+             title: `Message sent to ${peer.title}`,
+             metadata: { sessionID: peer.sessionID, accepted: true, messageID },
+             output:
+               `Accepted for delivery to peer session ${peer.sessionID} ("${peer.title}")` +
               `${outcome.via === "socket" ? " via its owner process" : ""}. ` +
               (peer.reachable
                 ? "A process is attending that session, so it picks the message up on its next turn."

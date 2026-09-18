@@ -361,6 +361,26 @@ describe("formatPeerMessage", () => {
     expect(text).not.toContain('target "')
     expect(text).not.toContain("nowhere to reply")
   })
+
+  test("a notify with a reply target does not make the receiver answer", () => {
+    const text = formatPeerMessage(
+      { sessionID: "ses_1", title: "t", mode: "notify", reply: { target: "ses_2" } },
+      "heads up",
+    )
+    expect(text).not.toContain('target "ses_2"')
+    expect(text).not.toContain("asking you something")
+    expect(text).toContain("Take it into account in what you do next")
+  })
+
+  test("a request with a reply target tells the receiver to answer", () => {
+    const text = formatPeerMessage(
+      { sessionID: "ses_1", title: "t", mode: "request", reply: { target: "ses_2" } },
+      "which branch has the fix?",
+    )
+    expect(text).toContain('target "ses_2"')
+    expect(text).toContain("asking you something")
+    expect(text).toContain("send_peer_message")
+  })
 })
 
 describe("describePeer", () => {
