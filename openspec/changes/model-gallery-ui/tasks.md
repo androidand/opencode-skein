@@ -346,5 +346,5 @@
       `store_id` in `/api/config/info` (llama-skein 986aad1); opencode prefers it over the
       hostname+models_dir heuristic
 - [ ] 11.7 Granular config edits from the UI (ttl, aliases, unlisted, cmd flags) via patchModelConfig
-- [ ] 11.8 Live: hide/delete/copy/move on the gpuhost4 ↔ second instance sharing `/Volumes/ExternalDrive/models/gguf`
+- [ ] 11.8 Live: hide/delete/copy/move on the gpuhost4 ↔ second instance sharing `/Volumes/models/gguf`
 
