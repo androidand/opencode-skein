@@ -5,7 +5,7 @@ import { ModelV2 } from "@opencode-ai/core/model"
 import type { MtpMetadata } from "@/local/llama-skein/gen/types.gen"
 import { withGlobalConfigLock } from "@/local/config-lock"
 import { addIgnored, removeIgnored } from "@/local/ignored"
-import { probeModelIDs, scanLlamaSwap } from "@/local/mdns"
+import { getPeerRegistrySnapshot, probeModelIDs } from "@/local/mdns"
 import { createClient, createConfig } from "@/local/llama-skein/gen/client"
 import { LlamaSkeinClient } from "@/local/llama-skein/gen/sdk.gen"
 import { capacitySnapshot, unreachableSnapshot } from "@/local/capacity"
@@ -113,9 +113,11 @@ export const localHandlers = HttpApiBuilder.group(InstanceHttpApi, "local", (han
         }
       }
 
-      const discovered = yield* Effect.promise<Awaited<ReturnType<typeof scanLlamaSwap>>>(() =>
-        scanLlamaSwap(1000, true),
-      )
+      // Reads the persistent peer registry (see local/mdns.ts) instead of running a
+      // fresh, blocking scanLlamaSwap() per request: a live discovery browser has
+      // been running since server startup, so this never waits on mDNS/LAN I/O and
+      // never permanently drops a host that merely answered a beat late.
+      const discovered = getPeerRegistrySnapshot()
 
       // Index mDNS/localhost results by normalised baseURL.
       const byURL = new Map<

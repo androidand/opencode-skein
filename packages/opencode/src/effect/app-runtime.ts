@@ -58,6 +58,7 @@ import { SessionProjector } from "@opencode-ai/core/session/projector"
 // fork: skein-only services joined to the upstream LayerNode graph.
 import { BeadsSync } from "@/beads/sync"
 import { LocalProviderSync } from "@/local/sync"
+import { PeerRegistry } from "@/local/peer-registry-node"
 import { AutoMode } from "@/auto-mode/service"
 import { Loop } from "@/loop/loop"
 import { SideQuestion } from "@/side-question"
@@ -93,6 +94,7 @@ export const AppLayer = AppNodeBuilderV1.build(
     ClaudeSidecarLifecycle.node,
     AutoMode.node,
     LocalProviderSync.node,
+    PeerRegistry.node,
     // fork: loop + side-question own HTTP routes and publish events; they must be
     // in the graph or their EventV2 definitions never reach the event union.
     Loop.node,

@@ -361,3 +361,173 @@ export async function scanLlamaSwap(
     }),
   )
 }
+
+// ---------------------------------------------------------------------------
+// Peer registry — a persistent, non-blocking alternative to scanLlamaSwap.
+//
+// scanLlamaSwap() opens a Bonjour browser, waits a fixed window, tears it
+// down, and returns whatever arrived — every call pays that window's latency
+// and permanently loses any host that answered a beat late. The registry
+// below opens ONE Bonjour browser for the server's lifetime and keeps an
+// in-memory map that mDNS "up"/"down" events update as they happen; reading
+// a snapshot is synchronous and never waits on network I/O. Local/LAN probing
+// (which scanLlamaSwap does per-call) is re-run on an interval instead, since
+// it isn't event-driven. Callers that want a live dashboard should read the
+// snapshot; scanLlamaSwap remains available for one-shot CLI use.
+// ---------------------------------------------------------------------------
+
+export type PeerRegistryEntry = LocalLlamaSwapService & {
+  models: string[]
+  defaultModel: string | null
+  online: boolean
+  mtpMetadata: Record<string, MtpMetadata | undefined>
+  lastSeenAt: number
+  stale: boolean
+}
+
+// A peer that hasn't been re-confirmed within this window is marked `stale`
+// (kept in the snapshot, not dropped — a missed mDNS re-announce or a probe
+// that timed out once is not the same as "gone"). Mirrors the same
+// probedAt/ageMs/stale shape `capacity.ts`'s CapacitySnapshot already uses.
+export const REGISTRY_STALE_MS = 30_000
+const REGISTRY_MODEL_REFRESH_MS = 15_000
+const REGISTRY_LAN_RESCAN_MS = 30_000
+
+interface RegistryPeerState {
+  service: LocalLlamaSwapService
+  models: string[]
+  defaultModel: string | null
+  online: boolean
+  mtpMetadata: Record<string, MtpMetadata | undefined>
+  lastSeenAt: number
+}
+
+interface RegistryState {
+  bonjour: InstanceType<typeof Bonjour>
+  browsers: ReturnType<InstanceType<typeof Bonjour>["find"]>[]
+  peers: Map<string, RegistryPeerState>
+  modelRefreshTimer: ReturnType<typeof setInterval>
+  lanRescanTimer: ReturnType<typeof setInterval>
+}
+
+let registry: RegistryState | null = null
+
+function upsertPeer(peers: Map<string, RegistryPeerState>, service: LocalLlamaSwapService, now: number): void {
+  const existing = peers.get(service.baseURL)
+  peers.set(service.baseURL, {
+    service,
+    models: existing?.models ?? [],
+    defaultModel: existing?.defaultModel ?? null,
+    online: existing?.online ?? true,
+    mtpMetadata: existing?.mtpMetadata ?? {},
+    lastSeenAt: now,
+  })
+}
+
+async function refreshLocalAndLAN(peers: Map<string, RegistryPeerState>): Promise<void> {
+  const now = Date.now()
+  const [localHits, lanHits] = await Promise.all([
+    probeLocalhost(),
+    withTimeout(probeLAN(), LAN_SCAN_BUDGET_MS, []),
+  ])
+  for (const hit of [...localHits, ...lanHits]) {
+    // Never let a local/LAN hit clobber an mDNS-sourced entry for the same peer
+    // — mDNS carries the machine's own advertised identity and is authoritative.
+    const existing = peers.get(hit.baseURL)
+    if (existing?.service.source === "mdns") {
+      peers.set(hit.baseURL, { ...existing, lastSeenAt: now })
+      continue
+    }
+    upsertPeer(peers, hit, now)
+  }
+}
+
+async function refreshModels(peers: Map<string, RegistryPeerState>): Promise<void> {
+  await Promise.all(
+    Array.from(peers.entries()).map(async ([baseURL, state]) => {
+      const probe = await probeModelIDs(baseURL)
+      const current = peers.get(baseURL)
+      if (!current) return // removed mid-refresh
+      peers.set(baseURL, {
+        ...current,
+        models: probe?.ids ?? state.models,
+        defaultModel: probe?.defaultModel ?? state.defaultModel,
+        online: probe !== null,
+        mtpMetadata: probe?.mtpMetadata ?? state.mtpMetadata,
+      })
+    }),
+  )
+}
+
+/**
+ * Starts the persistent peer registry (idempotent — a second call is a
+ * no-op). Safe to call from server startup; failures (e.g. mDNS sockets
+ * unavailable in a sandbox) are swallowed the same way scanLlamaSwap already
+ * tolerates them — the registry just stays empty rather than crashing.
+ */
+export function startPeerRegistry(): void {
+  if (registry) return
+  const peers = new Map<string, RegistryPeerState>()
+  let bonjour: InstanceType<typeof Bonjour>
+  try {
+    bonjour = new Bonjour()
+  } catch {
+    return
+  }
+  const browsers = LLAMA_SWAP_SERVICE_TYPES.map((type) => bonjour.find({ type, protocol: "tcp" }))
+  for (const browser of browsers) {
+    browser.on("up", (svc) => {
+      const host = pickServiceHost(svc)
+      if (!host) return
+      const baseURL = `http://${host}:${svc.port}/v1`
+      const name = normalizeHostname((svc.txt as Record<string, string> | undefined)?.host ?? svc.name)
+      upsertPeer(peers, { name, host, port: svc.port, baseURL, source: "mdns" }, Date.now())
+    })
+    // bonjour-service emits "down" on goodbye packets / TTL expiry. Not in its
+    // .d.ts (untyped EventEmitter), but present at runtime.
+    browser.on("down", (svc: { addresses?: string[]; referer?: { address?: string }; port?: number }) => {
+      const host = pickServiceHost(svc)
+      if (!host || svc.port === undefined) return
+      const baseURL = `http://${host}:${svc.port}/v1`
+      peers.delete(baseURL)
+    })
+  }
+
+  void refreshLocalAndLAN(peers)
+  const lanRescanTimer = setInterval(() => void refreshLocalAndLAN(peers), REGISTRY_LAN_RESCAN_MS)
+  const modelRefreshTimer = setInterval(() => void refreshModels(peers), REGISTRY_MODEL_REFRESH_MS)
+
+  registry = { bonjour, browsers, peers, modelRefreshTimer, lanRescanTimer }
+}
+
+/** Stops the registry and releases its sockets/timers. Mainly for tests. */
+export function stopPeerRegistry(): void {
+  if (!registry) return
+  clearInterval(registry.modelRefreshTimer)
+  clearInterval(registry.lanRescanTimer)
+  try {
+    for (const browser of registry.browsers) browser.stop()
+    registry.bonjour.destroy()
+  } catch {
+    // ignore cleanup errors
+  }
+  registry = null
+}
+
+/**
+ * Reads the current known peers synchronously — never waits on network I/O.
+ * Returns `[]` (not an error) if the registry hasn't been started yet, so a
+ * handler can call this safely even before `startPeerRegistry()` runs.
+ */
+export function getPeerRegistrySnapshot(now: number = Date.now()): PeerRegistryEntry[] {
+  if (!registry) return []
+  return Array.from(registry.peers.values()).map((state) => ({
+    ...state.service,
+    models: state.models,
+    defaultModel: state.defaultModel,
+    online: state.online,
+    mtpMetadata: state.mtpMetadata,
+    lastSeenAt: state.lastSeenAt,
+    stale: now - state.lastSeenAt > REGISTRY_STALE_MS,
+  }))
+}
