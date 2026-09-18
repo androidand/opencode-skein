@@ -20,7 +20,7 @@
   "mcp": {
     "skein": {
       "type": "local",
-      "command": ["~/bin/skein", "mcp", "serve"],
+      "command": ["skein", "mcp", "serve"],
       "enabled": true,
     },
   },

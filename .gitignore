@@ -1,4 +1,6 @@
 .DS_Store
+*.log
+graphify-out/
 node_modules
 .worktrees
 .sst
