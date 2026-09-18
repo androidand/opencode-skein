@@ -346,5 +346,7 @@
       `store_id` in `/api/config/info` (llama-skein 986aad1); opencode prefers it over the
       hostname+models_dir heuristic
 - [ ] 11.7 Granular config edits from the UI (ttl, aliases, unlisted, cmd flags) via patchModelConfig
-- [ ] 11.8 Live: hide/delete/copy/move on the gpuhost4 ↔ second instance sharing `/Volumes/models/gguf`
+- [x] 11.8 Live 2026-09-18: copy gpuhost1 → gpuhost5 of a pre-provenance 9.8 GB model via `gallery.copy` succeeded
+      (host-to-host, 95 s). Still to exercise: hide/delete and the registration-only copy on the gpuhost4 pair
+      sharing one store.
 
