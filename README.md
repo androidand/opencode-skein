@@ -7,12 +7,56 @@
     </picture>
   </a>
 </p>
-<p align="center">The open source AI coding agent.</p>
+<p align="center"><b>opencode-skein</b> — opencode, tuned for people who run their own models.</p>
 <p align="center">
-  <a href="https://opencode.ai/discord"><img alt="Discord" src="https://img.shields.io/discord/1391832426048651334?style=flat-square&label=discord" /></a>
-  <a href="https://www.npmjs.com/package/opencode-ai"><img alt="npm" src="https://img.shields.io/npm/v/opencode-ai?style=flat-square" /></a>
-  <a href="https://github.com/anomalyco/opencode/actions/workflows/publish.yml"><img alt="Build status" src="https://img.shields.io/github/actions/workflow/status/anomalyco/opencode/publish.yml?style=flat-square&branch=dev" /></a>
+  <a href="https://github.com/androidand/opencode-skein/releases"><img alt="Releases" src="https://img.shields.io/github/v/release/androidand/opencode-skein?style=flat-square" /></a>
+  <a href="https://github.com/androidand/opencode-skein/actions/workflows/skein-release.yml"><img alt="Build status" src="https://img.shields.io/github/actions/workflow/status/androidand/opencode-skein/skein-release.yml?style=flat-square&label=skein-release" /></a>
 </p>
+
+> **This is a fork.** It tracks upstream [opencode](https://github.com/anomalyco/opencode) (the original
+> "open source AI coding agent" — its README, translations, and most of the docs below are unmodified
+> upstream content) but adds first-class support for a homelab full of local, GPU-hosted models. See
+> [CHANGELOG.md](./CHANGELOG.md) and `skein.json` for exactly what's fork-specific.
+
+## Why this fork exists
+
+You want to run models from OpenRouter and local open-weight models on your own GPUs in your
+homelab, but you also want Claude Code — and Anthropic won't let you route their subscription
+through a third-party harness. You still want your agents to collaborate, and you're tired of
+both harnesses OOM-ing your GPUs independently because neither one knows the other exists.
+
+**opencode-skein** + **[llama-skein](https://github.com/androidand/llama-skein)** let your agents
+share a fleet:
+
+- **llama-skein** is the backend: a `llama.cpp`/`llama-swap`-based server that runs on your GPU
+  boxes, reports real VRAM/KV-cache capacity, and arbitrates who gets to load what.
+- **opencode-skein** (this repo) is the opencode side of that pairing — it finds your llama-skein
+  hosts on the LAN via mDNS, shows exactly what fits in VRAM before you try to load it, tracks
+  provider capacity/slot leases so concurrent agents don't double-book a host, and keeps long
+  unattended agent sessions (`/loop`) running instead of quietly wedging.
+- Claude Code talks to the same fleet independently (it can't be routed through opencode), but
+  because llama-skein is the shared source of truth for what's loaded and what's free, both
+  harnesses can coexist on the same GPUs without stepping on each other.
+
+If you don't run local models, plain upstream [opencode](https://github.com/anomalyco/opencode)
+is almost certainly what you want instead — this fork's value is entirely in the local-fleet
+layer.
+
+## Getting started
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/androidand/opencode-skein/dev/install | bash
+```
+
+This installs the latest `opencode-skein` GitHub Release. The [Installation](#installation)
+section below is unmodified upstream content: its `brew`/`npm`/`scoop`/`choco`/`nix`/`pacman`
+entries install *upstream* opencode, not this fork. Curl (above) is currently the only release
+channel for opencode-skein itself — see [CHANGELOG.md](./CHANGELOG.md) for what's shipped and
+`.github/workflows/skein-release.yml` for how releases are cut.
+
+Once installed, run `opencode` in a project directory, then `/connect` to find llama-skein hosts
+on your LAN automatically, or add one manually. From there it behaves like upstream opencode —
+see [Agents](#agents) and the [upstream docs](https://opencode.ai/docs) below for day-to-day use.
 
 <p align="center">
   <a href="README.md">English</a> |
