@@ -49,6 +49,7 @@ import { DialogAgent } from "./component/dialog-agent"
 import { DialogSessionList } from "./component/dialog-session-list"
 import { DialogLoopList } from "./component/dialog-loop-list"
 import { DialogTuning } from "./component/dialog-tuning"
+import { DialogGalleryOperations, DialogModelBrowse } from "./component/dialog-gallery"
 import { DialogWorkspaceList } from "./component/dialog-workspace-list"
 import { DialogConsoleOrg } from "./component/dialog-console-org"
 import { ThemeProvider, useTheme } from "./context/theme"
@@ -665,6 +666,26 @@ function App(props: { onSnapshot?: () => Promise<string[]>; pluginHost: TuiPlugi
         slashName: "loop",
         run: () => {
           dialog.replace(() => <DialogLoopList />)
+        },
+      },
+      {
+        name: "model.browse",
+        title: "Browse models",
+        category: "Local",
+        slashName: "browse",
+        slashAliases: ["gallery"],
+        run: () => {
+          dialog.replace(() => <DialogModelBrowse />)
+        },
+      },
+      {
+        name: "model.operations",
+        title: "Model downloads & operations",
+        category: "Local",
+        slashName: "downloads",
+        slashAliases: ["operations"],
+        run: () => {
+          dialog.replace(() => <DialogGalleryOperations />)
         },
       },
       {
