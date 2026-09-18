@@ -7,7 +7,7 @@ Provider reservations are per-process and invisible to everyone else.
 `placement.ts` holds reservations in memory with a TTL so that concurrent picks *within
 one process* don't double-book a host. On 2026-07-25 four opencode processes were running
 on this machine simultaneously. Each had its own reservation map. Nothing stopped two of
-them from both observing gpuhost2 as idle — which it was, `in_flight: 0, slots_total: 1` — and
+them from both observing gpu-host-2 as idle — which it was, `in_flight: 0, slots_total: 1` — and
 both dispatching a subagent onto its single slot. The second request queues behind the
 first, which is exactly the outcome placement exists to avoid.
 
@@ -17,7 +17,7 @@ nobody else can hear you say so.
 
 **A correction worth stating plainly.** The shared SQLite file is tempting as the
 coordination point — every instance on this machine has the same inode open and SQLite
-gives real cross-process ACID. But it is a *local file*. gpuhost5 also runs opencode-skein and
+gives real cross-process ACID. But it is a *local file*. gpu-host-5 also runs opencode-skein and
 does not share it. So the shared database solves same-host contention completely and
 cross-host contention not at all. Any design that treats it as the fleet-wide answer is
 wrong.

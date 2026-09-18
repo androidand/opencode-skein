@@ -45,10 +45,10 @@
        hand-copied error string — is the actual root cause and MUST NOT recur.
   - Partial: added `LLAMA_SKEIN_PROMPT_OVERFLOW_TYPE`/`_CODE`/`_MAX_SAFE_CTX_HEADER` as single-sourced constants in `provider.ts` with comments citing the exact llama-skein source lines, so opencode-skein itself no longer has the string duplicated. Did NOT build the cross-repo CI drift guard (would need llama-skein's OpenAPI spec vendored or fetched into this repo's test/CI — real infra work, out of scope for a bug fix). Follow-up.
 
-- [ ] 8. Verify live against `gpuhost3` / `qwopus3.6-27b-v2-mtp-q8-0`: a Build
+- [ ] 8. Verify live against `gpu-host-3` / `qwopus3.6-27b-v2-mtp-q8-0`: a Build
        session that crosses 74711 tokens compacts and continues instead of
        wedging. Capture before/after in the change notes.
-  - Not done — no access to the `gpuhost3` host from this environment. Needs manual verification.
+  - Not done — no access to the `gpu-host-3` host from this environment. Needs manual verification.
 
 - [x] 9. `bun run typecheck` green in `opencode` and `tui`; `bun test` green for
        the provider package.

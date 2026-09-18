@@ -90,7 +90,7 @@
 - [x] 5.2 End-to-end: a real loop reaches `completed`
   - Run `opencode loop "<prompt>" --max 3` against a local provider
   - Validation: loop ends with status `completed`, not `max_reached`
-  - Verified 2026-08-05 against gpuhost2/qwen3.6-35b-a3b-q8-0 via a server on :2601:
+  - Verified 2026-08-05 against gpu-host-2/qwen3.6-35b-a3b-q8-0 via a server on :2601:
     `loop_fcf519f41001X0ZZxzJPZJ0rvw` reached **completed** (token emitted on
     iteration 3). Two findings from the live run, both fixed/confirmed:
     (a) `opencode loop "<prompt>"` and `opencode loop list` were BROKEN at HEAD —

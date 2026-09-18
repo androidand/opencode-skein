@@ -193,7 +193,7 @@ display, report printing done (`--sync` remains). Remaining: 4.2 adversarial rev
 - [x] 7.4 Real unattended run against this repo's own backlog
   - Target `retire-auto-reply` (smallest, self-contained) as the single queued change
   - Validation: run completes or halts with a legible report; no push occurred; `dev` untouched
-  - Run 1 (2026-08-05, isolated git worktree, gpuhost2/qwen3.6-35b-a3b-q8-0): the agent
+  - Run 1 (2026-08-05, isolated git worktree, gpu-host-2/qwen3.6-35b-a3b-q8-0): the agent
     really did the work unattended — deleted `auto-reply/auto-reply.ts`,
     `automation/automation-features.ts`, `cli/cmd/auto-reply.ts`,
     `cli/cmd/pattern-detection.ts`, updated `fork/commands.ts`, CHANGELOG and

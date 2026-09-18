@@ -31,7 +31,7 @@ solved by reading the right field. Mutual exclusion must not use pub/sub at all.
 ## What this must not become
 
 **A bus is not a claim registry.** MQTT is at-least-once broadcast with no atomic
-compare-and-set. Two nodes publishing `claim gpuhost2` in the same millisecond both believe they
+compare-and-set. Two nodes publishing `claim gpu-host-2` in the same millisecond both believe they
 won. Claims belong in `provider-slot-leases`, which is built on stores that can actually
 say no.
 
@@ -49,7 +49,7 @@ they have an arbiter. Map-reduce over independent workers, adversarial verificat
 judge panels — all of these constrain what may be exchanged and who decides.
 
 So the bus carries **structured, verifiable facts with a stated source**: "session X is
-stalled", "I hold lease L on gpuhost2 until T", "test suite S failed, exit 1, output attached".
+stalled", "I hold lease L on gpu-host-2 until T", "test suite S failed, exit 1, output attached".
 It does not carry "I think we should refactor the parser". A node may publish what it
 observed and what it has claimed. It may not publish what it believes.
 
@@ -100,7 +100,7 @@ constraint, not a convention — an unrecognised type is dropped.
 
 ## Infrastructure
 
-A broker already exists: **`hlab-mosquitto`, LXC on gpuhost3, `192.0.2.131:1883`**,
+A broker already exists: **`hlab-mosquitto`, LXC on gpu-host-3, `192.0.2.131:1883`**,
 verified reachable 2026-07-26. This removes the main argument against — there is nothing
 to deploy, and it is already part of a homelab that is monitored and restarted like
 everything else there.

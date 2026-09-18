@@ -55,7 +55,7 @@ placement: local          # a local host, even when the parent is a cloud model
 | --- | --- |
 | absent / `inherit` | today's behaviour exactly — placement only from a local parent |
 | `local` | any eligible local host, even from a cloud parent |
-| `[gpuhost1, gpuhost4]` | those hosts in order, then any eligible local host |
+| `[gpu-host-1, gpu-host-4]` | those hosts in order, then any eligible local host |
 
 Declaring it is the authorization the guard was missing. An agent that says nothing keeps
 today's behaviour, so no existing setup changes and nothing is ever downgraded silently.

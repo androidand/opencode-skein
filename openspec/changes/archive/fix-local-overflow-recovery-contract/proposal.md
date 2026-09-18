@@ -3,8 +3,8 @@
 ## Why
 
 The 413 auto-recovery for local llama-skein providers has **never executed**.
-Diagnosed live on `gpuhost3` / `qwopus3.6-27b-v2-mtp-q8-0` (2026-07-27) after the
-model repeatedly appeared "stuck" in a Build session while `gpuhost2` was unaffected.
+Diagnosed live on `gpu-host-3` / `qwopus3.6-27b-v2-mtp-q8-0` (2026-07-27) after the
+model repeatedly appeared "stuck" in a Build session while `gpu-host-2` was unaffected.
 
 1. **The handler gates on the wrong error type for this failure mode.**
    `adjustLocalContextOnOverflow` (`packages/opencode/src/provider/provider.ts:1379`)
@@ -48,8 +48,8 @@ model repeatedly appeared "stuck" in a Build session while `gpuhost2` was unaffe
    never trims, and every request 413s with recovery dead. This is why the
    symptom is intermittent ("stuck *again*") and why restarting clears it.
 
-`gpuhost2` is unaffected only because its gap is proportionally small and rarely
-reached (`max_safe_ctx 237076` vs reported `262144`); `gpuhost3` sits at
+`gpu-host-2` is unaffected only because its gap is proportionally small and rarely
+reached (`max_safe_ctx 237076` vs reported `262144`); `gpu-host-3` sits at
 `74711` vs `90112`, which a Build session crosses routinely.
 
 ## What
@@ -81,7 +81,7 @@ reached (`max_safe_ctx 237076` vs reported `262144`); `gpuhost3` sits at
   (companion change `report-achievable-ctx-for-configured-models`).
 - No re-litigation of the display denominator
   (`ctx-display-and-overflow-correctness` owns that and is complete).
-- Capacity remediation for the gpuhost3 host (lowering `--ctx-size` to ~74k or
+- Capacity remediation for the gpu-host-3 host (lowering `--ctx-size` to ~74k or
   relocating the model) is an ops action tracked separately, not a code change.
 
 ## Impact

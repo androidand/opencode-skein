@@ -3,7 +3,7 @@
 ## Why
 
 Picking a local model is a four-step search when it should be one or two. The
-reported workflow is: open `/models`, type a provider name (`gpuhost1`, `gpuhost2`),
+reported workflow is: open `/models`, type a provider name (`gpu-host-1`, `gpu-host-2`),
 squint at interleaved results, then find the model. Four separate defects make
 that necessary, and each one is small.
 
@@ -15,8 +15,8 @@ choosing a model).
 **1. A provider-name query does not mean "show me this provider".** The query
 runs through `fuzzysort.go(needle, options, { keys: ["title", "category"] })`
 (`dialog-model.tsx:174`) where `category` is the provider. A match on the
-provider name scores as one result among many, so typing `gpuhost1` interleaves
-gpuhost1's models with any model whose *own* name fuzzy-matches those letters,
+provider name scores as one result among many, so typing `gpu-host-1` interleaves
+gpu-host-1's models with any model whose *own* name fuzzy-matches those letters,
 across every provider. The intent — "I have chosen the host, now show me what
 it has" — is expressible and is not expressed.
 
@@ -36,10 +36,10 @@ contract and rides on each model.
 
 **4. The metadata line pairs the wrong things.** Today the size is a `footer`
 (`"19G"`) while the provider label is `provenance` = `` `${name} · ${label}` ``
-(`dialog-model.tsx:59-62`), rendering as `gpuhost1 · 20/24 GB` somewhere else on
+(`dialog-model.tsx:59-62`), rendering as `gpu-host-1 · 20/24 GB` somewhere else on
 the row. So model size and host VRAM — the two numbers a reader compares to
 answer *will this fit* — are separated, while VRAM is glued to a hostname it
-has no arithmetic relationship with. `19G/24GB gpuhost1` puts the comparison in
+has no arithmetic relationship with. `19G/24GB gpu-host-1` puts the comparison in
 one token and leaves the hostname as the label it is.
 
 ## What Changes
@@ -57,7 +57,7 @@ one token and leaves the hostname as the label it is.
   remains the default for providers without size data — a cloud catalogue
   sorted by weight file is nonsense.
 - **`size/vram host` on one line.** The size and the host's VRAM render
-  together (`19G/24GB gpuhost1`), so the fit comparison is one glance. VRAM is
+  together (`19G/24GB gpu-host-1`), so the fit comparison is one glance. VRAM is
   omitted rather than faked when the host does not report it.
 
 ## Capabilities
@@ -85,11 +85,11 @@ one token and leaves the hostname as the label it is.
 
 - **What counts as an unambiguous provider match?** Exact, case-insensitive
   equality on the provider name is the safe bar. Prefix matching is friendlier
-  (`roc` → gpuhost1) but two providers sharing a prefix would silently scope to
+  (`gpu-h` → gpu-host-1) but two providers sharing a prefix would silently scope to
   one. Leaning exact-or-unique-prefix, with the scope shown so it is never a
   silent filter.
-- **Should provider scope be escapable?** If typing `gpuhost1` scopes to gpuhost1, a
-  user wanting a model literally named "gpuhost1" on another host has no way
+- **Should provider scope be escapable?** If typing `gpu-host-1` scopes to gpu-host-1, a
+  user wanting a model literally named "gpu-host-1" on another host has no way
   through. An explicit escape, or scoping only when the match is also not a
   model-name match, needs deciding.
 - **Does default-model selection need confirmation?** Resolving a provider row

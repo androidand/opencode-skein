@@ -4,7 +4,7 @@
 
 A wedged session cannot be stopped by any means the UI offers. Observed on
 2026-07-25: session `ses_0691e2d30ffe1mwU1XPH5gr2mQ` (PID 5448, `opencode -s <id>`)
-sat blocked for 18h48m. The provider (`gpuhost2`, `qwen3.6-35b-a3b-q8-0`) reported
+sat blocked for 18h48m. The provider (`gpu-host-2`, `qwen3.6-35b-a3b-q8-0`) reported
 `in_flight: 0, is_processing: false` — it had finished and moved on — while the client
 held an ESTABLISHED socket, reading a stream that would never deliver another byte.
 Esc did nothing. The log shows 30 `cancel` calls inside 30 milliseconds, then two hours

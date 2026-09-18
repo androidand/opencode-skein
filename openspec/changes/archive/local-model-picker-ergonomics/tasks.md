@@ -6,12 +6,12 @@ These change the design, not the implementation, so answer them before writing c
 
 - [ ] 1.1 Decide the provider-match rule (exact / unique-prefix / other) and how the
       active scope is shown, so it is never a silent filter. Check the real provider
-      names in use — `gpuhost1`, `gpuhost2`, `gpuhost4`, `gpuhost5`, `gpuhost3` — for prefix collisions.
+      names in use — `gpu-host-1`, `gpu-host-2`, `gpu-host-4`, `gpu-host-5`, `gpu-host-3` — for prefix collisions.
       Validation: rule written down with the collision cases it rejects.
 - [ ] 1.2 Decide whether provider scope is escapable, and how, for the case of a model
       whose own name matches a provider name.
-      Validation: a stated behaviour for query `gpuhost1` when another provider hosts a
-      model called `gpuhost1-*`.
+      Validation: a stated behaviour for query `gpu-host-1` when another provider hosts a
+      model called `gpu-host-1-*`.
 - [ ] 1.3 Decide whether resolving a provider to its default model announces the model
       it chose. Leaning yes — a hidden indirection is worse than one extra line.
 - [ ] 1.4 Decide whether size ordering applies within a provider group only.
@@ -24,7 +24,7 @@ These change the design, not the implementation, so answer them before writing c
       `dialog-model.tsx:174`, and when it fires, list that provider's models
       unranked-against-others instead of merging into the global result set.
 - [ ] 2.2 Further typing narrows within the scope rather than re-running the global
-      search. Validation: `gpuhost1` then ` q5` reaches the Q5 model without leaving scope.
+      search. Validation: `gpu-host-1` then ` q5` reaches the Q5 model without leaving scope.
 - [ ] 2.3 The active scope is visible and dismissable per 1.1/1.2.
       Validation: a test asserting the scope indicator appears for a provider query.
 
@@ -32,7 +32,7 @@ These change the design, not the implementation, so answer them before writing c
 
 - [ ] 3.1 Read `default` from the model list (already in the generated types) and
       resolve a provider selection to that model.
-      Validation: with a default set on gpuhost1, selecting gpuhost1 loads it without a
+      Validation: with a default set on gpu-host-1, selecting gpu-host-1 loads it without a
       second keystroke.
 - [ ] 3.2 A provider with no default expands to its model list — today's behaviour,
       unchanged. Validation: test covers both branches.
@@ -45,7 +45,7 @@ These change the design, not the implementation, so answer them before writing c
 
 - [ ] 4.1 Sort by `size_bytes` descending where the provider reports it; fall back to
       the existing `sortModelOptions` behaviour where it does not.
-      Validation: gpuhost1's list leads with the largest GGUF; a cloud provider's list is
+      Validation: gpu-host-1's list leads with the largest GGUF; a cloud provider's list is
       unchanged.
 - [ ] 4.2 Keep alphabetical reachable. Whether that is a toggle or the fallback is a
       1.4 outcome. Validation: both orders demonstrated.
@@ -53,10 +53,10 @@ These change the design, not the implementation, so answer them before writing c
 ## 5. Row label
 
 - [ ] 5.1 Render size and VRAM together as `19G/24GB`, with the hostname as the label
-      (`19G/24GB gpuhost1`). Replaces the split between `footer` (size) and `provenance`
+      (`19G/24GB gpu-host-1`). Replaces the split between `footer` (size) and `provenance`
       (`${name} · ${vram}`) at `dialog-model.tsx:59-62,92`.
 - [ ] 5.2 Omit the VRAM half rather than substituting a placeholder when the host does
-      not report it. Validation: a provider with no VRAM reading renders `19G gpuhost1`.
+      not report it. Validation: a provider with no VRAM reading renders `19G gpu-host-1`.
 - [ ] 5.3 Check the row still fits a narrow terminal; the combined token is longer than
       either half was. Validation: rendered at 80 columns.
 
@@ -71,7 +71,7 @@ These change the design, not the implementation, so answer them before writing c
 
 - [ ] 7.1 `bun run typecheck` in `packages/tui` — no new errors. Note the repo does not
       typecheck clean today; compare against a baseline rather than expecting zero.
-- [ ] 7.2 Exercise against a live provider: scope to gpuhost1, confirm size ordering
+- [ ] 7.2 Exercise against a live provider: scope to gpu-host-1, confirm size ordering
       matches `skein models list`, confirm the default resolves.
 - [ ] 7.3 Confirm nothing changed for a cloud provider — ordering, labels, and search
       behaviour identical to before.

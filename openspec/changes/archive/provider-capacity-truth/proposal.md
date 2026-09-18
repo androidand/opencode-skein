@@ -8,17 +8,17 @@ Measured on 2026-07-26, the same instant, across three hosts:
 
 | host | `gpu_util_pct` | `inference` | verdict |
 |---|---|---|---|
-| **gpuhost2** | **85%** | `{busy: false, in_flight: 0, slots_total: 1}` | **idle and free** |
-| gpuhost1 | 99% | `{busy: true, in_flight: 1, slots_total: 1}` | genuinely serving |
-| gpuhost3 | 3% | `{busy: false, in_flight: 0, slots_total: 1}` | idle |
+| **gpu-host-2** | **85%** | `{busy: false, in_flight: 0, slots_total: 1}` | **idle and free** |
+| gpu-host-1 | 99% | `{busy: true, in_flight: 1, slots_total: 1}` | genuinely serving |
+| gpu-host-3 | 3% | `{busy: false, in_flight: 0, slots_total: 1}` | idle |
 
 skein's `get_providers_status` reports `gpu_util_pct` and does not expose the `inference`
-block at all. So gpuhost2 — a 48 GB host with the requested model already resident and zero
-requests in flight — reads as 85% busy and gets skipped. gpuhost1's 99% happens to agree
+block at all. So gpu-host-2 — a 48 GB host with the requested model already resident and zero
+requests in flight — reads as 85% busy and gets skipped. gpu-host-1's 99% happens to agree
 with reality, which is what makes the bug hard to notice: the proxy is right often enough
 to look sound.
 
-The cause is that GPU utilisation is not a queue-depth signal. On gpuhost2's AMD W7800 the
+The cause is that GPU utilisation is not a queue-depth signal. On gpu-host-2's AMD W7800 the
 model is pinned at `ttl 0` and never unloads, so a resident-but-idle model reads high.
 Utilisation measures whether the silicon is doing something; it cannot distinguish "busy
 serving a request" from "holding weights". Only the server knows its own queue.

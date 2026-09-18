@@ -11,7 +11,7 @@
   - `signal` is `exact` when the host serves an `inference` block, else `inferred`
   - Validation: unit test with fixtures for exact, inferred, and unreachable hosts
 
-- [x] 1.3 Assert the gpuhost2 case explicitly — it is the regression that motivates this change
+- [x] 1.3 Assert the gpu-host-2 case explicitly — it is the regression that motivates this change
   - Fixture: `gpu_util_pct: 85` with `inference: {busy: false, in_flight: 0, slots_total: 1}`
   - Assert: one free slot, `busy: false`, `signal: "exact"`
   - Validation: test fails if GPU utilisation is ever allowed to override queue depth
@@ -36,8 +36,8 @@
 ## Phase 3: Verification
 
 - [ ] 3.1 Live fleet check against the real hosts
-  - Probe gpuhost4, gpuhost5, gpuhost3, gpuhost1, gpuhost2; compare each snapshot against that host's raw `/api/hardware`
-  - Assert gpuhost2 reports free while its GPU utilisation is high
+  - Probe gpu-host-4, gpu-host-5, gpu-host-3, gpu-host-1, gpu-host-2; compare each snapshot against that host's raw `/api/hardware`
+  - Assert gpu-host-2 reports free while its GPU utilisation is high
   - Validation: recorded output shows exact/inferred labelling per host and no idle host reported busy
 
 - [ ] 3.2 Full typecheck and test

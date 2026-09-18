@@ -6,8 +6,8 @@ Nothing watches the Agents. The system has good provider telemetry and zero clie
 telemetry, and the gap is not theoretical — it cost 18 hours on 2026-07-25.
 
 Session `ses_0691e2d30ffe1mwU1XPH5gr2mQ` sat wedged for 18h48m on a half-open socket.
-Throughout, every health signal was green: gpuhost2 reported `in_flight: 0, busy: false`
-because gpuhost2 _was_ fine — it had finished and moved on. The provider was healthy; the
+Throughout, every health signal was green: gpu-host-2 reported `in_flight: 0, busy: false`
+because gpu-host-2 _was_ fine — it had finished and moved on. The provider was healthy; the
 client was dead. skein's `get_providers_status` polls providers, so it could not have
 caught this, and did not.
 
