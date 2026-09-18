@@ -55,8 +55,12 @@ export const Definitions = {
   app_toggle_paste_summary: keybind("none", "Toggle paste summary"),
   app_toggle_session_directory_filter: keybind("none", "Toggle session directory filtering"),
   // fork: same binding this command had before ae9cc413d1 deleted it as
-  // collateral damage — see app.tsx's permission.mode command.
-  permission_mode: keybind("<leader>p", "Toggle permission auto-approve"),
+  // collateral damage — see app.tsx's permission.mode command. shift+tab
+  // added alongside it: with only a couple of built-in agents, cycling
+  // forward vs. backward through them was barely distinguishable, so
+  // shift+tab is freed from agent_cycle_reverse (below) and given a job of
+  // its own here instead of overloading Tab's meaning.
+  permission_mode: keybind("shift+tab,<leader>p", "Toggle permission auto-approve"),
   loop_list: keybind("<leader>j", "Show running and past work"),
   command_list: keybind("ctrl+p", "List available commands"),
   help_show: keybind("none", "Open help dialog"),
@@ -132,7 +136,9 @@ export const Definitions = {
   console_org_switch: keybind("none", "Switch console organization"),
   agent_list: keybind("<leader>a", "List agents"),
   agent_cycle: keybind("tab", "Next agent"),
-  agent_cycle_reverse: keybind("shift+tab", "Previous agent"),
+  // fork: shift+tab moved to permission_mode above — Tab-forward is enough to
+  // reach a small agent list, and backward is still reachable via /agents.
+  agent_cycle_reverse: keybind("none", "Previous agent"),
   variant_cycle: keybind("ctrl+t", "Cycle model variants"),
   variant_list: keybind("none", "List model variants"),
 
