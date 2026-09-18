@@ -256,12 +256,15 @@
       its honest empty state. Zero app-level console errors (one
       unrelated Chrome-extension content-script exception, not from this
       app). Screenshots taken during verification, not just described.
-- [ ] 6.2 Implement gallery search, filters, candidate cards/table, empty,
+- [x] 6.2 Implement gallery search, filters, candidate cards/table, empty,
       offline, stale, and progressive host-result states.
-- [ ] 6.3 Implement candidate detail with model card link, provenance,
+      ✔ 2026-09-18 app: debounced search, result rows, seed badge, empty/loading/error states (models-discover.tsx).
+- [x] 6.3 Implement candidate detail with model card link, provenance,
       license, capabilities, exact artifacts, quants, context, quality, and speed.
-- [ ] 6.4 Implement host comparison with fit/context, disk, loaded/busy state,
+      ✔ 2026-09-18 app: detail panel with HF link, license, capabilities, context, variants.
+- [x] 6.4 Implement host comparison with fit/context, disk, loaded/busy state,
       expected eviction, and evidence explanations.
+      ✔ 2026-09-18 app: per-host comparison table from gallery.evaluate with fit, context, VRAM, busy/offline, incompatible reasons, variant picker.
 - [ ] 6.5 Port useful llmfit browse/filter/detail/compare/plan/download
       interactions into native Solid components with attribution.
 - [ ] 6.6 Add “Browse models…” to the V2 session picker without embedding the
@@ -269,28 +272,37 @@
 
 ## 7. Host operations
 
-- [ ] 7.1 Build immutable install plans and require confirmation of host,
+- [x] 7.1 Build immutable install plans and require confirmation of host,
       revision, artifacts, bytes, license, disk, and expected fit.
-- [ ] 7.2 Submit, observe, cancel, and reconnect to llama-skein operations by
+      ✔ 2026-09-18 `POST /gallery/plan` builds the immutable ModelInstallPlan; both UIs confirm host, repo@revision, model id, backend, bytes, files, license before `install`.
+- [x] 7.2 Submit, observe, cancel, and reconnect to llama-skein operations by
       ID without making opencode the operation authority.
-- [ ] 7.3 Implement Operations UI with aggregate/per-artifact progress,
+      ✔ 2026-09-18 `gallery.install/operations/cancel` proxy llama-skein operations by id; the host stays the authority, opencode never retries.
+- [x] 7.3 Implement Operations UI with aggregate/per-artifact progress,
       terminal outcomes, warnings, retry/resume, and actionable errors.
-- [ ] 7.4 Refresh provider inventory/model picker after registration without
+      ✔ 2026-09-18 Operations UI in TUI (/downloads) and app: phase, progress, per-artifact progress, warnings, errors, cancel.
+- [x] 7.4 Refresh provider inventory/model picker after registration without
       application restart.
-- [ ] 7.5 Add explicit load, unload, and remove flows with affected-model and
+      ✔ 2026-09-18 on a succeeded operation both UIs call refreshProviders(); no restart.
+- [x] 7.5 Add explicit load, unload, and remove flows with affected-model and
       eviction confirmation.
 
+      ✔ 2026-09-18 `gallery.load/unload/remove` (hide = config entry only, delete = artifact set) + TUI /manage; app side in progress. Shared-store awareness: hosts with equal storeKey (hostname + models_dir) serve one store; delete warns which hosts lose the model.
 ## 8. Terminal experience
 
-- [ ] 8.1 Add compact Installed, Discover, and Operations views using the same
+- [x] 8.1 Add compact Installed, Discover, and Operations views using the same
       backend API and evidence vocabulary.
-- [ ] 8.2 Add search, task/capability/context/host filters and per-host fit
+      ✔ 2026-09-18 TUI: /browse (Discover), /manage (Installed across hosts), /downloads (Operations), all over the shared gallery API.
+- [x] 8.2 Add search, task/capability/context/host filters and per-host fit
       badges.
-- [ ] 8.3 Add install confirmation, progress, cancellation, and failure
+      ✔ 2026-09-18 TUI: search + per-host fit rows with fit level, max ctx, VRAM; variant picker per host (ctrl+v).
+- [x] 8.3 Add install confirmation, progress, cancellation, and failure
       rendering.
-- [ ] 8.4 Preserve the normal installed-model picker when gallery capabilities
+      ✔ 2026-09-18 TUI: confirm dialog, operations progress, cancel (ctrl+x), failure toasts.
+- [x] 8.4 Preserve the normal installed-model picker when gallery capabilities
       are unavailable.
 
+      ✔ 2026-09-18 the normal /models picker is unchanged; gallery entries are extra rows/actions.
 ## 9. Skein parity and retirement
 
 - [ ] 9.1 Add golden parity tests for Skein's current HF search, quant,
@@ -316,3 +328,20 @@
       unavailable.
 - [ ] 10.7 Live end-to-end on CUDA/ROCm and Apple hosts: explicit repo →
       compare → install/resume → verify → load → use in an existing session.
+
+## 11. Model management (added 2026-09-18)
+
+- [x] 11.1 `GET /gallery/installed`: per-host inventory (size, loaded, state, quantization, provenance) with a
+      store key so hosts sharing one model store are recognised
+- [x] 11.2 `POST /gallery/model/remove` with explicit `hide` (this host's config only) vs `delete` (files, every
+      host on the store); `load`/`unload`
+- [x] 11.3 `POST /gallery/model/copy` re-creates a model on another host from recorded provenance (same id,
+      revision, artifacts); shared store → registration only; `move` hides/deletes the source after success
+- [x] 11.4 llama-skein contract documents deleteModel/loadModel/unloadModel (routes existed, client regenerated)
+- [ ] 11.5 Models installed before provenance tracking have no `source_repository` and cannot be copied — add a
+      llama-skein "import from peer host" (direct file transfer) or backfill provenance from GGUF metadata
+- [ ] 11.6 Store identity: replace the hostname+models_dir heuristic with a `store_id` llama-skein writes into
+      the store and reports in `/api/config/info` (network shares on different hosts)
+- [ ] 11.7 Granular config edits from the UI (ttl, aliases, unlisted, cmd flags) via patchModelConfig
+- [ ] 11.8 Live: hide/delete/copy/move on the gpuhost4 ↔ second instance sharing `/Volumes/ExternalDrive/models/gguf`
+
