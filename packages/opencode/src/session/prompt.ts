@@ -1478,14 +1478,26 @@ export const layer = Layer.effect(
               if (sim >= LoopSimilarityThreshold) {
                 loopStreak++
                 if (loopStreak >= LoopMaxStreak) {
+                  // fork: sticky session-level break counting. loopStreak
+                  // resets every run, so without this a session that breaks,
+                  // auto-recovers via compaction, and breaks again cycles
+                  // forever. After LoopMaxSessionBreaks consecutive breaks
+                  // the session goes loop-dead (see SessionCompaction) and
+                  // auto-compaction refuses to run, so the terminal error
+                  // below is the last word instead of another silent cycle.
+                  const { breaks, terminal } = SessionCompaction.noteLoopBreak(sessionID)
                   yield* Effect.logWarning("agent loop detected — breaking", {
                     "session.id": sessionID,
                     step,
                     similarity: sim,
                     streak: loopStreak,
+                    sessionBreaks: breaks,
+                    terminal,
                   })
                   handle.message.error = new NamedError.Unknown({
-                    message: `Agent appears stuck in a loop — ${loopStreak} consecutive turns produced near-identical output with no progress`,
+                    message: terminal
+                      ? `Agent stuck in a loop ${breaks} times in a row with no progress — auto-recovery disabled for this session. Send a new message to reset, or start a fresh session.`
+                      : `Agent appears stuck in a loop — ${loopStreak} consecutive turns produced near-identical output with no progress`,
                   }).toObject()
                   handle.message.time.completed = Date.now()
                   yield* sessions.updateMessage(handle.message)
@@ -1494,9 +1506,11 @@ export const layer = Layer.effect(
                 }
               } else {
                 loopStreak = 0
+                SessionCompaction.clearLoopState(sessionID)
               }
             } else {
               loopStreak = 0
+              SessionCompaction.clearLoopState(sessionID)
             }
             lastOutputText = currentText
           }

@@ -188,6 +188,36 @@ export class Service extends Context.Service<Service, Interface>()("@opencode/Se
 
 export const use = serviceUse(Service)
 
+// Sticky per-session loop-break state. The turn-level streak in prompt.ts
+// resets every run, so a session that breaks, auto-recovers via compaction,
+// and breaks again would cycle forever (build → compact → build → …).
+// These record consecutive breaks across runs: after LoopMaxSessionBreaks
+// the session is loop-dead and auto-compaction refuses to run (manual
+// /compact still works), so the user sees the terminal error instead of
+// another silent recovery cycle. Any genuine turn (tool calls or dissimilar
+// output) clears the state via clearLoopState.
+export const LoopMaxSessionBreaks = 3
+
+const sessionLoopBreaks = new Map<SessionID, number>()
+const sessionLoopDead = new Set<SessionID>()
+
+export function noteLoopBreak(sessionID: SessionID): { breaks: number; terminal: boolean } {
+  const breaks = (sessionLoopBreaks.get(sessionID) ?? 0) + 1
+  sessionLoopBreaks.set(sessionID, breaks)
+  const terminal = breaks >= LoopMaxSessionBreaks
+  if (terminal) sessionLoopDead.add(sessionID)
+  return { breaks, terminal }
+}
+
+export function clearLoopState(sessionID: SessionID): void {
+  sessionLoopBreaks.delete(sessionID)
+  sessionLoopDead.delete(sessionID)
+}
+
+export function isLoopDead(sessionID: SessionID): boolean {
+  return sessionLoopDead.has(sessionID)
+}
+
 export const layer = Layer.effect(
   Service,
   Effect.gen(function* () {
@@ -616,6 +646,17 @@ export const layer = Layer.effect(
       auto: boolean
       overflow?: boolean
     }) {
+      // fork: refuse auto-compaction for loop-dead sessions. Without this,
+      // a session that breaks out of a stuck loop, auto-recovers via
+      // compaction, and breaks again cycles forever (build → compact →
+      // build → …). Manual /compact still works; only automatic recovery is
+      // gated. Genuine progress clears the dead flag (see clearLoopState).
+      if (input.auto && isLoopDead(input.sessionID)) {
+        yield* Effect.logWarning("auto-compaction refused: session is loop-dead after repeated stuck-loop detections", {
+          sessionID: input.sessionID,
+        })
+        return
+      }
       const msg = yield* session.updateMessage({
         id: MessageID.ascending(),
         role: "user",

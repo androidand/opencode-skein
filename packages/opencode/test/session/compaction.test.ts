@@ -659,6 +659,84 @@ describe("session.compaction.create", () => {
   )
 })
 
+describe("session.compaction loop-dead gating", () => {
+  test("noteLoopBreak counts consecutive breaks and goes terminal after LoopMaxSessionBreaks", () => {
+    const sessionID = SessionID.make("ses_loopdead1")
+    SessionCompaction.clearLoopState(sessionID)
+
+    const first = SessionCompaction.noteLoopBreak(sessionID)
+    expect(first).toEqual({ breaks: 1, terminal: false })
+    expect(SessionCompaction.isLoopDead(sessionID)).toBe(false)
+
+    const second = SessionCompaction.noteLoopBreak(sessionID)
+    expect(second).toEqual({ breaks: 2, terminal: false })
+    expect(SessionCompaction.isLoopDead(sessionID)).toBe(false)
+
+    const third = SessionCompaction.noteLoopBreak(sessionID)
+    expect(third).toEqual({ breaks: SessionCompaction.LoopMaxSessionBreaks, terminal: true })
+    expect(SessionCompaction.isLoopDead(sessionID)).toBe(true)
+  })
+
+  test("clearLoopState resets the break count and the dead flag", () => {
+    const sessionID = SessionID.make("ses_loopdead2")
+    SessionCompaction.clearLoopState(sessionID)
+
+    for (let i = 0; i < SessionCompaction.LoopMaxSessionBreaks; i++) SessionCompaction.noteLoopBreak(sessionID)
+    expect(SessionCompaction.isLoopDead(sessionID)).toBe(true)
+
+    SessionCompaction.clearLoopState(sessionID)
+    expect(SessionCompaction.isLoopDead(sessionID)).toBe(false)
+
+    const after = SessionCompaction.noteLoopBreak(sessionID)
+    expect(after).toEqual({ breaks: 1, terminal: false })
+  })
+
+  test("loop-dead state is tracked independently per session", () => {
+    const a = SessionID.make("ses_loopdead_a")
+    const b = SessionID.make("ses_loopdead_b")
+    SessionCompaction.clearLoopState(a)
+    SessionCompaction.clearLoopState(b)
+
+    for (let i = 0; i < SessionCompaction.LoopMaxSessionBreaks; i++) SessionCompaction.noteLoopBreak(a)
+    expect(SessionCompaction.isLoopDead(a)).toBe(true)
+    expect(SessionCompaction.isLoopDead(b)).toBe(false)
+  })
+
+  it.live(
+    "auto compaction refuses to run once a session is loop-dead, but manual compaction still runs",
+    provideTmpdirInstance(() =>
+      Effect.gen(function* () {
+        const compact = yield* SessionCompaction.Service
+        const ssn = yield* SessionNs.Service
+        const info = yield* ssn.create({})
+
+        for (let i = 0; i < SessionCompaction.LoopMaxSessionBreaks; i++) SessionCompaction.noteLoopBreak(info.id)
+        expect(SessionCompaction.isLoopDead(info.id)).toBe(true)
+
+        yield* compact.create({
+          sessionID: info.id,
+          agent: "build",
+          model: ref,
+          auto: true,
+          overflow: true,
+        })
+        expect(yield* ssn.messages({ sessionID: info.id })).toHaveLength(0)
+
+        yield* compact.create({
+          sessionID: info.id,
+          agent: "build",
+          model: ref,
+          auto: false,
+          overflow: true,
+        })
+        expect(yield* ssn.messages({ sessionID: info.id })).toHaveLength(1)
+
+        SessionCompaction.clearLoopState(info.id)
+      }),
+    ),
+  )
+})
+
 describe("session.compaction.prune", () => {
   it.live(
     "compacts old completed tool output",
