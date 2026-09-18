@@ -3,10 +3,12 @@ import {
   expectsReply,
   formatHeader,
   formatPeerEnvelope,
+  decodeHeaderValue,
+  encodeHeaderValue,
   newContextID,
   newMessageID,
   parsePeerEnvelope,
-  sanitizeHeaderValue,
+  peerBody,
   type PeerEnvelope,
 } from "../../src/peer/envelope"
 
@@ -64,14 +66,45 @@ describe("a value cannot forge the header", () => {
     expect(header.split("\n")).toHaveLength(1)
   })
 
-  test("whitespace, brackets and equals are neutralised", () => {
-    expect(sanitizeHeaderValue("a b]c[d=e")).toBe("a_b_c_d_e")
-    expect(sanitizeHeaderValue("line\nbreak")).toBe("line_break")
+  test("whitespace, brackets and equals cannot reach the grammar", () => {
+    for (const raw of ["a b]c[d=e", "line\nbreak", "%41"]) {
+      const encoded = encodeHeaderValue(raw)
+      expect(encoded).not.toMatch(/[\s[\]=]/)
+      expect(decodeHeaderValue(encoded)).toBe(raw)
+    }
   })
 
-  test("paths and ids survive sanitisation unharmed", () => {
-    expect(sanitizeHeaderValue("uds:/tmp/cc-socks/22391.sock")).toBe("uds:/tmp/cc-socks/22391.sock")
-    expect(sanitizeHeaderValue("ses_0000000000000000000000000")).toBe("ses_0000000000000000000000000")
+  test("paths and ids pass through untouched", () => {
+    expect(encodeHeaderValue("uds:/tmp/cc-socks/22391.sock")).toBe("uds:/tmp/cc-socks/22391.sock")
+    expect(encodeHeaderValue("ses_0000000000000000000000000")).toBe("ses_0000000000000000000000000")
+  })
+
+  test("encoding is reversible, so two different addresses never collapse into one", () => {
+    // The lossy version mapped both of these to the same string, which would
+    // send a reply to a real peer that never asked for it.
+    const a = "uds:/tmp/cc socks/1.sock"
+    const b = "uds:/tmp/cc-socks/1.sock"
+    expect(encodeHeaderValue(a)).not.toBe(encodeHeaderValue(b))
+    for (const address of [a, b, "uds:/x?q=1&r=2", "uds:/päth/ünïcode.sock"]) {
+      const parsed = parsePeerEnvelope(formatPeerEnvelope({ mode: "notify", messageID: "m1", from: address }, "b"))
+      expect(parsed?.envelope.from).toBe(address)
+    }
+  })
+
+  test("control characters and bidi overrides cannot reach a terminal through a header", () => {
+    for (const nasty of ["\u0000", "\u001b[31m", "\u0085", "\u200b", "\u202e", "\u2028"]) {
+      const value = `uds:/x${nasty}`
+      const header = formatHeader({ mode: "notify", messageID: "m1", from: value })
+      expect(header).not.toContain(nasty)
+      expect(header.split("\n")).toHaveLength(1)
+      expect(parsePeerEnvelope(`${header}\n\nbody`)?.envelope.from).toBe(value)
+    }
+  })
+
+  test("an absurdly long value is dropped rather than truncated into a wrong one", () => {
+    const header = formatHeader({ mode: "notify", messageID: "m1", from: "u".repeat(600) })
+    expect(header).not.toContain("from=")
+    expect(parsePeerEnvelope(`${header}\n\nb`)?.envelope.messageID).toBe("m1")
   })
 })
 
@@ -119,5 +152,46 @@ describe("parsing is conservative", () => {
 
   test("a deadline on a notification is not written, because nothing waits on it", () => {
     expect(formatHeader({ mode: "notify", messageID: "m1", deadlineMinutes: 5 })).not.toContain("deadline")
+  })
+
+  test("a deadline claimed on a notify or reply is ignored, not believed", () => {
+    expect(parsePeerEnvelope("[peer notify id=m1 deadline=30m]\n\nb")?.envelope.deadlineMinutes).toBeUndefined()
+    expect(parsePeerEnvelope("[peer reply id=m1 deadline=30m]\n\nb")?.envelope.deadlineMinutes).toBeUndefined()
+  })
+
+  test("an unbounded deadline is clamped rather than asking a peer to wait a year", () => {
+    expect(parsePeerEnvelope("[peer request id=m1 deadline=1e308m]\n\nb")?.envelope.deadlineMinutes).toBe(1440)
+    expect(formatHeader({ mode: "request", messageID: "m1", deadlineMinutes: 1e9 })).toContain("deadline=1440m")
+  })
+
+  test("a repeated key takes the first value, so two readers cannot disagree", () => {
+    // Last-wins would let duplicate suppression key on one id while
+    // correlation keys on another.
+    expect(parsePeerEnvelope("[peer notify id=first id=second]\n\nb")?.envelope.messageID).toBe("first")
+  })
+
+  test("a CRLF header still parses instead of degrading to plain text", () => {
+    expect(parsePeerEnvelope("[peer notify id=m1]\r\n\r\nbody")?.envelope.messageID).toBe("m1")
+  })
+
+  test("an oversized field on the wire is dropped, not decoded", () => {
+    expect(parsePeerEnvelope(`[peer notify id=m1 from=${"u".repeat(600)}]\n\nb`)?.envelope.from).toBeUndefined()
+  })
+})
+
+describe("peerBody", () => {
+  // peer/delegate.ts anchors its task-result marker at the start of the text.
+  // Once messages carry a header that anchor stops matching, delegation stops
+  // settling, and every delegated task times out instead of completing.
+  test("strips a header so a start-anchored marker still matches", () => {
+    const marker = "[peer-task-result ses_child]\nthe result"
+    const wrapped = formatPeerEnvelope({ mode: "reply", messageID: "m1", taskID: "ses_child" }, marker)
+    expect(peerBody(wrapped)).toBe(marker)
+    expect(/^\s*\[peer-task-result /.test(peerBody(wrapped))).toBe(true)
+    expect(/^\s*\[peer-task-result /.test(wrapped)).toBe(false)
+  })
+
+  test("a message with no header is returned unchanged", () => {
+    expect(peerBody("plain text")).toBe("plain text")
   })
 })

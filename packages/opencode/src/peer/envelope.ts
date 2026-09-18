@@ -54,12 +54,57 @@ export interface PeerEnvelope {
   taskID?: string
 }
 
-const HEADER_RE = /^\[peer (notify|request|reply)((?: [a-z-]+=[^\s\]]+)*)\]$/
-const FIELD_RE = /([a-z-]+)=([^\s\]]+)/g
+// Values are percent-encoded rather than scrubbed. An earlier version replaced
+// every unsafe character with an underscore, which is safe but LOSSY — and the
+// most important value here is a return address. `uds:/tmp/cc socks/1.sock` and
+// `uds:/tmp/cc-socks/1.sock` both collapsed to the same string, so a reply
+// could be sent to a different real peer, or to nothing, with no error
+// anywhere. Reversible encoding keeps the address the sender actually meant.
+//
+// `%` is encoded first so the mapping stays injective, and anything outside
+// printable ASCII goes too: NUL, ESC, NEL, zero-width and bidi-override
+// characters cannot break the grammar, but they can forge what a human or a
+// terminal sees, and this text is rendered into a TUI.
+const SAFE_BYTE = /[\x21-\x7e]/
+const UNSAFE_IN_VALUE = new Set(["%", "[", "]", "=", " "])
 
-/** Anything that could close the header early or invent a field becomes an underscore. */
-export function sanitizeHeaderValue(value: string): string {
-  return value.replace(/[\s[\]=]/g, "_")
+/** Longest field a header will carry or accept. Real addresses and ids are far below this. */
+const MAX_VALUE_LENGTH = 512
+/** A request cannot ask a peer to wait longer than this. */
+const MAX_DEADLINE_MINUTES = 1440
+
+const HEADER_RE = /^\[peer (notify|request|reply)((?: [a-z-]+=[^\s\]=]+)*)\]$/
+const FIELD_RE = /([a-z-]+)=([^\s\]=]+)/g
+
+/** Reversible: every unsafe byte becomes %XX, so distinct values stay distinct. */
+export function encodeHeaderValue(value: string): string {
+  let out = ""
+  for (const char of value) {
+    if (char.length === 1 && SAFE_BYTE.test(char) && !UNSAFE_IN_VALUE.has(char)) {
+      out += char
+      continue
+    }
+    for (const byte of new TextEncoder().encode(char)) {
+      out += `%${byte.toString(16).toUpperCase().padStart(2, "0")}`
+    }
+  }
+  return out
+}
+
+export function decodeHeaderValue(value: string): string {
+  const bytes: number[] = []
+  for (let i = 0; i < value.length; i++) {
+    if (value[i] === "%" && i + 2 < value.length) {
+      const hex = value.slice(i + 1, i + 3)
+      if (/^[0-9a-fA-F]{2}$/.test(hex)) {
+        bytes.push(parseInt(hex, 16))
+        i += 2
+        continue
+      }
+    }
+    for (const byte of new TextEncoder().encode(value[i])) bytes.push(byte)
+  }
+  return new TextDecoder().decode(new Uint8Array(bytes))
 }
 
 export function newMessageID(): string {
@@ -71,14 +116,28 @@ export function newContextID(): string {
   return `ctx-${randomUUID()}`
 }
 
+/**
+ * A field, or nothing when the encoded value is absurdly long. Dropping it is
+ * the fail-closed choice: a truncated return address is a wrong address, and
+ * every value this formatter's own callers produce is far below the cap.
+ */
+function field(key: string, value: string): string | undefined {
+  const encoded = encodeHeaderValue(value)
+  return encoded.length > MAX_VALUE_LENGTH ? undefined : `${key}=${encoded}`
+}
+
 export function formatHeader(envelope: PeerEnvelope): string {
-  const fields: string[] = [`id=${sanitizeHeaderValue(envelope.messageID)}`]
-  if (envelope.from) fields.push(`from=${sanitizeHeaderValue(envelope.from)}`)
-  if (envelope.contextID) fields.push(`context=${sanitizeHeaderValue(envelope.contextID)}`)
-  if (envelope.inReplyTo) fields.push(`in-reply-to=${sanitizeHeaderValue(envelope.inReplyTo)}`)
-  if (envelope.taskID) fields.push(`task=${sanitizeHeaderValue(envelope.taskID)}`)
+  const fields = [
+    field("id", envelope.messageID),
+    envelope.from ? field("from", envelope.from) : undefined,
+    envelope.contextID ? field("context", envelope.contextID) : undefined,
+    envelope.inReplyTo ? field("in-reply-to", envelope.inReplyTo) : undefined,
+    envelope.taskID ? field("task", envelope.taskID) : undefined,
+  ].filter((entry): entry is string => entry !== undefined)
+  // Only a request has anything waiting on it, so only a request carries a
+  // deadline. Clamped, because a peer must not be told to wait for a year.
   if (envelope.mode === "request" && envelope.deadlineMinutes !== undefined) {
-    const minutes = Math.max(1, Math.round(envelope.deadlineMinutes))
+    const minutes = Math.min(MAX_DEADLINE_MINUTES, Math.max(1, Math.round(envelope.deadlineMinutes)))
     fields.push(`deadline=${minutes}m`)
   }
   return `[peer ${envelope.mode} ${fields.join(" ")}]`
@@ -100,17 +159,34 @@ export interface ParsedPeerMessage {
  * the normal case for anything sent before this format existed, and for a
  * human-written message. A caller treats that as a plain notification rather
  * than rejecting it.
+ *
+ * Nothing here is authenticated. A sender writes its own header, so `from`,
+ * `context` and `in-reply-to` say what the sender claims, exactly like the
+ * attribution attributes in peer/claude/codec.ts. Provenance is the
+ * authenticated socket the message arrived on; anything that acts on a
+ * correlation id must check the sender too, not the id alone.
  */
 export function parsePeerEnvelope(text: string): ParsedPeerMessage | undefined {
   const newline = text.indexOf("\n")
-  const firstLine = newline === -1 ? text : text.slice(0, newline)
+  const rawFirstLine = newline === -1 ? text : text.slice(0, newline)
+  // A CRLF sender would otherwise fail the end anchor and silently degrade to
+  // an unparsed plain message.
+  const firstLine = rawFirstLine.endsWith("\r") ? rawFirstLine.slice(0, -1) : rawFirstLine
   const match = firstLine.match(HEADER_RE)
   if (!match) return undefined
 
   const mode = match[1] as PeerMode
   const envelope: PeerEnvelope = { mode, messageID: "" }
-  for (const field of match[2].matchAll(FIELD_RE)) {
-    const [, key, value] = field
+  const seen = new Set<string>()
+  for (const entry of match[2].matchAll(FIELD_RE)) {
+    const [, key, raw] = entry
+    // First wins. A foreign sender can repeat a key, and "last wins" would let
+    // the id this parser reports differ from the one another reader took,
+    // which is exactly how duplicate suppression and correlation drift apart.
+    if (seen.has(key)) continue
+    seen.add(key)
+    if (raw.length > MAX_VALUE_LENGTH) continue
+    const value = decodeHeaderValue(raw)
     switch (key) {
       case "id":
         envelope.messageID = value
@@ -128,8 +204,13 @@ export function parsePeerEnvelope(text: string): ParsedPeerMessage | undefined {
         envelope.taskID = value
         break
       case "deadline": {
+        // Ignored on anything but a request: nothing is waiting on a notify or
+        // a reply, so a deadline there is noise at best.
+        if (mode !== "request") break
         const minutes = Number(value.replace(/m$/, ""))
-        if (Number.isFinite(minutes) && minutes > 0) envelope.deadlineMinutes = minutes
+        if (Number.isFinite(minutes) && minutes > 0) {
+          envelope.deadlineMinutes = Math.min(MAX_DEADLINE_MINUTES, minutes)
+        }
         break
       }
       // An unknown field is ignored rather than fatal: a newer sender may add
@@ -143,6 +224,18 @@ export function parsePeerEnvelope(text: string): ParsedPeerMessage | undefined {
 
   const rest = newline === -1 ? "" : text.slice(newline + 1)
   return { envelope, body: rest.startsWith("\n") ? rest.slice(1) : rest }
+}
+
+/**
+ * The message without its header, for readers that match on the body's own
+ * shape. `peer/delegate.ts` correlates pool-overflow tasks with a
+ * `[peer-task-result <id>]` marker anchored at the START of the text; once
+ * messages carry a header that anchor no longer matches, delegation silently
+ * stops settling and every delegated task times out instead. Anything matching
+ * on message text must go through this.
+ */
+export function peerBody(text: string): string {
+  return parsePeerEnvelope(text)?.body ?? text
 }
 
 /** True when this message expects the receiver to answer. */

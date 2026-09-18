@@ -15,6 +15,7 @@ import { SessionID } from "@/session/schema"
 import { SessionPrompt } from "@/session/prompt"
 import { formatPeerMessage } from "@/session/peers"
 import { settleTaskReply } from "@/peer/delegate"
+import { peerBody } from "@/peer/envelope"
 import { RecentIDs } from "@/peer/recent-ids"
 import { claudePidOf, resolveOpencodeSender } from "@/peer/route"
 import { SessionStatus } from "@/session/status"
@@ -63,7 +64,12 @@ const layer = Layer.effect(
       // A frame `msg_id` is a real correlation id: the same id twice is one
       // message retried or replayed, and the session must see it once.
       if (inbound.msgID && !recent.admit(`${inbound.sessionID}:${inbound.msgID}`)) return
-      if (settleTaskReply(inbound.text)) return
+      // Through peerBody, not the raw text: delegate.ts anchors its
+      // `[peer-task-result <id>]` marker at the START of the message, so once
+      // messages carry a correlation header the anchor stops matching and
+      // every delegated task times out instead of settling. A no-op today,
+      // because a message without a header comes back unchanged.
+      if (settleTaskReply(peerBody(inbound.text))) return
       runFork(
         Effect.gen(function* () {
           const info = yield* session.get(SessionID.make(inbound.sessionID)).pipe(Effect.orElseSucceed(() => undefined))
