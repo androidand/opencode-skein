@@ -34,6 +34,9 @@ import type {
   GetHardwareResponses,
   GetHealthData,
   GetHealthResponses,
+  GetModelArtifactData,
+  GetModelArtifactErrors,
+  GetModelArtifactResponses,
   GetModelConfigData,
   GetModelConfigErrors,
   GetModelConfigResponses,
@@ -61,6 +64,9 @@ import type {
   InstallRuntimeData,
   InstallRuntimeErrors,
   InstallRuntimeResponses,
+  ListModelArtifactsData,
+  ListModelArtifactsErrors,
+  ListModelArtifactsResponses,
   ListModelOperationsData,
   ListModelOperationsResponses,
   ListModelsData,
@@ -677,6 +683,30 @@ export class LlamaSkeinClient extends HeyApiClient {
   public unloadAllModels<ThrowOnError extends boolean = false>(options?: Options<UnloadAllModelsData, ThrowOnError>) {
     return (options?.client ?? this.client).post<UnloadAllModelsResponses, unknown, ThrowOnError>({
       url: "/api/models/unload",
+      ...options,
+    })
+  }
+
+  /**
+   * List the artifact set of an installed model, for a peer that wants to import it.
+   *
+   * Lives under /api/models/artifacts/ rather than /api/models/{model}/artifacts because the latter is ambiguous with the /api/models/context/{model} route family.
+   */
+  public listModelArtifacts<ThrowOnError extends boolean = false>(
+    options: Options<ListModelArtifactsData, ThrowOnError>,
+  ) {
+    return (options.client ?? this.client).get<ListModelArtifactsResponses, ListModelArtifactsErrors, ThrowOnError>({
+      url: "/api/models/artifacts/{model}",
+      ...options,
+    })
+  }
+
+  /**
+   * Stream one artifact of an installed model (supports Range).
+   */
+  public getModelArtifact<ThrowOnError extends boolean = false>(options: Options<GetModelArtifactData, ThrowOnError>) {
+    return (options.client ?? this.client).get<GetModelArtifactResponses, GetModelArtifactErrors, ThrowOnError>({
+      url: "/api/models/artifacts/{model}/{path}",
       ...options,
     })
   }

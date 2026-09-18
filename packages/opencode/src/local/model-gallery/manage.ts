@@ -206,6 +206,23 @@ export function variantFromInstalled(candidate: ModelCandidate, installed: Insta
   }
 }
 
+/**
+ * Re-create `installed` on another host by pulling the files from the host
+ * that has them (llama-skein `source_peer`). Works for every installed model,
+ * provenance or not; the target lists the artifact set from the peer itself.
+ */
+export function peerCopyPlan(sourceBaseURL: string, installed: InstalledModel): ModelInstallPlan {
+  const backend = installed.format === "mlx" ? "mlx" : installed.format === "safetensors" ? "vllm" : "llamacpp"
+  return {
+    source_peer: { base_url: controlPlaneURL(sourceBaseURL), model_id: installed.id },
+    registration: {
+      model_id: installed.id,
+      ...(installed.name ? { display_name: installed.name } : {}),
+      backend,
+    },
+  }
+}
+
 export function copyPlan(candidate: ModelCandidate, installed: InstalledModel): ModelInstallPlan {
   const variant = variantFromInstalled(candidate, installed)
   if (!variant) throw new Error(`cannot map ${installed.id}'s installed files to ${candidate.repository}`)

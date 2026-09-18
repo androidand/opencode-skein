@@ -11,7 +11,7 @@ import { loadCatalogCandidates } from "@/local/model-gallery/catalog"
 import { searchCatalog } from "@/local/model-gallery/search"
 import { buildInstallPlan, InstallPlanError, planBytes } from "@/local/model-gallery/install"
 import { listOperationsAcrossHosts, operationsClient, toGalleryOperation, TERMINAL_PHASES } from "@/local/model-gallery/operations"
-import { copyPlan, inventoryAcrossHosts, manageClient, sharesStore, sourceRemovalMode } from "@/local/model-gallery/manage"
+import { copyPlan, inventoryAcrossHosts, manageClient, peerCopyPlan, sharesStore, sourceRemovalMode } from "@/local/model-gallery/manage"
 import { createHuggingFaceCatalog } from "@/local/model-catalog/huggingface"
 import type { ModelCandidate, ModelVariant } from "@/local/model-catalog/types"
 import { InstanceHttpApi } from "../api"
@@ -138,8 +138,8 @@ export const galleryHandlers = HttpApiBuilder.group(InstanceHttpApi, "gallery", 
       return {
         hostId: r.host.id,
         hostName: r.host.name,
-        repository: r.plan.source_repository,
-        revision: r.plan.source_revision,
+        repository: r.plan.source_repository ?? r.candidate.repository,
+        revision: r.plan.source_revision ?? "",
         modelId: r.plan.registration.model_id,
         backend: r.plan.registration.backend,
         license: r.candidate.license,
@@ -228,27 +228,44 @@ export const galleryHandlers = HttpApiBuilder.group(InstanceHttpApi, "gallery", 
       if (!target?.online) return yield* badRequest(`target host ${payload.toHostId} is unknown or offline`)
       const model = source.models.find((m) => m.id === payload.modelId)
       if (!model) return yield* badRequest(`${payload.modelId} is not installed on ${source.hostName}`)
-      if (!model.sourceRepository) return yield* badRequest(`${payload.modelId} has no recorded source repository; it was not installed through llama-skein and cannot be re-created elsewhere`)
       if (target.models.some((m) => m.id === model.id)) return yield* badRequest(`${model.id} is already on ${target.hostName}`)
       const targetHost = discovered.find((h) => h.id === target.hostId)!
       const sourceHost = discovered.find((h) => h.id === source.hostId)!
 
-      const candidate = yield* Effect.tryPromise({
-        try: () =>
-          createHuggingFaceCatalog().resolve({
-            repository: model.sourceRepository!,
-            ...(model.sourceRevision ? { revision: model.sourceRevision } : {}),
-          }),
-        catch: (e) => new InvalidRequestError({ message: `cannot resolve ${model.sourceRepository}: ${String(e instanceof Error ? e.message : e)}` }),
-      })
-      const plan = yield* Effect.try({
-        try: () => copyPlan(candidate, model),
-        catch: (e) => new InvalidRequestError({ message: String(e instanceof Error ? e.message : e) }),
-      })
-      const op = yield* Effect.tryPromise({
-        try: () => operationsClient(targetHost.baseURL).create(plan),
-        catch: (e) => new InvalidRequestError({ message: `host ${target.hostName} refused the plan: ${String(e instanceof Error ? e.message : e)}` }),
-      })
+      // The source host has the files: let the target pull them straight from
+      // it (works without provenance, no Hugging Face round trip). Fall back to
+      // re-downloading from the recorded repository only if the target refuses
+      // the peer plan and provenance exists.
+      const ops = operationsClient(targetHost.baseURL)
+      const peerResult = yield* Effect.promise(() =>
+        ops
+          .create(peerCopyPlan(sourceHost.baseURL, model))
+          .then((op) => ({ ok: true as const, op }))
+          .catch((e: unknown) => ({ ok: false as const, error: String(e instanceof Error ? e.message : e) })),
+      )
+      let op
+      if (peerResult.ok) {
+        op = peerResult.op
+      } else {
+        if (!model.sourceRepository)
+          return yield* badRequest(`${target.hostName} refused to import ${model.id} from ${source.hostName} (${peerResult.error}); it has no recorded source repository to fall back to`)
+        const candidate = yield* Effect.tryPromise({
+          try: () =>
+            createHuggingFaceCatalog().resolve({
+              repository: model.sourceRepository!,
+              ...(model.sourceRevision ? { revision: model.sourceRevision } : {}),
+            }),
+          catch: (e) => new InvalidRequestError({ message: `cannot resolve ${model.sourceRepository}: ${String(e instanceof Error ? e.message : e)}` }),
+        })
+        const plan = yield* Effect.try({
+          try: () => copyPlan(candidate, model),
+          catch: (e) => new InvalidRequestError({ message: String(e instanceof Error ? e.message : e) }),
+        })
+        op = yield* Effect.tryPromise({
+          try: () => ops.create(plan),
+          catch: (e) => new InvalidRequestError({ message: `host ${target.hostName} refused the plan: ${String(e instanceof Error ? e.message : e)}` }),
+        })
+      }
 
       const shared = sharesStore(source, target)
       const removal = payload.move ? sourceRemovalMode(source, inventories) : ("none" as const)

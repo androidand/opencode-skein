@@ -2,6 +2,7 @@ import { describe, expect, test } from "bun:test"
 import {
   copyPlan,
   inventoryAcrossHosts,
+  peerCopyPlan,
   sharesStore,
   sourceRemovalMode,
   storeKeyFor,
@@ -119,6 +120,13 @@ describe("copy / move", () => {
     expect(plan.registration.model_id).toBe("muse-glimmer-30b-q5-k-m")
     expect(plan.registration.mmproj_artifact_role).toBe("projector")
     expect(plan.artifacts?.map((a) => a.role)).toEqual(["weights", "projector"])
+  })
+  test("peerCopyPlan pulls from the source host's control plane under the same id", () => {
+    const plan = peerCopyPlan("http://192.0.2.239:8080/v1", installed)
+    expect(plan.source_peer).toEqual({ base_url: "http://192.0.2.239:8080", model_id: "muse-glimmer-30b-q5-k-m" })
+    expect(plan.source_repository).toBeUndefined()
+    expect(plan.registration).toEqual({ model_id: "muse-glimmer-30b-q5-k-m", backend: "llamacpp" })
+    expect(plan.artifacts).toBeUndefined()
   })
   test("a model whose files are not in the catalog cannot be copied", () => {
     expect(() => copyPlan(candidate(), { ...installed, artifactPaths: ["unknown.gguf"] })).toThrow(/cannot map/)

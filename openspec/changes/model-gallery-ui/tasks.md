@@ -338,8 +338,10 @@
 - [x] 11.3 `POST /gallery/model/copy` re-creates a model on another host from recorded provenance (same id,
       revision, artifacts); shared store → registration only; `move` hides/deletes the source after success
 - [x] 11.4 llama-skein contract documents deleteModel/loadModel/unloadModel (routes existed, client regenerated)
-- [ ] 11.5 Models installed before provenance tracking have no `source_repository` and cannot be copied — add a
-      llama-skein "import from peer host" (direct file transfer) or backfill provenance from GGUF metadata
+- [x] 11.5 Copy/move now pulls files host-to-host: llama-skein `source_peer` plans +
+      `/api/models/artifacts/{model}[/{path}]` (llama-skein 68da0b6, spec `peer-model-import`); provenance is
+      only the fallback. GGUF metadata was checked and carries no quantizer repo, so backfill was not viable.
+      Needs the new llama-skein deployed on the hosts.
 - [x] 11.6 Store identity: llama-skein now writes `.llama-skein-store-id` into models_dir and reports
       `store_id` in `/api/config/info` (llama-skein 986aad1); opencode prefers it over the
       hostname+models_dir heuristic

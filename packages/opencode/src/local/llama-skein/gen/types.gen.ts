@@ -236,6 +236,7 @@ export type Model = {
    * ID of a currently non-terminal model operation (see ModelOperation) whose registration.model_id is this model, if one is in progress — a reinstall, for instance. Omitted when no such operation exists.
    */
   active_operation_id?: string
+  source_peer?: PeerSource
 }
 
 export type ConfigInfoResponse = {
@@ -1008,6 +1009,7 @@ export type ApiModel = {
    * Id of an in-flight operation on this model, when one exists.
    */
   active_operation_id?: string
+  source_peer?: PeerSource
 }
 
 export type ApiModelsResponse = {
@@ -1194,17 +1196,17 @@ export type ModelRegistration = {
 }
 
 /**
- * An immutable installation plan (design.md decision 2). The server validates and snapshots this into a ModelOperation with a host-generated ID; the plan itself is never mutated after submission.
+ * An immutable installation plan (design.md decision 2). The server validates and snapshots this into a ModelOperation with a host-generated ID; the plan itself is never mutated after submission. Exactly one of source_repository/source_revision or source_peer identifies the source.
  */
 export type ModelInstallPlan = {
   /**
-   * e.g. "unsloth/Qwen3.6-35B-A3B-GGUF". A display name or mutable branch reference is not artifact identity — see source_revision.
+   * e.g. "unsloth/Qwen3.6-35B-A3B-GGUF". A display name or mutable branch reference is not artifact identity — see source_revision. Required unless source_peer is set.
    */
-  source_repository: string
+  source_repository?: string
   /**
-   * Immutable revision (commit SHA), not a mutable branch name. Required so a plan identifies exact, reproducible source content.
+   * Immutable revision (commit SHA), not a mutable branch name. Required so a plan identifies exact, reproducible source content. Required unless source_peer is set.
    */
-  source_revision: string
+  source_revision?: string
   /**
    * Artifacts to download. When empty or omitted with auto_discover_companions=true, the server discovers GGUF files from the repository (main weights + mmproj/dflash companions).
    */
@@ -1222,6 +1224,7 @@ export type ModelInstallPlan = {
    * Hugging Face access token for a gated repository. A request secret, not artifact identity: never persisted in the operation record, logged, or echoed back in an error (design.md decision 7). Not yet used to authenticate a download — no download execution exists yet (sections 3-4) — accepted now so the redaction guarantee is in place before there is anything to redact from.
    */
   token?: string
+  source_peer?: PeerSource
 }
 
 /**
@@ -1391,6 +1394,28 @@ export type ModelLoadFailure = {
   loaded: boolean
   load_request_status: number
   last_error?: LastError
+}
+
+/**
+ * Import an installed model from another llama-skein host instead of Hugging Face. The target lists the peer's artifact set (GET /api/models/artifacts/{model}) and streams each file from it.
+ */
+export type PeerSource = {
+  /**
+   * Control-plane base URL of the llama-skein host to import from, e.g. http://192.0.2.239:8080. Must resolve to a private or loopback address unless allowPublicPeers is set.
+   */
+  base_url: string
+  /**
+   * Model ID as served by that host.
+   */
+  model_id: string
+}
+
+export type ArtifactListing = {
+  model: string
+  /**
+   * Every file the model owns on this host (weights, shards, projector, draft), with sizes; digests when the founding install recorded them. Paths are relative to the model's artifact root and valid for GET /api/models/artifacts/{model}/{path}.
+   */
+  artifacts: Array<InstallArtifact>
 }
 
 export type GetSystemVersionData = {
@@ -2417,3 +2442,67 @@ export type UnloadAllModelsResponses = {
 }
 
 export type UnloadAllModelsResponse = UnloadAllModelsResponses[keyof UnloadAllModelsResponses]
+
+export type ListModelArtifactsData = {
+  body?: never
+  path: {
+    /**
+     * Model ID (or alias) as served by this host.
+     */
+    model: string
+  }
+  query?: never
+  url: "/api/models/artifacts/{model}"
+}
+
+export type ListModelArtifactsErrors = {
+  /**
+   * Model not found or no weights file on disk.
+   */
+  404: unknown
+}
+
+export type ListModelArtifactsResponses = {
+  /**
+   * Artifacts.
+   */
+  200: ArtifactListing
+}
+
+export type ListModelArtifactsResponse = ListModelArtifactsResponses[keyof ListModelArtifactsResponses]
+
+export type GetModelArtifactData = {
+  body?: never
+  path: {
+    /**
+     * Model ID (or alias) as served by this host.
+     */
+    model: string
+    /**
+     * A path from listModelArtifacts; anything outside the model's artifact set is 404.
+     */
+    path: string
+  }
+  query?: never
+  url: "/api/models/artifacts/{model}/{path}"
+}
+
+export type GetModelArtifactErrors = {
+  /**
+   * Model or artifact not found.
+   */
+  404: unknown
+}
+
+export type GetModelArtifactResponses = {
+  /**
+   * Whole file.
+   */
+  200: Blob | File
+  /**
+   * Requested range.
+   */
+  206: Blob | File
+}
+
+export type GetModelArtifactResponse = GetModelArtifactResponses[keyof GetModelArtifactResponses]
