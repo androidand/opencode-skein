@@ -83,7 +83,7 @@ const BaseParameterFields = {
   subagent_type: Schema.String.annotate({ description: "The type of specialized agent to use for this task" }),
   task_id: Schema.optional(Schema.String).annotate({
     description:
-      "This should only be set if you mean to resume a previous task (you can pass a prior task_id and the task will continue the same subagent session as before instead of creating a fresh one)",
+      'Only set this to resume a previous task, using the exact id from that task\'s own result (the `id="..."` on its <task> tag, e.g. "ses_abc123"). Never invent your own label here — an unrecognized value is ignored and a fresh task is started instead. Omit this field entirely for a new task.',
   }),
   command: Schema.optional(Schema.String).annotate({ description: "The command that triggered this task" }),
   provider: Schema.optional(Schema.String).annotate({
@@ -190,9 +190,21 @@ export const TaskTool = Tool.define(
         return yield* Effect.fail(new Error(`Unknown agent type: ${params.subagent_type} is not a valid agent type`))
       }
 
-      const session = params.task_id
-        ? yield* sessions.get(SessionID.make(params.task_id)).pipe(Effect.catchCause(() => Effect.succeed(undefined)))
-        : undefined
+      // fork: task_id is meant to be an opaque id this same tool previously
+      // returned (see the "<task id=...>" wrapper in renderOutput), but a
+      // model — especially a weaker one — will sometimes invent its own
+      // human-readable label instead (e.g. "review-changes-1") believing it
+      // is naming the task rather than resuming one. SessionID.make() throws
+      // a raw schema validation error for anything not shaped like a real
+      // session id, which used to escape past the "session not found" catch
+      // below (that catch only ever covered sessions.get, not the throwing
+      // construction of its argument) and surface as a confusing tool error.
+      // Treat an invalid task_id exactly like one that doesn't resolve to a
+      // session: fall through to creating a fresh one.
+      const session =
+        params.task_id && Schema.is(SessionID)(params.task_id)
+          ? yield* sessions.get(SessionID.make(params.task_id)).pipe(Effect.catchCause(() => Effect.succeed(undefined)))
+          : undefined
       const childPermission = deriveSubagentSessionPermission({
         parentSessionPermission: parent.permission ?? [],
         subagent: next,

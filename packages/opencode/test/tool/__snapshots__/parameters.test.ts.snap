@@ -330,7 +330,7 @@ exports[`tool parameters JSON Schema (wire shape) task 1`] = `
       "type": "string",
     },
     "task_id": {
-      "description": "This should only be set if you mean to resume a previous task (you can pass a prior task_id and the task will continue the same subagent session as before instead of creating a fresh one)",
+      "description": "Only set this to resume a previous task, using the exact id from that task's own result (the \`id="..."\` on its <task> tag, e.g. "ses_abc123"). Never invent your own label here — an unrecognized value is ignored and a fresh task is started instead. Omit this field entirely for a new task.",
       "type": "string",
     },
   },

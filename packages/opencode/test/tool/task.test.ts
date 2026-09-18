@@ -388,6 +388,47 @@ describe("tool.task", () => {
     }),
   )
 
+  // A weaker model will sometimes invent a human-readable task_id instead of
+  // reusing a real one — SessionID.make() used to throw a raw schema
+  // validation error for that ("Expected a string starting with 'ses', got
+  // ...") which escaped the "task_id does not exist" handling above, since
+  // that only ever caught sessions.get failing, not its argument's
+  // construction. A malformed task_id must fall through the same as a
+  // well-formed but missing one.
+  it.instance("execute creates a child when task_id is not a valid session id", () =>
+    Effect.gen(function* () {
+      const sessions = yield* Session.Service
+      const { chat, assistant } = yield* seed()
+      const tool = yield* TaskTool
+      const def = yield* tool.init()
+      const promptOps = stubOps({ text: "created" })
+
+      const result = yield* def.execute(
+        {
+          description: "inspect bug",
+          prompt: "look into the cache key path",
+          subagent_type: "general",
+          task_id: "review-changes-1",
+        },
+        {
+          sessionID: chat.id,
+          messageID: assistant.id,
+          agent: "build",
+          abort: new AbortController().signal,
+          extra: { promptOps },
+          messages: [],
+          metadata: () => Effect.void,
+          ask: () => Effect.void,
+        },
+      )
+
+      const kids = yield* sessions.children(chat.id)
+      expect(kids).toHaveLength(1)
+      expect(kids[0]?.id).toBe(result.metadata.sessionId)
+      expect(result.output).toContain(`<task id="${result.metadata.sessionId}" state="completed">`)
+    }),
+  )
+
   it.instance("prevents subagents from launching subagents by default", () =>
     Effect.gen(function* () {
       const sessions = yield* Session.Service
