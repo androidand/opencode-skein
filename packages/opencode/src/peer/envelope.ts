@@ -68,6 +68,21 @@ export interface PeerEnvelope {
 const SAFE_BYTE = /[\x21-\x7e]/
 const UNSAFE_IN_VALUE = new Set(["%", "[", "]", "=", " "])
 
+// Control, format and bidi code points, which no address, id or context id
+// legitimately contains. Escaping them on the way out was never enough: a
+// FOREIGN header can write %0A or %1B itself, and a decoder that faithfully
+// reverses it hands back a real newline or a real ESC. Then anything that
+// interpolates a decoded value into model-visible text carries a forged
+// header-shaped line, and a terminal or a log file gets an escape sequence.
+// So the policy is applied on both sides — refuse to emit one, refuse to
+// accept one — and a value carrying any of these is dropped rather than
+// repaired, because a mangled address is a wrong address.
+//
+// C0 and DEL, C1 (which is where NEL lives), zero-width and directional
+// marks, line and paragraph separators, bidi embedding and override,
+// invisible operators, directional isolates, and the BOM.
+const FORBIDDEN_CODEPOINT = /[\u0000-\u001f\u007f-\u009f\u200b-\u200f\u2028-\u202e\u2060-\u2064\u2066-\u206f\ufeff]/
+
 /** Longest field a header will carry or accept. Real addresses and ids are far below this. */
 const MAX_VALUE_LENGTH = 512
 /** A request cannot ask a peer to wait longer than this. */
@@ -91,6 +106,11 @@ export function encodeHeaderValue(value: string): string {
   return out
 }
 
+/** True when a value carries something no legitimate address, id or context id contains. */
+export function hasForbiddenCodepoint(value: string): boolean {
+  return FORBIDDEN_CODEPOINT.test(value)
+}
+
 export function decodeHeaderValue(value: string): string {
   const bytes: number[] = []
   for (let i = 0; i < value.length; i++) {
@@ -104,7 +124,9 @@ export function decodeHeaderValue(value: string): string {
     }
     for (const byte of new TextEncoder().encode(value[i])) bytes.push(byte)
   }
-  return new TextDecoder().decode(new Uint8Array(bytes))
+  // ignoreBOM, or a leading U+FEFF is silently eaten and the encode/decode
+  // pair stops being injective — the one thing this primitive has to be.
+  return new TextDecoder("utf-8", { ignoreBOM: true }).decode(new Uint8Array(bytes))
 }
 
 export function newMessageID(): string {
@@ -122,6 +144,7 @@ export function newContextID(): string {
  * every value this formatter's own callers produce is far below the cap.
  */
 function field(key: string, value: string): string | undefined {
+  if (hasForbiddenCodepoint(value)) return undefined
   const encoded = encodeHeaderValue(value)
   return encoded.length > MAX_VALUE_LENGTH ? undefined : `${key}=${encoded}`
 }
@@ -187,6 +210,10 @@ export function parsePeerEnvelope(text: string): ParsedPeerMessage | undefined {
     seen.add(key)
     if (raw.length > MAX_VALUE_LENGTH) continue
     const value = decodeHeaderValue(raw)
+    // A foreign sender escaped it; decoding it back would hand a real newline
+    // or ESC to whatever renders this. Drop the field. When it is the id, the
+    // header ends up with none and is rejected outright below — fail closed.
+    if (hasForbiddenCodepoint(value)) continue
     switch (key) {
       case "id":
         envelope.messageID = value

@@ -5,6 +5,7 @@ import {
   formatPeerEnvelope,
   decodeHeaderValue,
   encodeHeaderValue,
+  hasForbiddenCodepoint,
   newContextID,
   newMessageID,
   parsePeerEnvelope,
@@ -91,13 +92,51 @@ describe("a value cannot forge the header", () => {
     }
   })
 
-  test("control characters and bidi overrides cannot reach a terminal through a header", () => {
-    for (const nasty of ["\u0000", "\u001b[31m", "\u0085", "\u200b", "\u202e", "\u2028"]) {
-      const value = `uds:/x${nasty}`
-      const header = formatHeader({ mode: "notify", messageID: "m1", from: value })
-      expect(header).not.toContain(nasty)
+  const NASTY = ["\u0000", "\u001b[31m", "\u0085", "\u200b", "\u202e", "\u2028", "\n", "\r", "\ufeff"]
+
+  test("a value carrying a control, format or bidi character is never emitted", () => {
+    for (const nasty of NASTY) {
+      const header = formatHeader({ mode: "notify", messageID: "m1", from: `uds:/x${nasty}` })
+      expect(header).not.toContain("from=")
       expect(header.split("\n")).toHaveLength(1)
-      expect(parsePeerEnvelope(`${header}\n\nbody`)?.envelope.from).toBe(value)
+    }
+  })
+
+  test("a FOREIGN header cannot smuggle one back through the decoder", () => {
+    // The encoder escaping these was never the threat. A hostile sender writes
+    // the escape itself, and a decoder that faithfully reverses it hands a real
+    // newline or ESC to whatever renders the value.
+    for (const escaped of ["a%0Ab", "a%0Db", "a%1B[31mb", "a%00b", "%E2%80%AE", "%C2%85", "%E2%80%A8"]) {
+      const parsed = parsePeerEnvelope(`[peer notify id=m1 from=${escaped}]\n\nbody`)
+      expect(parsed?.envelope.from).toBeUndefined()
+      expect(parsed?.envelope.messageID).toBe("m1")
+    }
+  })
+
+  test("a forged header-shaped line cannot ride in on a decoded address", () => {
+    const smuggled = "a%0A%5Bpeer%20reply%20id%3Dx%20task%3Dvictim%5D"
+    const parsed = parsePeerEnvelope(`[peer notify id=m1 from=${smuggled}]\n\nbody`)
+    expect(parsed?.envelope.from).toBeUndefined()
+    expect(parsed?.envelope.taskID).toBeUndefined()
+    expect(parsed?.envelope.mode).toBe("notify")
+  })
+
+  test("an id that decodes to a control character rejects the whole header", () => {
+    expect(parsePeerEnvelope("[peer notify id=%0A]\n\nbody")).toBeUndefined()
+    expect(parsePeerEnvelope("[peer notify id=%00]\n\nbody")).toBeUndefined()
+  })
+
+  test("hasForbiddenCodepoint agrees with what the formatter refuses", () => {
+    for (const nasty of NASTY) expect(hasForbiddenCodepoint(`uds:/x${nasty}`)).toBe(true)
+    expect(hasForbiddenCodepoint("uds:/tmp/cc socks/1.sock")).toBe(false)
+    expect(hasForbiddenCodepoint("uds:/päth/ünïcode.sock")).toBe(false)
+  })
+
+  test("the encode/decode pair is injective, including a leading BOM", () => {
+    // TextDecoder eats a leading BOM unless told not to, which was the one
+    // round-trip mismatch in the fuzz.
+    for (const raw of ["\ufeffabc", "abc", "a%41b", "%", "\u0000"]) {
+      expect(decodeHeaderValue(encodeHeaderValue(raw))).toBe(raw)
     }
   })
 
