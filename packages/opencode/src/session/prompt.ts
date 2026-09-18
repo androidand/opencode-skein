@@ -66,7 +66,7 @@ import { LLMEvent } from "@opencode-ai/llm"
 // importing it back creates a cycle that leaves SessionPrompt.node undefined
 // inside loop.ts's module-scope LayerNode.make — the app graph then crashes
 // every boot ("undefined is not an object (evaluating 'e.dependencies')").
-import { similarity as outputSimilarity } from "@/loop/similarity"
+import { LoopDetect } from "./loop-detect"
 
 // @ts-ignore
 globalThis.AI_SDK_LOG_WARNINGS = false
@@ -1149,8 +1149,9 @@ export const layer = Layer.effect(
         const ctx = yield* InstanceState.context
         let structured: unknown
         let step = 0
-        // fork: loop detection state — track near-identical output across turns
-        let lastOutputText: string | undefined
+        // fork: loop detection state — track the previous turn's output
+        // (text and/or tool calls) so the next turn can be compared against it
+        let lastTurn: LoopDetect.TurnSnapshot | undefined
         let loopStreak = 0
         // fork: single forced-tool-choice retry state — see the empty-turn check
         // at the loop exit below
@@ -1461,9 +1462,16 @@ export const layer = Layer.effect(
             Effect.onInterrupt(() => finalizeInterruptedAssistant),
           )
           if (outcome === "break") break
-          // fork: loop detection — check if this turn produced near-identical
-          // output to the previous turn with no tool calls, which means the
-          // agent is stuck in a text loop (e.g. endlessly "Thinking...")
+          // fork: loop detection — a turn is stuck the same way whether it
+          // produces near-identical text with no tool calls (endlessly
+          // "Thinking...") or repeats the exact same tool call as last time
+          // (e.g. retrying a failed send_peer_message forever). The tool-call
+          // case is the more expensive of the two — each repeat fires a real
+          // side effect — but used to be invisible here: this block only
+          // ever checked the no-tool-calls case, so any turn with a tool call
+          // unconditionally reset the streak regardless of whether it was an
+          // exact repeat of the previous one. See loop-detect.ts for the
+          // (pure, tested) comparison logic.
           {
             const currentParts = yield* MessageV2.parts(handle.message.id).pipe(
               Effect.provideService(Database.Service, database),
@@ -1472,47 +1480,51 @@ export const layer = Layer.effect(
               .filter((p): p is Extract<SessionV1.Part, { type: "text" }> => p.type === "text")
               .map((p) => p.text)
               .join(" ")
-            const currentHasToolCalls = currentParts.some((p) => p.type === "tool" && !isOrphanedInterruptedTool(p))
-            if (lastOutputText !== undefined && !currentHasToolCalls) {
-              const sim = outputSimilarity(currentText, lastOutputText)
-              if (sim >= LoopSimilarityThreshold) {
-                loopStreak++
-                if (loopStreak >= LoopMaxStreak) {
-                  // fork: sticky session-level break counting. loopStreak
-                  // resets every run, so without this a session that breaks,
-                  // auto-recovers via compaction, and breaks again cycles
-                  // forever. After LoopMaxSessionBreaks consecutive breaks
-                  // the session goes loop-dead (see SessionCompaction) and
-                  // auto-compaction refuses to run, so the terminal error
-                  // below is the last word instead of another silent cycle.
-                  const { breaks, terminal } = SessionCompaction.noteLoopBreak(sessionID)
-                  yield* Effect.logWarning("agent loop detected — breaking", {
-                    "session.id": sessionID,
-                    step,
-                    similarity: sim,
-                    streak: loopStreak,
-                    sessionBreaks: breaks,
-                    terminal,
-                  })
-                  handle.message.error = new NamedError.Unknown({
-                    message: terminal
-                      ? `Agent stuck in a loop ${breaks} times in a row with no progress — auto-recovery disabled for this session. Send a new message to reset, or start a fresh session.`
+            const toolParts = currentParts.filter(
+              (p): p is SessionV1.ToolPart => p.type === "tool" && !isOrphanedInterruptedTool(p),
+            )
+            const currentTurn: LoopDetect.TurnSnapshot = {
+              text: currentText,
+              toolSignature: LoopDetect.toolCallSignature(toolParts.map((p) => ({ tool: p.tool, input: p.state.input }))),
+            }
+            const result = LoopDetect.detectRepeat(currentTurn, lastTurn, LoopSimilarityThreshold)
+            if (result.repeated) {
+              loopStreak++
+              if (loopStreak >= LoopMaxStreak) {
+                // fork: sticky session-level break counting. loopStreak
+                // resets every run, so without this a session that breaks,
+                // auto-recovers via compaction, and breaks again cycles
+                // forever. After LoopMaxSessionBreaks consecutive breaks
+                // the session goes loop-dead (see SessionCompaction) and
+                // auto-compaction refuses to run, so the terminal error
+                // below is the last word instead of another silent cycle.
+                const { breaks, terminal } = SessionCompaction.noteLoopBreak(sessionID)
+                yield* Effect.logWarning("agent loop detected — breaking", {
+                  "session.id": sessionID,
+                  step,
+                  kind: result.kind,
+                  similarity: result.similarity,
+                  streak: loopStreak,
+                  sessionBreaks: breaks,
+                  terminal,
+                })
+                handle.message.error = new NamedError.Unknown({
+                  message: terminal
+                    ? `Agent stuck in a loop ${breaks} times in a row with no progress — auto-recovery disabled for this session. Send a new message to reset, or start a fresh session.`
+                    : result.kind === "tool"
+                      ? `Agent appears stuck in a loop — ${loopStreak} consecutive turns repeated the exact same tool call with no progress`
                       : `Agent appears stuck in a loop — ${loopStreak} consecutive turns produced near-identical output with no progress`,
-                  }).toObject()
-                  handle.message.time.completed = Date.now()
-                  yield* sessions.updateMessage(handle.message)
-                  yield* events.publish(Session.Event.Error, { sessionID, error: handle.message.error })
-                  break
-                }
-              } else {
-                loopStreak = 0
-                SessionCompaction.clearLoopState(sessionID)
+                }).toObject()
+                handle.message.time.completed = Date.now()
+                yield* sessions.updateMessage(handle.message)
+                yield* events.publish(Session.Event.Error, { sessionID, error: handle.message.error })
+                break
               }
             } else {
               loopStreak = 0
               SessionCompaction.clearLoopState(sessionID)
             }
-            lastOutputText = currentText
+            lastTurn = currentTurn
           }
           continue
         }
