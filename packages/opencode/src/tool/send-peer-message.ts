@@ -4,7 +4,7 @@ import { Permission } from "@/permission"
 import { sendClaudeMessage } from "@/peer/claude/client"
 import { resolveClaudeTarget } from "@/peer/claude/resolve"
 import { settleTaskReply } from "@/peer/delegate"
-import { deliverToOpencodeSession, foreignStatuses } from "@/peer/route"
+import { deliverToOpencodeSession, foreignRegistration, foreignRoster } from "@/peer/route"
 import { Session } from "@/session/session"
 import { SessionID } from "@/session/schema"
 import { SessionStatus } from "@/session/status"
@@ -71,11 +71,11 @@ export const SendPeerMessageTool = Tool.define(
             session.list(),
             status.list(),
             permission.list(),
-            Effect.promise(() => foreignStatuses()),
+            Effect.promise(() => foreignRoster()),
           ])
 
           const peers = resolveMessageTargets({
-            sessions: sessions.map((item) => ({
+            sessions: foreign.merge(sessions.map((item) => ({
               id: item.id,
               parentID: item.parentID,
               directory: item.directory,
@@ -83,12 +83,12 @@ export const SendPeerMessageTool = Tool.define(
               agent: item.agent,
               model: item.model ? { providerID: item.model.providerID, id: item.model.id } : undefined,
               updatedAt: item.time.updated,
-            })),
+            }))),
             statuses,
             pendingPermission: new Set(permissions.map((item) => item.sessionID)),
             loops: [],
             callerID: ctx.sessionID,
-            foreign,
+            foreign: foreign.statuses,
             now: Date.now(),
           })
 
@@ -182,11 +182,14 @@ export const SendPeerMessageTool = Tool.define(
           }
 
           const targetSessionID = SessionID.make(peer.sessionID)
-          const [caller, target] = yield* Effect.all([
+          const [caller, target, registration] = yield* Effect.all([
             session.get(ctx.sessionID).pipe(Effect.orElseSucceed(() => undefined)),
             session.get(targetSessionID).pipe(Effect.orElseSucceed(() => undefined)),
+            Effect.promise(() => foreignRegistration(peer.sessionID)),
           ])
-          if (!target) {
+          // A session in another project is invisible to this process's
+          // store; its registration is what says it exists.
+          if (!target && !registration) {
             return {
               title: "Peer disappeared",
               metadata: { reason: "unreachable", sessionID: peer.sessionID },
@@ -220,7 +223,7 @@ export const SendPeerMessageTool = Tool.define(
               ops
                 .prompt({
                   sessionID: targetSessionID,
-                  agent: target.agent ?? ctx.agent,
+                  agent: target?.agent ?? ctx.agent,
                   parts: [{ type: "text", synthetic: true, text }],
                 })
                 .pipe(Effect.ignore, Effect.forkIn(scope, { startImmediately: true })),

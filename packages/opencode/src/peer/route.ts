@@ -17,14 +17,60 @@ export const OPENCODE_FROM_PREFIX = "uds:opencode-skein:"
 
 export type ForeignStatus = "idle" | "busy"
 
-/** Registry truth for sessions owned by OTHER opencode processes: ownerSessionID → status. */
-export async function foreignStatuses(): Promise<Map<string, ForeignStatus>> {
-  const out = new Map<string, ForeignStatus>()
+export interface ForeignPeer {
+  sessionID: string
+  title: string
+  directory: string
+  status: ForeignStatus
+  pid: number
+}
+
+export interface ForeignRoster {
+  /** ownerSessionID → status, for `ResolveInput.foreign`. */
+  statuses: Map<string, ForeignStatus>
+  peers: ForeignPeer[]
+  /**
+   * `Session.list()` is scoped to this process's project; a sibling in
+   * another directory is only known through its registration. Add those as
+   * sessions so they resolve as targets and show in the roster.
+   */
+  merge: <T extends { id: string; directory: string; title: string; updatedAt: number; parentID?: string }>(
+    sessions: readonly T[],
+  ) => T[]
+}
+
+/** Registry truth for sessions owned by OTHER opencode processes. */
+export async function foreignRoster(): Promise<ForeignRoster> {
+  const peers: ForeignPeer[] = []
+  const statuses = new Map<string, ForeignStatus>()
   for (const entry of await safeRegistrations()) {
     if (isManaged(entry.ownerSessionID)) continue
-    out.set(entry.ownerSessionID, entry.status === "busy" ? "busy" : "idle")
+    const status: ForeignStatus = entry.status === "busy" ? "busy" : "idle"
+    statuses.set(entry.ownerSessionID, status)
+    peers.push({
+      sessionID: entry.ownerSessionID,
+      title: entry.name.replace(/^opencode:/, ""),
+      directory: entry.cwd,
+      status,
+      pid: entry.pid,
+    })
   }
-  return out
+  const now = Date.now()
+  return {
+    statuses,
+    peers,
+    merge: (sessions) => {
+      const known = new Set(sessions.map((s) => s.id))
+      const extra = peers
+        .filter((peer) => !known.has(peer.sessionID))
+        .map((peer) => ({ id: peer.sessionID, directory: peer.directory, title: peer.title, updatedAt: now }))
+      return [...sessions, ...(extra as unknown as typeof sessions)]
+    },
+  }
+}
+
+export async function foreignStatuses(): Promise<Map<string, ForeignStatus>> {
+  return (await foreignRoster()).statuses
 }
 
 export async function foreignRegistration(sessionID: string): Promise<SidecarRegistration | undefined> {

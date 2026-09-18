@@ -30,7 +30,7 @@ import {
   type PeerCandidate,
   type TaskReplyResult,
 } from "@/peer/delegate"
-import { deliverToOpencodeSession, foreignStatuses } from "@/peer/route"
+import { deliverToOpencodeSession, foreignRoster } from "@/peer/route"
 
 export interface TaskPromptOps {
   cancel(sessionID: SessionID): Effect.Effect<void>
@@ -363,7 +363,7 @@ export const TaskTool = Tool.define(
           sessionStatus.list(),
           permission.list(),
           provider ? provider.list() : Effect.succeed({} as Record<string, Provider.Info>),
-          Effect.promise(() => foreignStatuses()),
+          Effect.promise(() => foreignRoster()),
         ])
         const localProviderIDs = new Set(
           Object.values(providers)
@@ -371,7 +371,7 @@ export const TaskTool = Tool.define(
             .map((info) => info.id as string),
         )
         const opencodePeers = resolveMessageTargets({
-          sessions: all.map((item) => ({
+          sessions: foreign.merge(all.map((item) => ({
             id: item.id,
             parentID: item.parentID,
             directory: item.directory,
@@ -379,12 +379,12 @@ export const TaskTool = Tool.define(
             agent: item.agent,
             model: item.model ? { providerID: item.model.providerID, id: item.model.id } : undefined,
             updatedAt: item.time.updated,
-          })),
+          }))),
           statuses,
           pendingPermission: new Set(permissions.map((item) => item.sessionID)),
           loops: [],
           callerID: ctx.sessionID,
-          foreign,
+          foreign: foreign.statuses,
           now: Date.now(),
         }).map(
           (peer): PeerCandidate => ({
@@ -444,20 +444,16 @@ export const TaskTool = Tool.define(
           }
         } else {
           const target = yield* sessions.get(SessionID.make(peer.id)).pipe(Effect.orElseSucceed(() => undefined))
-          if (!target) {
-            cancelTaskReply(nextSession.id)
-            return undefined
-          }
           const outcome = yield* deliverToOpencodeSession({
-            targetSessionID: target.id,
+            targetSessionID: peer.id,
             fromSessionID: ctx.sessionID,
             fromName: parent.title,
             text: envelope,
             local: () =>
               ops
                 .prompt({
-                  sessionID: target.id,
-                  agent: target.agent ?? ctx.agent,
+                  sessionID: SessionID.make(peer.id),
+                  agent: target?.agent ?? ctx.agent,
                   parts: [
                     {
                       type: "text",
