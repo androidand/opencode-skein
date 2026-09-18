@@ -5,7 +5,7 @@ import { RuntimeFlags } from "@/effect/runtime-flags"
 import { LocalPlacement } from "@/local/placement"
 import { Permission } from "@/permission"
 import { Provider } from "@/provider/provider"
-import { foreignStatuses } from "@/peer/route"
+import { foreignRoster } from "@/peer/route"
 import { Session } from "@/session/session"
 import { SessionStatus } from "@/session/status"
 import { describePeer, resolvePeers } from "@/session/peers"
@@ -39,7 +39,7 @@ export const PeersTool = Tool.define(
 
           const [claudePeers, foreign, hosts] = yield* Effect.all([
             Effect.promise(() => fetchClaudeAgentRecords({ enabled: !flags.disableClaudeCodePeerSource })),
-            Effect.promise(() => foreignStatuses()),
+            Effect.promise(() => foreignRoster()),
             provider
               ? provider.list().pipe(
                   Effect.flatMap((providers) => Effect.promise(() => LocalPlacement.hostCapacity(providers))),
@@ -53,7 +53,7 @@ export const PeersTool = Tool.define(
           )
 
           const peers = resolvePeers({
-            sessions: sessions.map((item) => ({
+            sessions: foreign.merge(sessions.map((item) => ({
               id: item.id,
               parentID: item.parentID,
               directory: item.directory,
@@ -61,7 +61,7 @@ export const PeersTool = Tool.define(
               agent: item.agent,
               model: item.model ? { providerID: item.model.providerID, id: item.model.id } : undefined,
               updatedAt: item.time.updated,
-            })),
+            }))),
             statuses,
             pendingPermission: new Set(permissions.map((item) => item.sessionID)),
             // No loop state here: the Loop service depends on the prompt
@@ -72,7 +72,7 @@ export const PeersTool = Tool.define(
             loops: [],
             callerID: ctx.sessionID,
             branches,
-            foreign,
+            foreign: foreign.statuses,
             now: Date.now(),
           })
 

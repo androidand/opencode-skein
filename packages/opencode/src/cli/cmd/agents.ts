@@ -14,7 +14,7 @@ import { SessionStatus } from "@/session/status"
 import { resolveMessageTargets } from "@/session/peers"
 import { GitBranch } from "@/util/git-branch"
 import { fetchClaudeAgentRecords, listClaudePeers } from "@/agent/presence-claude"
-import { foreignStatuses } from "@/peer/route"
+import { foreignRoster } from "@/peer/route"
 import { EOL } from "os"
 
 interface AgentRecord {
@@ -48,13 +48,13 @@ export const AgentsCommand = effectCmd({
     const [sessions, statuses, permissions] = yield* Effect.all([session.list(), status.list(), permission.list()])
     const [branches, foreign] = yield* Effect.all([
       Effect.promise(() => GitBranch.currentBranches(sessions.map((item) => item.directory))),
-      Effect.promise(() => foreignStatuses()),
+      Effect.promise(() => foreignRoster()),
     ])
 
     // Not scoped to a caller: this is a whole-machine listing, like `claude
     // agents --json` — includeIdle so a quiet session still shows up.
     const opencodePeers = resolveMessageTargets({
-      sessions: sessions.map((item) => ({
+      sessions: foreign.merge(sessions.map((item) => ({
         id: item.id,
         parentID: item.parentID,
         directory: item.directory,
@@ -62,13 +62,13 @@ export const AgentsCommand = effectCmd({
         agent: item.agent,
         model: item.model ? { providerID: item.model.providerID, id: item.model.id } : undefined,
         updatedAt: item.time.updated,
-      })),
+      }))),
       statuses,
       pendingPermission: new Set(permissions.map((item) => item.sessionID)),
       loops: [],
       callerID: "",
       branches,
-      foreign,
+      foreign: foreign.statuses,
       now: Date.now(),
     })
 
