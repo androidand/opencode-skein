@@ -18,6 +18,14 @@
 - [ ] 1.1 Add the `claims` table and migration with the partial unique index
       on (projectID, slug) where `releasedAt IS NULL`, including `providerID`
       and `modelID` so the board doubles as a capacity map.
+      Done on branch `crew-loop/claims` (not merged — adds a table to the
+      shared session database for a feature still at proposal stage; that is
+      a product decision, not a code-readiness one). Migration registered,
+      claim/heartbeat/release/listLive/listAbandoned implemented, 7 tests
+      pass including two added for a review finding: heartbeat on an
+      already-released claim now fails with ClaimReleasedError instead of
+      succeeding silently, and release is idempotent (a second release does
+      not overwrite the first release's timestamp or reason).
 - [ ] 1.2 `loop/crew/claims.ts`: claim, heartbeat, release, listLive,
       listAbandoned; unit tests for atomic claim and stale detection.
 - [ ] 1.3 Queue cursor skips slugs with a live claim; queue mode records a
