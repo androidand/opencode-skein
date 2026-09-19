@@ -168,7 +168,16 @@ export function DialogSelect<T>(props: DialogSelectProps<T>) {
   })
 
   const filtered = createMemo(() => {
-    if (props.skipFilter || props.renderFilter === false) return props.options.filter((x) => x.disabled !== true)
+    // Every current caller that sets `disabled: true` (a loading/status line,
+    // an offline or incompatible entry with a reason in its description) does
+    // so to show something informational and inert — not to make the row
+    // vanish. Dropping it here made it invisible instead, and left
+    // `store.selected` — a bare index into whatever's left — free to silently
+    // resolve onto a real, unrelated row once the list reshuffled around it
+    // (e.g. once async data replaced a loading placeholder), with no user
+    // input in between. moveTo/submit/onMouseUp now refuse a disabled target
+    // directly, so keeping disabled rows in place is safe as well as visible.
+    if (props.skipFilter || props.renderFilter === false) return props.options
     const needle = store.filter.toLowerCase()
     const options = pipe(
       props.options,
@@ -305,22 +314,38 @@ export function DialogSelect<T>(props: DialogSelectProps<T>) {
 
   function move(direction: number) {
     if (props.locked) return
-    if (flat().length === 0) return
-    let next = store.selected + direction
-    if (next < 0) next = flat().length - 1
-    if (next >= flat().length) next = 0
-    moveTo(next, true)
+    const list = flat()
+    if (list.length === 0) return
+    // A disabled row is an informational/status line, never a destination —
+    // step past it in the requested direction rather than landing on it.
+    // Bounded by list.length so an all-disabled list (nothing selectable)
+    // just leaves the selection where it is instead of spinning forever.
+    let next = store.selected
+    for (let i = 0; i < list.length; i++) {
+      next += direction
+      if (next < 0) next = list.length - 1
+      if (next >= list.length) next = 0
+      if (list[next]?.disabled !== true) {
+        moveTo(next, true)
+        return
+      }
+    }
   }
 
   function moveTo(next: number, center = false, preserve = true) {
+    // Every caller of moveTo (arrow-key nav, mouse hover/down, the
+    // props.current/filter-change effects) ends up here, so this is the one
+    // place that has to refuse a disabled target — otherwise a row that's
+    // disabled today can silently become "selected" the instant the list
+    // reshuffles under it (e.g. once async data arrives), with no user input
+    // in between, and a stray Enter or click fires whatever it landed on.
+    const option = flat()[next]
+    if (!option || option.disabled === true) return
     setFocusedAction(undefined)
     setStore("selected", next)
-    const option = selected()
-    if (option) {
-      selection = option
-      resetSelection = !preserve
-    }
-    if (option) props.onMove?.(option)
+    selection = option
+    resetSelection = !preserve
+    props.onMove?.(option)
     scrollToSelection(center)
   }
 
@@ -366,7 +391,7 @@ export function DialogSelect<T>(props: DialogSelectProps<T>) {
       return
     }
     const option = selected()
-    if (!option) return
+    if (!option || option.disabled === true) return
     option.onSelect?.(dialog)
     props.onSelect?.(option)
   }
@@ -663,6 +688,7 @@ export function DialogSelect<T>(props: DialogSelectProps<T>) {
                           }}
                           onMouseUp={() => {
                             if (props.locked) return
+                            if (option.disabled === true) return
                             option.onSelect?.(dialog)
                             props.onSelect?.(option)
                           }}
@@ -708,6 +734,7 @@ export function DialogSelect<T>(props: DialogSelectProps<T>) {
                               active={active()}
                               current={current()}
                               muted={actionFocused()}
+                              disabled={option.disabled}
                               gutter={option.gutter}
                             />
                           </box>
@@ -752,6 +779,7 @@ function Option(props: {
   active?: boolean
   current?: boolean
   muted?: boolean
+  disabled?: boolean
   footer?: JSX.Element | string
   titleWidth?: number
   truncateTitle?: boolean | "left"
@@ -761,6 +789,7 @@ function Option(props: {
   const { theme } = useTheme()
   const fg = selectedForeground(theme)
   const text = createMemo(() => {
+    if (props.disabled) return theme.textMuted
     if (props.active && !props.muted) return fg
     if (props.muted && (props.active || props.current)) return theme.textMuted
     if (props.current) return theme.primary
@@ -782,7 +811,7 @@ function Option(props: {
       <text
         flexGrow={1}
         fg={text()}
-        attributes={props.active && !props.muted ? TextAttributes.BOLD : undefined}
+        attributes={props.active && !props.muted && !props.disabled ? TextAttributes.BOLD : undefined}
         overflow="hidden"
         wrapMode="none"
         paddingLeft={3}

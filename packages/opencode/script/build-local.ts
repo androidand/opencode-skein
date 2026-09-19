@@ -18,13 +18,21 @@ import { fileURLToPath } from "url"
 import pkg from "../package.json"
 
 const dir = path.dirname(fileURLToPath(import.meta.url))
-const branch = (await $`git branch --show-current`.text()).trim() || "local"
 const sha = (await $`git rev-parse --short HEAD`.text().catch(() => "unknown")).trim()
 const dirty = (await $`git status --porcelain`.text()).trim().length > 0 ? "-dirty" : ""
 const timestamp = new Date().toISOString().replace(/[-:]/g, "").replace(/\.\d+Z$/, "Z")
 
+// The channel picks which `opencode-<channel>.db` session database the built
+// binary opens (core/src/database/database.ts). It used to default to
+// `git branch --show-current`, so every differently-named branch a local
+// build ran from silently forked off its own session history — a build from
+// a feature branch made the whole session list "disappear" until you
+// switched back. `sha`+`dirty`+`timestamp` in OPENCODE_VERSION already give
+// every build a distinguishable identity, so the channel no longer needs to
+// track the branch: pin it to a stable value and let a real channel split
+// (e.g. isolated testing) be an explicit `OPENCODE_CHANNEL=` override.
 await $`bun run ${path.join(dir, "build.ts")} --single ${process.argv.slice(2)}`.env({
   ...process.env,
   OPENCODE_VERSION: process.env.OPENCODE_VERSION ?? `${pkg.version}-dev+${sha}${dirty}.${timestamp}`,
-  OPENCODE_CHANNEL: process.env.OPENCODE_CHANNEL ?? branch,
+  OPENCODE_CHANNEL: process.env.OPENCODE_CHANNEL ?? "dev",
 })
