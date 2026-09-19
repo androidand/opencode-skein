@@ -347,6 +347,11 @@
       "note": "Fork edit to an upstream file (+11/-1 vs baseline). Marker is a string the fork's edit introduces and upstream does not contain, so a merge that reverts the edit fails fork:verify."
     },
     {
+      "file": "packages/core/src/installation/version.ts",
+      "marker": "InstallationReleaseChannels",
+      "note": "Fork edit to an upstream file. Adds InstallationIsRelease (channel is latest/beta/prod) alongside the existing InstallationLocal, shared by database.ts's session-db path and upgrade.ts's self-upgrade eligibility check so any non-release build — not just literally channel \"local\" — is treated as never having been published. Marker is a string the fork's edit introduces and upstream does not contain, so a merge that reverts the edit fails fork:verify."
+    },
+    {
       "file": "packages/core/src/database/sqlite.bun.ts",
       "marker": "fork: this DB file is shared by every co",
       "note": "Fork edit to an upstream file (+9/-0 vs baseline). Marker is a string the fork's edit introduces and upstream does not contain, so a merge that reverts the edit fails fork:verify."
@@ -408,8 +413,8 @@
     },
     {
       "file": "packages/opencode/src/cli/upgrade.ts",
-      "marker": "InstallationLocal",
-      "note": "Fork edit to an upstream file (+8/-1 vs baseline). Marker is a string the fork's edit introduces and upstream does not contain, so a merge that reverts the edit fails fork:verify."
+      "marker": "InstallationIsRelease",
+      "note": "Fork edit to an upstream file. Skips the self-upgrade check for any non-release channel (was only the literal \"local\" channel, which missed a local build on the fork's own \"dev\" channel — confirmed live: it read as needing a release patch and silently curl-installed over a running dev binary mid-session). Marker is a string the fork's edit introduces and upstream does not contain, so a merge that reverts the edit fails fork:verify."
     },
     {
       "file": "packages/opencode/src/command/index.ts",
