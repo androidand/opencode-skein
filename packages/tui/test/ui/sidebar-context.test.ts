@@ -25,7 +25,7 @@ function mountEffect() {
 describe("ui.sidebar-context.poll key string-equality memo contract", () => {
   test("identical string value does not re-run the poll (stream tick is a no-op)", () => {
     const { setValue, runs } = mountEffect()
-    const key = "http://m3|qwen3:0.5b"
+    const key = "http://host-a|qwen3:0.5b"
     setValue(key)
     expect(runs).toEqual([null, key])
     setValue(key) // same baseURL + modelID again — e.g. many stream ticks
@@ -34,17 +34,17 @@ describe("ui.sidebar-context.poll key string-equality memo contract", () => {
 
   test("changed modelID re-runs the poll (switch model on one host)", () => {
     const { setValue, runs } = mountEffect()
-    setValue("http://m3|qwen3:0.5b")
+    setValue("http://host-a|qwen3:0.5b")
     // Same provider, different model — the host+model key changes.
-    setValue("http://m3|qwen3:4b")
-    expect(runs).toEqual([null, "http://m3|qwen3:0.5b", "http://m3|qwen3:4b"])
+    setValue("http://host-a|qwen3:4b")
+    expect(runs).toEqual([null, "http://host-a|qwen3:0.5b", "http://host-a|qwen3:4b"])
   })
 
   test("changed baseURL re-runs the poll (switch provider)", () => {
     const { setValue, runs } = mountEffect()
-    setValue("http://m3|qwen3:0.5b")
-    setValue("http://z4|llama3:8b")
-    expect(runs).toEqual([null, "http://m3|qwen3:0.5b", "http://z4|llama3:8b"])
+    setValue("http://host-a|qwen3:0.5b")
+    setValue("http://host-b|llama3:8b")
+    expect(runs).toEqual([null, "http://host-a|qwen3:0.5b", "http://host-b|llama3:8b"])
   })
 
   test("staying null does not re-run the poll (no host)", () => {

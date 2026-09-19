@@ -17,7 +17,7 @@ test("unreachable fit endpoint leaves the cache empty and never throws", async (
   const llamaClient = new LlamaSkeinClient({
     client: createClient(createConfig({ baseUrl: normalizeBaseURL("http://127.0.0.1:1") })),
   })
-  const result = await fetchFitReportForProvider(llamaClient, "rocky", setCache)
+  const result = await fetchFitReportForProvider(llamaClient, "host-a", setCache)
   expect(result).toBeUndefined()
   expect(cache).toEqual({})
 })
@@ -31,7 +31,7 @@ test("a fit report is cached per provider id", async () => {
   const setCache = (updater: (prev: Record<string, FitReport>) => Record<string, FitReport>) => {
     Object.assign(cache, updater(cache))
   }
-  const result = await fetchFitReportForProvider(fakeClient, "rocky", setCache)
+  const result = await fetchFitReportForProvider(fakeClient, "host-a", setCache)
   expect(result).toBe(sample)
-  expect(cache.rocky).toBe(sample)
+  expect(cache['host-a']).toBe(sample)
 })

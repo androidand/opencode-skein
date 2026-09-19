@@ -1,4 +1,4 @@
-import type { ResourceSnapshot } from "./llama-skein/gen/types.gen"
+import type { FitLevel, FitReport, ModelFit, ResourceSnapshot } from "./llama-skein/gen/types.gen"
 
 /**
  * Model-fit engine: turn a local backend's hardware snapshot into a safe
@@ -85,6 +85,96 @@ export function fmtGB(mb: number): string {
 
 export function normalizeBaseURL(url: string): string {
   return url.replace(/\/+$/, "").replace(/\/v1$/, "")
+}
+
+// ── per-model fit verdicts, for the model picker ──────────────────────────
+//
+// `/api/fit` reports one verdict per configured model, keyed by id
+// (`ModelFit.model`). A model absent from the report — or no report at all —
+// carries no verdict, which every helper below treats as "we don't know",
+// never as "it doesn't fit": a missing signal must degrade to the unannotated,
+// fully-usable list a report-less dialog already showed before fit data
+// existed, not to a false negative that hides a real, loadable model.
+
+function findFit(report: FitReport | undefined, modelID: string): ModelFit | undefined {
+  return report?.models.find((entry) => entry.model === modelID)
+}
+
+const FIT_LEVEL_LABEL: Record<FitLevel, string> = {
+  perfect: "Perfect fit",
+  good: "Good fit",
+  tight: "Tight fit",
+  marginal: "Marginal fit",
+  no: "Does not fit",
+  unknown: "Fit unknown",
+}
+
+/** The verdict's label, whatever it is — including "Fit unknown". Undefined only when there is no verdict at all. */
+export function fmtFitLevel(report: FitReport | undefined, modelID: string): string | undefined {
+  const fit = findFit(report, modelID)
+  return fit ? FIT_LEVEL_LABEL[fit.fit_level] : undefined
+}
+
+/** True only for an explicit "no" verdict. Never fabricated from a missing report or a missing entry. */
+export function fitIsNo(report: FitReport | undefined, modelID: string): boolean {
+  return findFit(report, modelID)?.fit_level === "no"
+}
+
+/** False only when the verdict is explicitly "no". No data — no report, or no entry for this model — reads as safe. */
+export function fitIsLoadable(report: FitReport | undefined, modelID: string): boolean {
+  return !fitIsNo(report, modelID)
+}
+
+/**
+ * True when there is no usable verdict for this model: no report at all, no
+ * entry for it, or an explicit "unknown" (VRAM could not be read). All three
+ * are the same case from the UI's point of view — nothing to show.
+ */
+export function fitIsUnknown(report: FitReport | undefined, modelID: string): boolean {
+  const fit = findFit(report, modelID)
+  return !fit || fit.fit_level === "unknown"
+}
+
+/** The label to show next to a model, or undefined when there is no verdict worth showing (no data, or "unknown"). */
+export function fitLabel(report: FitReport | undefined, modelID: string): string | undefined {
+  if (fitIsUnknown(report, modelID)) return undefined
+  return fmtFitLevel(report, modelID)
+}
+
+/**
+ * The model to pre-select when a fit report is available: the largest
+ * loadable model by resident weight size, tie-broken by higher measured
+ * throughput and then by id — a deterministic order so the same report
+ * always recommends the same model. `sizeFor` supplies a size when the fit
+ * report didn't measure `model_mb` (an older backend, or a model that hasn't
+ * been probed with weights loaded yet); it is never a substitute for a real
+ * "no" or "unknown" verdict, both of which exclude a model outright.
+ *
+ * No report at all is "no data to recommend from", not "recommend nothing is
+ * wrong" — returns undefined rather than guessing.
+ */
+export function recommendedModelID(report: FitReport | undefined, sizeFor: (modelID: string) => number): string | undefined {
+  if (!report) return undefined
+  const candidates = report.models.filter((entry) => entry.fit_level !== "no" && entry.fit_level !== "unknown")
+  if (candidates.length === 0) return undefined
+
+  const sizeOf = (entry: ModelFit) => (entry.model_mb && entry.model_mb > 0 ? entry.model_mb : sizeFor(entry.model))
+
+  let best = candidates[0]
+  let bestSize = sizeOf(best)
+  for (const entry of candidates.slice(1)) {
+    const size = sizeOf(entry)
+    const better =
+      size > bestSize ||
+      (size === bestSize &&
+        ((entry.est_tokens_per_sec ?? 0) > (best.est_tokens_per_sec ?? 0) ||
+          ((entry.est_tokens_per_sec ?? 0) === (best.est_tokens_per_sec ?? 0) && entry.model < best.model)))
+    if (better) {
+      best = entry
+      bestSize = size
+    }
+  }
+  return best.model
 }
 
 /** Map a llama-skein hardware snapshot to the memory view used for fitting. */
