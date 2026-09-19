@@ -2670,3 +2670,58 @@ test("openai-compatible: discovery handles missing data field silently", async (
     await server.stop()
   }
 })
+
+test("adjustLocalContextOnOverflow: stale limit.context after a mid-session --parallel raise corrects on 413", async () => {
+  // Phase 1, task 1.2. llama-skein divides max_safe_ctx by --parallel (fit.go),
+  // so raising --parallel on a running host shrinks the per-request ceiling
+  // without reloading. opencode adopts max_safe_ctx as limit.context at
+  // discovery and on a 413, but never when --parallel merely changes mid-run,
+  // so the cached limit stays at the old (too-large) value until the next
+  // overflow re-probes. This reproduces that window and the correction.
+  const server = Bun.serve({
+    port: 0,
+    fetch(req) {
+      const url = new URL(req.url)
+      if (url.pathname === "/api/fit/qopus") {
+        return Response.json({ model: "qopus", fit_level: "tight", max_safe_ctx: 25000, backend: "llamacpp" })
+      }
+      return new Response("not found", { status: 404 })
+    },
+  })
+  try {
+    const providerID = ProviderV2.ID.make("local-llm")
+    const modelID = ModelV2.ID.make("qopus")
+    const model = fakeModel({ providerID, id: modelID, context: 100000 })
+    const state = fakeState(model)
+    // Discovery ceiling (--parallel = 1) is already cached; the operator raised
+    // --parallel to 4 on the running host but nothing has re-probed yet, so the
+    // cached value is still the stale, too-large one.
+    expect(state.providers[providerID].models[modelID].limit.context).toBe(100000)
+
+    // A prompt sized for the old ceiling 413s on the new one. Recovery reads the
+    // fresh ceiling from the header and re-writes limit.context so the next turn
+    // compacts against 25000 instead of repeating the same oversized request.
+    const res = new Response(
+      JSON.stringify({
+        error: {
+          message: "prompt exceeds safe context",
+          type: "exceed_context_size_error",
+          code: "prompt_over_max_safe_ctx",
+          max_ctx: 25000,
+        },
+      }),
+      { status: 413, headers: { "X-Skein-Max-Safe-Ctx": "25000" } },
+    )
+    const shouldRetryInline = await Provider.adjustLocalContextOnOverflow(
+      state,
+      model,
+      `http://localhost:${server.port}/v1`,
+      JSON.stringify({ model: modelID }),
+      res,
+    )
+    expect(shouldRetryInline).toBe(false)
+    expect(state.providers[providerID].models[modelID].limit.context).toBe(25000)
+  } finally {
+    await server.stop()
+  }
+})

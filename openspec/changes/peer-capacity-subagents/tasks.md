@@ -2,7 +2,7 @@
 
 ## Phase 0: Find out why the existing path is unused
 
-- [ ] 0.1 Instrument the placement decision: log the chosen option and the
+- [x] 0.1 Instrument the placement decision: log the chosen option and the
       rejected candidates with their scores, at every `task` call that runs
       placement. No behaviour change.
 - [ ] 0.2 Run a normal day's work and read the log. Establish which of the

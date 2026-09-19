@@ -5,8 +5,17 @@
 - [x] 1.1 Confirmed at the source instead: llama-skein `internal/fit/fit.go:505-512` divides
       `max_safe_ctx` by `--parallel`; opencode adopts it as `limit.context`
       (`provider.ts:1698`). No host currently runs `--parallel > 1` to measure against.
-- [ ] 1.2 Reproduce the stale case: raise `--parallel` on a running host mid-session and
+- [x] 1.2 Reproduce the stale case: raise `--parallel` on a running host mid-session and
       show opencode keeps the old `limit.context` until a 413
+      Added `test/provider/provider.test.ts` "adjustLocalContextOnOverflow: stale
+      limit.context after a mid-session --parallel raise corrects on 413": opencode
+      caches `limit.context = 100000` at discovery (`--parallel = 1`); the operator later
+      raises `--parallel` to 4, so the host now advertises `max_safe_ctx = 25000` from
+      `/api/fit`, but nothing re-probes just because the fit changed mid-run — the cached
+      value stays stale. A prompt sized for the old ceiling then 413s on the new one, and
+      `adjustLocalContextOnOverflow` re-probes and writes the fresh `25000` through, so the
+      next turn compacts against the corrected budget. `bun test test/provider/provider.test.ts`
+      = 114 pass, 0 fail.
 - [x] 1.3 `pick` returns the chosen model's fresh `maxSafeCtx`; `task.ts` writes it through
       `Provider.setModelContextLimit(..., "keep")` (context only, ceiling untouched)
 

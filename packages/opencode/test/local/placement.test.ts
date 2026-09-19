@@ -6,6 +6,7 @@ import {
   freeSlots,
   isPrivateURL,
   parentCapacity,
+  pick,
   type Probe,
 } from "../../src/local/placement"
 import type { Provider } from "../../src/provider/provider"
@@ -280,5 +281,112 @@ describe("isPrivateURL", () => {
     expect(isPrivateURL("https://swedencentral.api.cognitive.microsoft.com/openai/v1")).toBe(false)
     expect(isPrivateURL("http://172.32.0.1")).toBe(false)
     expect(isPrivateURL("not a url")).toBe(false)
+  })
+})
+
+// Phase 0, task 0.1: pick() must return every probed candidate with its score
+// so the caller can log why each alternative lost. A host that never answered
+// its probe, and one filtered out for lacking a free slot, both show up as
+// ineligible with no score. Uses a live mock llama-skein host so the real
+// probe() exercises the same code path as production.
+describe("pick() returns candidate scores for explainability", () => {
+  // A minimal live host: answers /api/hardware and /api/fit. `busy` makes the
+  // only slot unavailable so the slot gate filters it. `tinyCtx` makes the
+  // context gate filter it. `ok` is a fully eligible host.
+  function mockHost(id: string, opts: { busy?: boolean; tinyCtx?: boolean; loaded?: string }): Provider.Info {
+    // port 0 lets the OS pick a free port; we read it back so the baseURL is
+    // correct regardless of what other hosts in the same test happened to use.
+    const server = Bun.serve({
+      port: 0,
+      fetch(req) {
+        const url = new URL(req.url)
+        if (url.pathname === "/api/hardware") {
+          return Response.json({
+            gpus: [],
+            inference: { busy: opts.busy ?? false, in_flight: opts.busy ? 1 : 0, slots_total: 1 },
+            loaded_model: opts.loaded ? { id: opts.loaded } : undefined,
+          })
+        }
+        if (url.pathname === "/api/fit") {
+          return Response.json({
+            models: [
+              {
+                model: "big",
+                fit_level: "perfect",
+                max_safe_ctx: opts.tinyCtx ? 1_024 : 32_768,
+                est_tokens_per_sec: 300,
+                backend: "llamacpp",
+                vram_free_mb: 20_000,
+              },
+            ],
+          })
+        }
+        return new Response("not found", { status: 404 })
+      },
+    })
+    const port = server.port
+    const provider = {
+      id,
+      options: { baseURL: `http://127.0.0.1:${port}/v1` },
+      models: Object.fromEntries(["big"].map((m) => [m, { id: m, capabilities: { toolcall: true } }])),
+    } as unknown as Provider.Info
+    return provider
+  }
+
+  test("placed outcome lists every eligible candidate with a score", async () => {
+    const good = mockHost("good", { loaded: "big" })
+    const slow = mockHost("slow", {})
+    const parent = mockHost("parent", {})
+    const providers = { parent, good, slow } as unknown as Record<string, Provider.Info>
+    const result = await pick({
+      parent: { providerID: "parent" as never, modelID: "big" as never },
+      providers,
+      promptText: "x".repeat(4_000),
+    })
+    expect(result.kind).toBe("placed")
+    if (result.kind !== "placed") return
+    expect(result.candidates).toHaveLength(2)
+    expect(result.candidates.every((c) => c.eligible && typeof c.score === "number")).toBe(true)
+    const scores = result.candidates.map((c) => c.score)
+    // The resident, perfect-fit host outranks the plain good-fit one.
+    const goodEntry = result.candidates.find((c) => c.providerID === "good")
+    const slowEntry = result.candidates.find((c) => c.providerID === "slow")
+    expect(goodEntry!.score!).toBeGreaterThan(slowEntry!.score!)
+  })
+
+  test("a host filtered for no free slot is recorded as ineligible without a score", async () => {
+    const idle = mockHost("idle", { loaded: "big" })
+    const busy = mockHost("busy", { busy: true })
+    const parent = mockHost("parent", {})
+    const providers = { parent, busy, idle } as unknown as Record<string, Provider.Info>
+    const result = await pick({
+      parent: { providerID: "parent" as never, modelID: "big" as never },
+      providers,
+      promptText: "x".repeat(4_000),
+    })
+    expect(result.kind).toBe("placed")
+    if (result.kind !== "placed") return
+    const busyEntry = result.candidates.find((c) => c.providerID === "busy")
+    expect(busyEntry?.eligible).toBe(false)
+    expect(busyEntry?.score).toBeUndefined()
+    const idleEntry = result.candidates.find((c) => c.providerID === "idle")
+    expect(idleEntry?.eligible).toBe(true)
+    expect(typeof idleEntry?.score).toBe("number")
+  })
+
+  test("none outcome still lists every candidate as ineligible", async () => {
+    const tiny = mockHost("tiny", { tinyCtx: true })
+    const parent = mockHost("parent", {})
+    const providers = { parent, tiny } as unknown as Record<string, Provider.Info>
+    const result = await pick({
+      parent: { providerID: "parent" as never, modelID: "big" as never },
+      providers,
+      promptText: "x".repeat(8_000),
+    })
+    expect(result.kind).toBe("none")
+    if (result.kind !== "none") return
+    expect(result.candidates).toHaveLength(1)
+    expect(result.candidates[0].providerID).toBe("tiny")
+    expect(result.candidates[0].eligible).toBe(false)
   })
 })

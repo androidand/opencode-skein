@@ -383,6 +383,20 @@ export function hostRankFor(prefer: "inherit" | "local" | readonly string[] | un
  * Effect layer that calls this, not in here. `pick` stays plain so its slot
  * reservation stays synchronous (see below), and the caller does the logging.
  */
+/**
+ * A probed candidate host and how it scored, for explainability. `score` is
+ * undefined when the host never answered its probe (null) — it lost on reach,
+ * not on merit. `eligible` is false when it was filtered out (no free slot, or
+ * no context-adequate model) so the caller can see why it was rejected.
+ */
+export interface CandidateScore {
+  providerID: string
+  score?: number
+  eligible: boolean
+  modelID?: string
+  maxSafeCtx?: number
+}
+
 export type PickOutcome =
   | {
       kind: "placed"
@@ -392,8 +406,10 @@ export type PickOutcome =
       requiredCtx: number
       /** The chosen model's usable context as the host reports it right now (per-slot share). */
       maxSafeCtx: number
+      /** Every candidate that was probed, with scores, so the decision is explainable. */
+      candidates: CandidateScore[]
     }
-  | { kind: "none"; probed: number }
+  | { kind: "none"; probed: number; candidates: CandidateScore[] }
   | { kind: "failed"; error: string }
 
 export async function pick(input: {
@@ -433,7 +449,7 @@ export async function pick(input: {
         prefer: input.prefer,
       })
     )
-      return { kind: "none", probed: 0 }
+      return { kind: "none", probed: 0, candidates: [] }
 
     const candidates = Object.values(input.providers)
       .filter((info) => (input.target ? info.id === input.target : info.id !== input.parent.providerID))
@@ -441,7 +457,7 @@ export async function pick(input: {
         const baseURL = baseURLOf(info)
         return baseURL ? [{ info, baseURL }] : []
       })
-    if (candidates.length === 0) return { kind: "none", probed: 0 }
+    if (candidates.length === 0) return { kind: "none", probed: 0, candidates: [] }
 
     const aborter = new AbortController()
     const timer = setTimeout(() => aborter.abort(), input.timeoutMs ?? 1_500)
@@ -454,14 +470,27 @@ export async function pick(input: {
     // if every named host is unreachable or busy, the remaining candidates are
     // still there to be picked, and pick() falls through to inherit only when
     // genuinely nothing is eligible.
+    //
+    // Track every probed candidate's score alongside the best, so the caller
+    // can log the decision and why each alternative lost (Phase 0, task 0.1).
+    const scored: CandidateScore[] = []
     let best: { placement: Placement; score: number; maxSafeCtx: number } | null = null
     for (let i = 0; i < candidates.length; i++) {
       const result = probes[i]
-      if (!result) continue
+      const providerID = candidates[i].info.id
+      // A host that never answered its probe lost on reach, not on merit —
+      // record it with no score so the log shows the gap rather than a zero.
+      if (!result) {
+        scored.push({ providerID, eligible: false })
+        continue
+      }
       // Slot-aware eligibility: skip a host with no free serving slot, counting
       // reservations held by concurrent picks so two parallel subagents never
       // both book the same single-slot (--parallel 1) provider.
-      if (freeSlots(result.hardware, reservedFor(result.providerID)) <= 0) continue
+      if (freeSlots(result.hardware, reservedFor(result.providerID)) <= 0) {
+        scored.push({ providerID, eligible: false })
+        continue
+      }
       const model = bestModel({
         probe: result,
         info: candidates[i].info,
@@ -469,7 +498,10 @@ export async function pick(input: {
         requiredCtx,
         allowedModels: input.allowedModels,
       })
-      if (!model) continue
+      if (!model) {
+        scored.push({ providerID, eligible: false })
+        continue
+      }
       const freeMb = result.fit.vram_free_mb ?? result.hardware.vram?.free_mb ?? 0
       const placedAt = recentPlacements.get(result.providerID)
       const recent = placedAt !== undefined && Date.now() - placedAt < RECENT_PLACEMENT_WINDOW_MS
@@ -482,6 +514,7 @@ export async function pick(input: {
         model.score +
         Math.min(freeMb, 65_536) / 1_000 -
         (recent ? RECENT_PLACEMENT_PENALTY : 0)
+      scored.push({ providerID, score, eligible: true, modelID: model.modelID, maxSafeCtx: model.maxSafeCtx })
       if (!best || score > best.score) {
         best = { placement: { providerID: result.providerID, modelID: model.modelID }, score, maxSafeCtx: model.maxSafeCtx }
       }
@@ -500,9 +533,10 @@ export async function pick(input: {
         probed: candidates.length,
         requiredCtx,
         maxSafeCtx: best.maxSafeCtx,
+        candidates: scored,
       }
     }
-    return { kind: "none", probed: candidates.length }
+    return { kind: "none", probed: candidates.length, candidates: scored }
   } catch (err) {
     // Placement is an optimization; a failure here must never break the spawn.
     return { kind: "failed", error: String(err) }
