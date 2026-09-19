@@ -270,6 +270,7 @@ export function DialogGalleryOperations(props: { focus?: string }) {
   const project = useProject()
   const toast = useToast()
   const seenTerminal = new Set<string>()
+  let baselined = false
 
   const [ops, { refetch }] = createResource(async () => {
     const res = await sdk.client.gallery.operations({ workspace: project.workspace.current() })
@@ -280,9 +281,20 @@ export function DialogGalleryOperations(props: { focus?: string }) {
   onCleanup(() => clearInterval(timer))
 
   // A finished install means a new model on that host: refresh the picker so
-  // it shows up without a restart (§7.4).
+  // it shows up without a restart (§7.4). `seenTerminal` is per-mount, so the
+  // first resolution has to record already-terminal operations as a baseline
+  // rather than toast for them — otherwise reopening this screen replays a
+  // success/failure toast for every install that finished while it was
+  // closed, every single time.
   createEffect(() => {
-    for (const op of ops.latest ?? []) {
+    if (ops.loading) return
+    const list = ops.latest ?? []
+    if (!baselined) {
+      baselined = true
+      for (const op of list) if (TERMINAL.has(op.phase)) seenTerminal.add(op.id)
+      return
+    }
+    for (const op of list) {
       if (!TERMINAL.has(op.phase) || seenTerminal.has(op.id)) continue
       seenTerminal.add(op.id)
       if (op.phase === "succeeded") {

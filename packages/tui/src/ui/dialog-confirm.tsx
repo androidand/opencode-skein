@@ -19,8 +19,13 @@ export type DialogConfirmResult = boolean | undefined
 export function DialogConfirm(props: DialogConfirmProps) {
   const dialog = useDialog()
   const { theme } = useTheme()
+  // Defaults to the safe side: this dialog exists to gate a consequential
+  // action (install a model, delete something, etc.), and an Enter press
+  // that arrives before the user has looked at it — terminal input lag, a
+  // fast-follow keypress from whatever opened this dialog — must not
+  // confirm that action by default.
   const [store, setStore] = createStore({
-    active: "confirm" as "confirm" | "cancel",
+    active: "cancel" as "confirm" | "cancel",
   })
 
   useBindings(() => ({
