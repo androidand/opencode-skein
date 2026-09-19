@@ -613,6 +613,11 @@
       "note": "Fork edit to an upstream file (+17/-1 vs baseline). Marker is a string the fork's edit introduces and upstream does not contain, so a merge that reverts the edit fails fork:verify."
     },
     {
+      "file": "packages/tui/src/ui/dialog-confirm.tsx",
+      "marker": "Defaults to the safe side",
+      "note": "Fork edit to an upstream file. Defaults DialogConfirm's focus to \"cancel\" instead of \"confirm\" so a stray or fast-follow Enter press can't confirm a consequential action (e.g. a model install) with zero deliberate input. Marker is a string the fork's edit introduces and upstream does not contain, so a merge that reverts the edit fails fork:verify."
+    },
+    {
       "file": "packages/tui/test/cli/cmd/tui/provider-options.test.ts",
       "marker": "fork: LAN discovery for llama-skein host",
       "note": "Fork edit to an upstream file (+18/-1 vs baseline). Marker is a string the fork's edit introduces and upstream does not contain, so a merge that reverts the edit fails fork:verify."
