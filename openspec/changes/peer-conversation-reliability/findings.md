@@ -265,8 +265,8 @@ A live `send_peer_message` to an existing session returned "no session
 matches that id". Reproduced from the store, not inferred:
 
 ```
-ses_f4a87c12…  project 50659655…  /Users/andreas/dev/opencode-skein   (caller)
-ses_f4bba39c…  project 2e4f2d5e…  /Users/andreas/dev/llama-skein      (target)
+ses_f4a87c12…  project 50659655…  <repo-a>   (caller)
+ses_f4bba39c…  project 2e4f2d5e…  <repo-b>      (target)
 ```
 
 Three independent defects, each sufficient to cause it:
