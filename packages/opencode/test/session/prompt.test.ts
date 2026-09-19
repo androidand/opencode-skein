@@ -1010,6 +1010,81 @@ it.instance("send_peer_message delivers into a second, idle session in the same 
   }),
 )
 
+// A message to a session that is genuinely mid-turn must not be injected —
+// that races the turn. Before this test existed, it also had no path back:
+// send_peer_message refused outright and told the caller to "retry once
+// idle", with nothing to retry against and nothing to say when idle actually
+// happened — the exact gap reported live, where a 42-minute turn made two
+// peers unable to reach each other in either direction for its whole length.
+// This proves the message is held, not delivered while busy, and that it
+// runs on its own — with no retry from the sender — the moment the target
+// reports idle.
+it.instance("a message to a busy peer is queued, not refused, and delivers once it goes idle", () =>
+  Effect.gen(function* () {
+    const { llm } = yield* useServerConfig(providerCfg)
+    const prompt = yield* SessionPrompt.Service
+    const sessions = yield* Session.Service
+    const status = yield* SessionStatus.Service
+    const sender = yield* sessions.create({
+      title: "Sender session",
+      permission: [{ permission: "*", pattern: "*", action: "allow" }],
+    })
+    const receiver = yield* sessions.create({
+      title: "Busy receiver",
+      permission: [{ permission: "*", pattern: "*", action: "allow" }],
+    })
+    // Simulates the receiver being deep in its own turn — exactly the
+    // reported case, just without waiting 42 real minutes for it.
+    yield* status.set(receiver.id, { type: "busy" })
+
+    yield* prompt.prompt({
+      sessionID: sender.id,
+      agent: "build",
+      noReply: true,
+      parts: [{ type: "text", text: "tell my busy peer the schema changed" }],
+    })
+    yield* llm.tool("send_peer_message", {
+      target: receiver.id,
+      message: "the /users schema now returns locale — update your client",
+    })
+    yield* llm.text("sent")
+
+    const result = yield* prompt.loop({ sessionID: sender.id })
+    expect(result.info.role).toBe("assistant")
+
+    const senderMsgs = yield* MessageV2.filterCompactedEffect(sender.id)
+    const tool = senderMsgs
+      .flatMap((msg) => msg.parts)
+      .find(
+        (part): part is CompletedToolPart =>
+          part.type === "tool" && part.tool === "send_peer_message" && part.state.status === "completed",
+      )
+    if (!tool) throw new Error("send_peer_message tool part never completed")
+    // Distinct from the immediate-delivery wording: honest that nothing has
+    // been injected yet, and explicit that the sender does not need to poll.
+    expect(tool.state.output).toContain("mid-turn right now")
+    expect(tool.state.output).toContain("do not need to retry")
+
+    // Still busy: the message must not have landed while the target is mid-turn.
+    const whileBusy = yield* MessageV2.filterCompactedEffect(receiver.id)
+    expect(whileBusy.flatMap((msg) => msg.parts).some((part) => part.type === "text" && part.text.includes("update your client"))).toBe(false)
+
+    // The target goes idle on its own — nothing the sender does. This is the
+    // same status transition SessionPrompt's own step loop makes at the end
+    // of every real turn.
+    yield* status.set(receiver.id, { type: "idle" })
+
+    const delivered = yield* pollWithTimeout(
+      Effect.gen(function* () {
+        const msgs = yield* MessageV2.filterCompactedEffect(receiver.id)
+        return msgs.flatMap((msg) => msg.parts).find((part) => part.type === "text" && part.text.includes("update your client"))
+      }),
+      "queued peer message never arrived after the target went idle",
+    )
+    expect(delivered?.type).toBe("text")
+  }),
+)
+
 it.instance("loop continues when finish is stop but assistant has tool parts", () =>
   Effect.gen(function* () {
     const { llm } = yield* useServerConfig(providerCfg)

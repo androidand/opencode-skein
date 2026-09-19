@@ -16,6 +16,7 @@ import { SessionPrompt } from "@/session/prompt"
 import { formatPeerMessage } from "@/session/peers"
 import { settleTaskReply } from "@/peer/delegate"
 import { peerBody, settlePeerReply } from "@/peer/envelope"
+import { PeerInbox } from "@/peer/inbox"
 import { RecentIDs } from "@/peer/recent-ids"
 import { claudePidOf, resolveOpencodeSender } from "@/peer/route"
 import { SessionStatus } from "@/session/status"
@@ -45,6 +46,7 @@ const layer = Layer.effect(
     const session = yield* Session.Service
     const promptSvc = yield* SessionPrompt.Service
     const instanceStore = yield* InstanceStore.Service
+    const sessionStatus = yield* SessionStatus.Service
 
     // Everything below runs from plain callbacks (a child process's stdout,
     // an exit handler), outside any Effect fiber. Forking on the DEFAULT
@@ -112,13 +114,30 @@ const layer = Layer.effect(
                 },
                 inbound.text,
               )
-          yield* promptSvc
-            .prompt({
-              sessionID: SessionID.make(inbound.sessionID),
-              agent: info.agent,
-              parts: [{ type: "text", synthetic: true, text: wrapped }],
-            })
-            .pipe(Effect.provideService(InstanceRef, instance))
+          const targetID = SessionID.make(inbound.sessionID)
+          const inject = () =>
+            promptSvc
+              .prompt({
+                sessionID: targetID,
+                agent: info.agent,
+                parts: [{ type: "text", synthetic: true, text: wrapped }],
+              })
+              .pipe(Effect.provideService(InstanceRef, instance), Effect.asVoid)
+
+          // Every inbound message — from a real Claude Code peer, or from
+          // another opencode process reached over the same socket — lands
+          // here regardless of who sent it. A target mid-turn cannot be
+          // injected into safely, so hold it and let `SessionStatus.set`'s
+          // idle transition run it: the same signal `send_peer_message`'s
+          // owned-target path now waits on, so both directions of "someone
+          // tried to reach a busy session" resolve the same way instead of
+          // one silently discarding the message and the other queueing it.
+          const currentStatus = yield* sessionStatus.get(targetID)
+          if (currentStatus.type === "busy" || currentStatus.type === "retry") {
+            PeerInbox.enqueue(inbound.sessionID, inject)
+            return
+          }
+          yield* inject()
         }).pipe(
           Effect.catchCause((cause) =>
             Effect.logError("claude sidecar: failed to deliver inbound message", {
@@ -203,7 +222,7 @@ const layer = Layer.effect(
 export const node = LayerNode.make({
   service: Service,
   layer,
-  deps: [EventV2Bridge.node, Session.node, SessionPrompt.node, RuntimeFlags.node, InstanceStore.node],
+  deps: [EventV2Bridge.node, Session.node, SessionPrompt.node, RuntimeFlags.node, InstanceStore.node, SessionStatus.node],
 })
 
 // No standalone `defaultLayer` composition: `InstanceStore` is a "global

@@ -5,6 +5,7 @@ import { sendClaudeMessage } from "@/peer/claude/client"
 import { resolveClaudeTarget } from "@/peer/claude/resolve"
 import { settleTaskReply } from "@/peer/delegate"
 import { formatPeerEnvelope, newMessageID, peerBody, type PeerMode } from "@/peer/envelope"
+import { PeerInbox } from "@/peer/inbox"
 import { RepeatGuard } from "@/peer/repeat-guard"
 import {
   deliverToOpencodeSession,
@@ -100,6 +101,8 @@ interface ResultMetadata {
    accepted?: boolean
    messageID?: string
    harness?: "claude-code"
+   /** Held for a busy target this process owns; not injected yet. See `peer/inbox.ts`. */
+   queued?: boolean
  }
 
 export const SendPeerMessageTool = Tool.define(
@@ -293,19 +296,6 @@ export const SendPeerMessageTool = Tool.define(
             }
           }
           const peer = resolved.peer
-
-          // A literally in-flight turn (actively generating right now) must not
-          // be joined or raced — the same foreign-turn hazard `loop.ts` guards
-          // against. `awaiting-permission` / `stalled` / `cancelling` are not
-          // mid-generation and are safe to prompt into.
-          if (peer.status === "busy") {
-            return {
-              title: "Peer is busy",
-              metadata: { reason: "busy", sessionID: peer.sessionID },
-              output: `Peer session ${peer.sessionID} ("${peer.title}") is mid-turn right now. Not delivered — retry once it is idle or awaiting permission.`,
-            }
-          }
-
           const targetSessionID = SessionID.make(peer.sessionID)
           const [caller, target, registration] = yield* Effect.all([
             session.get(ctx.sessionID).pipe(Effect.orElseSucceed(() => undefined)),
@@ -361,25 +351,56 @@ export const SendPeerMessageTool = Tool.define(
              message,
            )
 
+          // A literally in-flight turn (actively generating right now) must not
+          // be joined or raced — the same foreign-turn hazard `loop.ts` guards
+          // against — but a refusal here used to be the end of the story:
+          // nothing then delivered the message once the turn ended, and a
+          // turn running tens of minutes made that an indefinite, silent gap
+          // in both directions. For a target THIS process owns, the fix is to
+          // hold the delivery and let `SessionStatus.set`'s idle transition
+          // run it — the exact moment everything else already calls safe.
+          // `awaiting-permission` / `stalled` / `cancelling` were never
+          // gated here; only the raw status matters for this decision.
+          const owned = ownIDs.has(peer.sessionID)
+          const freshStatus = owned ? yield* status.get(targetSessionID) : undefined
+          const isBusy = freshStatus?.type === "busy" || freshStatus?.type === "retry"
+
+          const runLocal = () =>
+            ops
+              .prompt({
+                sessionID: targetSessionID,
+                agent: target?.agent ?? ctx.agent,
+                parts: [{ type: "text", synthetic: true, text }],
+              })
+              .pipe(Effect.ignore, Effect.forkIn(scope, { startImmediately: true }))
+
+          if (owned && isBusy) {
+            PeerInbox.enqueue(peer.sessionID, () => runLocal().pipe(Effect.asVoid))
+            return {
+              title: `Queued for ${peer.title}`,
+              metadata: { sessionID: peer.sessionID, accepted: true, messageID, queued: true },
+              output:
+                `Peer session ${peer.sessionID} ("${peer.title}") is mid-turn right now. Held, not delivered yet — ` +
+                "it will be injected automatically the moment that turn ends. You do not need to retry, and there " +
+                "is nothing to poll: continue with other work now.",
+            }
+          }
+
           // A session this process owns is prompted here, fire-and-forget (its
           // turn is not this tool call's concern). A session another opencode
           // process owns is reached over that process's sidecar socket — the
-          // only way its own TUI sees the message and runs the turn.
-           const outcome = yield* deliverToOpencodeSession({
-             targetSessionID: peer.sessionID,
-             fromSessionID: ctx.sessionID,
-             fromName: caller?.title ?? ctx.sessionID,
-             text: deliveredText,
-             owned: ownIDs.has(peer.sessionID),
-             local: () =>
-               ops
-                 .prompt({
-                   sessionID: targetSessionID,
-                   agent: target?.agent ?? ctx.agent,
-                   parts: [{ type: "text", synthetic: true, text }],
-                 })
-                 .pipe(Effect.ignore, Effect.forkIn(scope, { startImmediately: true })),
-           })
+          // only way its own TUI sees the message and runs the turn. A foreign
+          // target's busy status is a mirrored snapshot, not live, so it is not
+          // gated here at all: the owning process's own inbound path decides,
+          // with the same real-time information this branch just used.
+          const outcome = yield* deliverToOpencodeSession({
+            targetSessionID: peer.sessionID,
+            fromSessionID: ctx.sessionID,
+            fromName: caller?.title ?? ctx.sessionID,
+            text: deliveredText,
+            owned,
+            local: runLocal,
+          })
           if (outcome.via === "unaddressable") {
             return {
               title: "Peer has no live address",
