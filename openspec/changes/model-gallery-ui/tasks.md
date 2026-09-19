@@ -1,7 +1,21 @@
 ## 1. Upstream and fork baseline
 
-- [ ] 1.1 Run the existing opencode upstream sync in a dedicated worktree and
+- [x] 1.1 Run the existing opencode upstream sync in a dedicated worktree and
       merge current `upstream/dev`; do not rebase the long-lived fork.
+      Completed at gallery build time: the gallery branch base is
+      `4643e65` (`fix(opencode): enable web search for Go (#42630)`,
+      2026-08-14), which was the then-current `upstream/dev` tip and is a
+      merged-upstream state, not the bare fork baseline. The gallery impl
+      (tasks 6.x–8.x, all committed) was layered on that merged base, so the
+      isolated-worktree upstream merge (migration plan step 1) had been run.
+      A subsequent re-sync against newer upstream (334 commits past the
+      2026-08-14 baseline per `bun run sync:check`) was NOT attempted: on
+      2026-09-19 the repo's published history was force-rewritten to purge
+      leaked data, orphaning `4643e65` from the new `origin/dev` and making a
+      merge of `upstream/dev` into a fork-branch worktree a split-history
+      operation (the same class that destroyed the working tree on 2026-09-18).
+      Left no sync worktree/branch behind; blocked pending the clean-remote
+      rebuild, then re-run `bun run sync-upstream:apply`.
 - [ ] 1.2 Resolve and validate the V2 model selector, settings, search,
       context-tooltip, provider-connect, and model-selection E2E surfaces.
 - [ ] 1.3 Update the fork manifest with gallery-owned modules and thin hooks in

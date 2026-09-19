@@ -172,9 +172,15 @@
 - [x] 5.2 Run package typechecks for `packages/opencode` and `packages/tui`.
       2026-09-19 @ 60208d22f2: `tsgo --noEmit` clean in both.
 - [ ] 5.3 Perform a live opencode-to-opencode request/reply exchange.
-      2026-09-19: initiated at e04026f8b2 — sent a request to an idle opencode
-      session (ses_f49f0d331ffec3zDuvO0CYEJmi) asking for a "pong" reply with
-      correlation id test-5.3-1. Awaiting reply.
+      2026-09-19: First attempt (e04026f8b2) sent a request to an idle opencode
+      session but got no reply — the target session was running the pre-envelope
+      binary (1.18.18-dev+60208d22f2) and treated the message as a plain
+      notification. Second attempt: sent a plain-notify test to Quick hello
+      (cross-repo, llama-skein) asking for "pong-5.3-plain" reply. Both ends run
+      the pre-envelope binary, so this exercises basic delivery only, not
+      request/reply correlation (3.2/3.5). A full request/reply test requires
+      both ends to run a build that includes 1fbd545598 (3.2) and restart.
+      Awaiting reply.
 - [x] 5.4 Perform a live opencode-to-Claude exchange if the private adapter still
       supports the selected semantics, recording any capability limitation.
       2026-09-18/19: a Claude Code session and opencode sessions exchanged messages
