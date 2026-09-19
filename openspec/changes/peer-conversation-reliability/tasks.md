@@ -45,7 +45,11 @@
         uses runForkWith, asserted with a negative-lookahead regex that catches
         both the called and point-free forms) and the control-and-treatment
         experiment (runFork leaks to stdout, runForkWith does not), the chain is
-        complete. Done 2026-09-19.
+        complete, plus `sidecar-diagnostic-routing.test.ts`, which kills a real
+        sidecar and asserts the exit is reported with the signal named. That
+        test exposed a real bug (a signal kill has code null, so the exit
+        handler stayed silent), fixed in `sidecar-manager.ts` (23e227a986).
+        Done 2026-09-19.
 - [x] 1.3 Wire `child.stderr` data and non-zero exit in
       `sidecar-manager.ts` into the existing application logger. The current
       `.resume()` drain (line 125) and silent exit handler (lines 159-161)
