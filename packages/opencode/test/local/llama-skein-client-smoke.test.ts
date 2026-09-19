@@ -46,7 +46,7 @@ function makeMockServer() {
           bytes_downloaded: 0,
         })),
         bytes_downloaded: 0,
-        bytes_total: body.artifacts?.reduce((s, a) => s + (a.size_bytes ?? 0), 0) ?? null,
+        bytes_total: body.artifacts?.reduce((s, a) => s + (a.size_bytes ?? 0), 0),
         created_at: `${now}.${nextId}`,
         updated_at: `${now}.${nextId}`,
       }
