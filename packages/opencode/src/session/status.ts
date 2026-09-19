@@ -4,6 +4,7 @@ import { SessionID } from "./schema"
 import { Effect, Layer, Context } from "effect"
 import { EventV2Bridge } from "@/event-v2-bridge"
 import { SessionStatusEvent } from "@opencode-ai/schema/session-status-event"
+import { PeerInbox } from "@/peer/inbox"
 
 export const Info = SessionStatusEvent.Info
 export type Info = SessionStatusEvent.Info
@@ -42,6 +43,21 @@ export const layer = Layer.effect(
       if (status.type === "idle") {
         yield* events.publish(Event.Idle, { sessionID })
         data.delete(sessionID)
+        // The exact moment everything else already treats as "safe to inject
+        // now" is also the moment anything held for this session — a peer
+        // message that arrived mid-turn — actually gets to run. `status.ts`
+        // deliberately does not know what these effects DO (no import of
+        // SessionPrompt, which itself depends on this service — importing it
+        // here would be a cycle); it only runs whatever the sender or the
+        // inbound sidecar path closed over when they had no choice but to
+        // wait. Forked, not awaited: an idle transition must not block on
+        // however long the next turn it just kicked off takes to run.
+        for (const run of PeerInbox.drain(sessionID)) {
+          yield* run().pipe(
+            Effect.catchCause((cause) => Effect.logError("peer inbox: queued delivery failed", { sessionID, cause })),
+            Effect.forkDetach,
+          )
+        }
         return
       }
       data.set(sessionID, status)

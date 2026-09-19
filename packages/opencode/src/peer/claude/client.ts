@@ -1,8 +1,9 @@
-// Outbound-only client: opencode-skein → a real Claude Code peer. There is no
-// sidecar yet (see openspec/changes/claude-peer-protocol, Phase 3, deferred),
-// so opencode-skein has no inbox socket of its own — a Claude peer cannot
-// reply back through this channel. That limitation is stated in the tool
-// description, not just here.
+// Outbound client: opencode-skein → a real Claude Code peer (or a sibling
+// opencode session's sidecar — same wire shape, see peer/route.ts). Replies
+// come back through the sender's own sidecar (sidecar-server.ts), so the
+// `from` written here must be that sidecar's real socket for a peer's
+// "reply to `from`" rule to work; `peer/route.ts`'s `returnAddressFor` is
+// what decides it.
 import { connect } from "net"
 import { buildAuthFrame, buildMessageFrame, encodeFrames, type Priority } from "./codec"
 import { readKeyFile, readRegistryEntry, verifyProcessIdentity } from "./registry"
@@ -22,6 +23,12 @@ export type SendClaudeMessageResult =
 export interface SendClaudeMessageInput {
   targetPid: number
   fromSessionID: string
+  /**
+   * The return address written as the frame's `from`. Callers pass
+   * `returnAddressFor(fromSessionID).address`; when omitted the
+   * non-connectable placeholder is used and no reply can arrive.
+   */
+  fromAddress?: string
   fromName: string
   fromMode: string
   text: string
@@ -61,16 +68,21 @@ export async function sendClaudeMessage(input: SendClaudeMessageInput): Promise<
     }
   }
   if (!key.procStart) {
-    return { ok: false, reason: "identity-mismatch", detail: "peer key file records no process start time — pid reuse cannot be ruled out" }
+    return {
+      ok: false,
+      reason: "identity-mismatch",
+      detail: "peer key file records no process start time — pid reuse cannot be ruled out",
+    }
   }
   if (!(await verifyProcessIdentity(entry.pid, key.procStart))) {
-    return { ok: false, reason: "identity-mismatch", detail: "target pid's live start time no longer matches its key file — likely pid reuse" }
+    return {
+      ok: false,
+      reason: "identity-mismatch",
+      detail: "target pid's live start time no longer matches its key file — likely pid reuse",
+    }
   }
 
-  // A clearly non-connectable placeholder — see module note above. Carries
-  // the real sending session id for traceability without claiming a real
-  // return address exists.
-  const from = `uds:opencode-skein:${input.fromSessionID}`
+  const from = input.fromAddress ?? `uds:opencode-skein:${input.fromSessionID}`
   const frames = [
     buildAuthFrame(key.peerToken),
     buildMessageFrame({
@@ -102,7 +114,11 @@ export async function sendClaudeMessage(input: SendClaudeMessageInput): Promise<
     // is a real failure to deliver.
     timer = setTimeout(
       () =>
-        finish(flushed ? { ok: true } : { ok: false, reason: "unreachable", detail: "timed out before the message was sent" }),
+        finish(
+          flushed
+            ? { ok: true }
+            : { ok: false, reason: "unreachable", detail: "timed out before the message was sent" },
+        ),
       SEND_TIMEOUT_MS,
     )
 

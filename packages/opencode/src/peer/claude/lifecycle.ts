@@ -15,11 +15,26 @@ import { SessionID } from "@/session/schema"
 import { SessionPrompt } from "@/session/prompt"
 import { formatPeerMessage } from "@/session/peers"
 import { settleTaskReply } from "@/peer/delegate"
-import { opencodeSenderOf } from "@/peer/route"
+import { peerBody, settlePeerReply } from "@/peer/envelope"
+import { PeerInbox } from "@/peer/inbox"
+import { RecentIDs } from "@/peer/recent-ids"
+import { claudePidOf, resolveOpencodeSender } from "@/peer/route"
 import { SessionStatus } from "@/session/status"
-import { ensureSidecar, setSidecarStatus, stopAllSidecars, stopSidecar, sweepOrphanedSidecars } from "./sidecar-manager"
+import {
+  ensureSidecar,
+  isManaged,
+  setSidecarName,
+  setSidecarStatus,
+  stopAllSidecars,
+  stopSidecar,
+  sweepOrphanedSidecars,
+  type Deliver,
+} from "./sidecar-manager"
 
 export class Service extends Context.Service<Service, {}>()("@opencode/ClaudeSidecarLifecycle") {}
+
+/** How many inbound message ids to remember for duplicate suppression, across all sessions this process owns. */
+const RECENT_INBOUND_IDS = 1_024
 
 const layer = Layer.effect(
   Service,
@@ -31,53 +46,144 @@ const layer = Layer.effect(
     const session = yield* Session.Service
     const promptSvc = yield* SessionPrompt.Service
     const instanceStore = yield* InstanceStore.Service
+    const sessionStatus = yield* SessionStatus.Service
+
+    // Everything below runs from plain callbacks (a child process's stdout,
+    // an exit handler), outside any Effect fiber. Forking on the DEFAULT
+    // runtime would give those fibers Effect's default console logger — and
+    // the server shares its process with the TUI, so every `Effect.log*` in
+    // the injected turn would print straight over the OpenTUI frame. Fork
+    // with this layer's own services instead: it was built under the app
+    // runtime, so its context carries the app's file logger and log level.
+    const context = yield* Effect.context<never>()
+    const runFork = Effect.runForkWith(context)
 
     yield* Effect.promise(() => sweepOrphanedSidecars()).pipe(Effect.ignore)
 
-    const deliver = (sessionID: string, text: string, fromName?: string, from?: string) => {
-      if (settleTaskReply(text)) return
-      Effect.gen(function* () {
-        const info = yield* session.get(SessionID.make(sessionID)).pipe(Effect.orElseSucceed(() => undefined))
-        if (!info) return
-        // This runs from a background event listener, not inside any
-        // request's own instance context (unlike a tool call, which
-        // inherits it from whatever originally invoked the session) — the
-        // project instance has to be resolved explicitly from the target
-        // session's own directory before anything session-scoped will work.
-        const instance = yield* instanceStore.load({ directory: info.directory })
-        // `fromName` is the envelope's self-reported sender name — display
-        // only, per findings.md's own security note (never authorization),
-        // but still worth surfacing so a multi-peer setup can tell which
-        // Claude session actually sent this.
-        const sender = opencodeSenderOf(from)
-        const wrapped = sender
-          ? formatPeerMessage({ sessionID: sender, title: fromName ?? sender }, text)
-          : formatPeerMessage({ sessionID: "claude-code", title: fromName ?? "a Claude Code peer" }, text)
-        yield* promptSvc
-          .prompt({
-            sessionID: SessionID.make(sessionID),
-            agent: info.agent,
-            parts: [{ type: "text", synthetic: true, text: wrapped }],
-          })
-          .pipe(Effect.provideService(InstanceRef, instance))
-      }).pipe(
-        Effect.catchCause((cause) => Effect.logError("claude sidecar: failed to deliver inbound message", { cause })),
-        Effect.runFork,
+    const recent = new RecentIDs(RECENT_INBOUND_IDS)
+
+    const deliver: Deliver = (inbound) => {
+      // A frame `msg_id` is a real correlation id: the same id twice is one
+      // message retried or replayed, and the session must see it once.
+      if (inbound.msgID && !recent.admit(`${inbound.sessionID}:${inbound.msgID}`)) return
+      // Through peerBody, not the raw text: delegate.ts anchors its
+      // `[peer-task-result <id>]` marker at the START of the message, so once
+      // messages carry a correlation header the anchor stops matching and
+      // every delegated task times out instead of settling. A no-op today,
+      // because a message without a header comes back unchanged.
+      if (settleTaskReply(peerBody(inbound.text))) return
+      // Structured envelope replies carry `in-reply-to` so a sender can await
+      // a synchronous answer. Match against pending requests before injecting
+      // the message as a prompt. Falls through to prompt injection when there
+      // is no pending request — the reply is still delivered as context.
+      if (settlePeerReply(inbound.text)) return
+      runFork(
+        Effect.gen(function* () {
+          const info = yield* session.get(SessionID.make(inbound.sessionID)).pipe(Effect.orElseSucceed(() => undefined))
+          if (!info) return
+          // This runs from a background event listener, not inside any
+          // request's own instance context (unlike a tool call, which
+          // inherits it from whatever originally invoked the session) — the
+          // project instance has to be resolved explicitly from the target
+          // session's own directory before anything session-scoped will work.
+          const instance = yield* instanceStore.load({ directory: info.directory })
+          // `fromName` and `from` are envelope attributes — display and
+          // addressing only, never authorization (codec.ts). `from` is the
+          // sender's return address; it is what the receiving agent has to
+          // hand back to `send_peer_message` for its answer to arrive.
+          const sender = yield* Effect.promise(() => resolveOpencodeSender(inbound.from))
+          const pid = claudePidOf(inbound.from)
+          const wrapped = sender
+            ? formatPeerMessage(
+                { sessionID: sender, title: inbound.fromName ?? sender, reply: { target: sender } },
+                inbound.text,
+              )
+            : formatPeerMessage(
+                {
+                  harness: "claude-code",
+                  sessionID: pid ?? "unknown-pid",
+                  title: inbound.fromName ?? "a Claude Code peer",
+                  // `resolveClaudeTarget` accepts a pid; the display name is a
+                  // weaker fallback (it must be an unambiguous prefix). With
+                  // neither there is nothing to address an answer to.
+                  reply: pid
+                    ? { target: pid }
+                    : inbound.fromName
+                      ? { target: inbound.fromName }
+                      : { unreachable: true },
+                },
+                inbound.text,
+              )
+          const targetID = SessionID.make(inbound.sessionID)
+          const inject = () =>
+            promptSvc
+              .prompt({
+                sessionID: targetID,
+                agent: info.agent,
+                parts: [{ type: "text", synthetic: true, text: wrapped }],
+              })
+              .pipe(Effect.provideService(InstanceRef, instance), Effect.asVoid)
+
+          // Every inbound message — from a real Claude Code peer, or from
+          // another opencode process reached over the same socket — lands
+          // here regardless of who sent it. A target mid-turn cannot be
+          // injected into safely, so hold it and let `SessionStatus.set`'s
+          // idle transition run it: the same signal `send_peer_message`'s
+          // owned-target path now waits on, so both directions of "someone
+          // tried to reach a busy session" resolve the same way instead of
+          // one silently discarding the message and the other queueing it.
+          const currentStatus = yield* sessionStatus.get(targetID)
+          if (currentStatus.type === "busy" || currentStatus.type === "retry") {
+            PeerInbox.enqueue(inbound.sessionID, inject)
+            return
+          }
+          yield* inject()
+        }).pipe(
+          Effect.catchCause((cause) =>
+            Effect.logError("claude sidecar: failed to deliver inbound message", {
+              "session.id": inbound.sessionID,
+              msgID: inbound.msgID,
+              cause,
+            }),
+          ),
+        ),
       )
+    }
+
+    const hooksFor = (sessionID: string) => ({
+      diagnostic: (message: string) => {
+        runFork(Effect.logWarning("claude sidecar", { "session.id": sessionID, message }))
+      },
+    })
+
+    // One sidecar per top-level session, not per subagent — a subagent
+    // spawned to do one bounded task has no business being an independently
+    // addressable peer, and it would mean one extra process per subagent.
+    const ensureFor = (info: { id: string; directory: string; title: string; parentID?: string }) => {
+      if (info.parentID) return
+      ensureSidecar({ sessionID: info.id, cwd: info.directory, name: info.title }, deliver, hooksFor(info.id))
     }
 
     const unsubscribeCreated = yield* events.listen((event) => {
       if (event.type !== Session.Event.Created.type) return Effect.void
       const data = event.data as { info: { id: string; directory: string; title: string; parentID?: string } }
-      // One sidecar per top-level session, not per subagent — a subagent
-      // spawned to do one bounded task has no business being an
-      // independently addressable Claude Code peer, and it would mean one
-      // extra process per subagent.
-      if (data.info.parentID) return Effect.void
-      ensureSidecar({ sessionID: data.info.id, cwd: data.info.directory, name: data.info.title }, deliver)
+      ensureFor(data.info)
       return Effect.void
     })
     yield* Effect.addFinalizer(() => unsubscribeCreated)
+
+    // A session's registered name is its address for every other agent on the
+    // machine, and at creation time the title is still a placeholder — the
+    // real one is generated after the first turn. Keep the registry current,
+    // or peers can only ever see "New session - <timestamp>".
+    const unsubscribeUpdated = yield* events.listen((event) => {
+      if (event.type !== Session.Event.Updated.type) return Effect.void
+      const data = event.data as { info: { id: string; title?: string; parentID?: string } }
+      if (data.info.parentID || !data.info.title) return Effect.void
+      setSidecarName(data.info.id, data.info.title)
+      return Effect.void
+    })
+    yield* Effect.addFinalizer(() => unsubscribeUpdated)
 
     const unsubscribeDeleted = yield* events.listen((event) => {
       if (event.type !== Session.Event.Deleted.type) return Effect.void
@@ -90,7 +196,17 @@ const layer = Layer.effect(
       if (event.type !== SessionStatus.Event.Status.type) return Effect.void
       const data = event.data as { sessionID: string; status: { type: string } }
       setSidecarStatus(data.sessionID, data.status.type === "idle" ? "idle" : "busy")
-      return Effect.void
+      // A session only ever got a sidecar if it was CREATED while a server
+      // with this listener was up. Every session resumed from history — the
+      // common case after a restart — was therefore unaddressable: invisible
+      // to peers in other projects and unable to receive a reply. A session
+      // that is doing something is exactly the one worth an address, so
+      // register it the first time it reports a status.
+      if (isManaged(data.sessionID)) return Effect.void
+      return session.get(SessionID.make(data.sessionID)).pipe(
+        Effect.flatMap((info) => Effect.sync(() => ensureFor(info))),
+        Effect.ignore,
+      )
     })
     yield* Effect.addFinalizer(() => unsubscribeStatus)
 
@@ -106,7 +222,7 @@ const layer = Layer.effect(
 export const node = LayerNode.make({
   service: Service,
   layer,
-  deps: [EventV2Bridge.node, Session.node, SessionPrompt.node, RuntimeFlags.node, InstanceStore.node],
+  deps: [EventV2Bridge.node, Session.node, SessionPrompt.node, RuntimeFlags.node, InstanceStore.node, SessionStatus.node],
 })
 
 // No standalone `defaultLayer` composition: `InstanceStore` is a "global

@@ -35,6 +35,41 @@ describe("Runner", () => {
   )
 
   it.live(
+    "work dropped by a join runs when it is resubmitted after the run ends",
+    // The recovery behind the peer-delivery loss window. The discard itself is
+    // covered above; what SessionPrompt.prompt relies on is that asking again,
+    // once the join has returned, actually runs what was dropped. Without that
+    // second ask, a message persisted between a step loop's final exit check
+    // and the runner reaching Idle is joined onto a turn that is already over
+    // and is never processed at all.
+    Effect.gen(function* () {
+      const s = yield* Scope.Scope
+      const runner = Runner.make<string>(s)
+      const ran = yield* Ref.make<string[]>([])
+
+      const first = Effect.gen(function* () {
+        yield* Ref.update(ran, (a) => [...a, "first"])
+        yield* Effect.sleep("50 millis")
+        return "first-result"
+      })
+      const second = Effect.gen(function* () {
+        yield* Ref.update(ran, (a) => [...a, "second"])
+        return "second-result"
+      })
+
+      const [, joined] = yield* Effect.all([runner.ensureRunning(first), runner.ensureRunning(second)], {
+        concurrency: "unbounded",
+      })
+      expect(joined).toBe("first-result")
+      expect(yield* Ref.get(ran)).toEqual(["first"])
+
+      expect(yield* runner.ensureRunning(second)).toBe("second-result")
+      expect(yield* Ref.get(ran)).toEqual(["first", "second"])
+      expect(runner.state._tag).toBe("Idle")
+    }),
+  )
+
+  it.live(
     "concurrent callers share the same run",
     Effect.gen(function* () {
       const s = yield* Scope.Scope

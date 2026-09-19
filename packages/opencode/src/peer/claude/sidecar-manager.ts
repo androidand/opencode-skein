@@ -1,9 +1,6 @@
-// Runs in the main opencode server process. Spawns a real, separate sidecar
-// process per opted-in session (see sidecar-entry.ts), reads its stdout for
-// inbound messages, and forwards them to the real session via an injected
-// `deliver` callback — the caller wires that to the same synthetic-prompt
-// injection `send_peer_message` already uses (`session.prompt(...,
-// synthetic: true)`), so this module never needs to know how that works.
+// Parent-side owner of the per-session sidecar processes (see
+// sidecar-entry.ts for the child). Spawns one per top-level session, reads
+// its NDJSON stdout, and hands inbound messages to the injected `deliver`.
 import path from "path"
 import { fileURLToPath } from "url"
 import { Process } from "@/util/process"
@@ -12,14 +9,9 @@ import { sweepStaleSidecars } from "./sidecar-registry"
 
 // A compiled single-file binary doesn't ship sidecar-entry.ts as a real file
 // on disk, so `bun run <path-to-sidecar-entry.ts>` only works when running
-// from source — confirmed live (2026-09-17): the sidecar crashed on every
-// real TUI launch because that file simply isn't there in `dist/`. The
-// sidecar runs as a hidden subcommand of the same executable instead.
-//
-// In dev, that means `bun run <src/index.ts> debug claude-sidecar-entry` —
-// resolved relative to this file's own location, NOT `Bun.main`, which
-// reflects whatever actually launched the CURRENT process (the test runner,
-// under `bun test`) rather than the app's real entry point.
+// from source. The `debug claude-sidecar-entry` subcommand is the path that
+// works in both cases; when running from source under bun, run the source
+// index so the same subcommand resolves against the checkout.
 const SRC_INDEX_PATH = path.join(path.dirname(fileURLToPath(import.meta.url)), "..", "..", "index.ts")
 
 function sidecarCommand(): string[] {
@@ -48,6 +40,15 @@ export function sidecarNameFor(sessionID: string): string | undefined {
   return `opencode:${managed.name}`
 }
 
+/**
+ * The socket a peer connects to in order to reach this session — its real
+ * return address. Undefined until the sidecar has reported `ready`, or when
+ * the session has no sidecar (a subagent, or messaging disabled).
+ */
+export function sidecarSocketPathFor(sessionID: string): string | undefined {
+  return active.get(sessionID)?.socketPath
+}
+
 /** No point registering a peer nothing on this machine can discover. */
 export function claudeCodePresent(): boolean {
   return which("claude") !== null
@@ -67,7 +68,33 @@ export interface EnsureSidecarInput {
   name: string
 }
 
-export type Deliver = (sessionID: string, text: string, fromName?: string, from?: string) => void
+/** One inbound peer message, as the sidecar reported it. */
+export interface InboundDelivery {
+  /** The owner session this sidecar speaks for. */
+  sessionID: string
+  text: string
+  /** Envelope attributes — display only, never authorization (see codec.ts). */
+  fromName?: string
+  /** The sender's return address (`uds:<socket>`), when the envelope carried one. */
+  from?: string
+  /** The frame's `msg_id` — a real correlation id, used to drop duplicate deliveries. */
+  msgID?: string
+  priority?: string
+}
+
+export type Deliver = (inbound: InboundDelivery) => void
+
+export interface SidecarHooks {
+  /**
+   * Receives one line per sidecar stderr line and one line on an abnormal
+   * exit. The TUI owns the terminal streams while it runs, so the manager
+   * never writes these anywhere itself — the caller routes them to the
+   * application logger. Without a hook they are drained and dropped.
+   */
+  diagnostic?: (message: string) => void
+}
+
+const MAX_DIAGNOSTIC_LINE = 2_000
 
 /**
  * Spawns a sidecar for this session if one isn't already running. The
@@ -75,7 +102,7 @@ export type Deliver = (sessionID: string, text: string, fromName?: string, from?
  * machine — opencode siblings as much as Claude Code — so it runs whether or
  * not Claude Code is installed.
  */
-export function ensureSidecar(input: EnsureSidecarInput, deliver: Deliver): void {
+export function ensureSidecar(input: EnsureSidecarInput, deliver: Deliver, hooks: SidecarHooks = {}): void {
   if (active.has(input.sessionID)) return
 
   const child = Process.spawn(sidecarCommand(), {
@@ -92,9 +119,21 @@ export function ensureSidecar(input: EnsureSidecarInput, deliver: Deliver): void
   const managed: Managed = { sessionID: input.sessionID, name: input.name, child }
   active.set(input.sessionID, managed)
 
-  child.stderr?.on("data", (chunk: Buffer) => {
-    console.error(`[claude-sidecar ${input.sessionID}]`, chunk.toString("utf8").trimEnd())
-  })
+  const diagnostic = hooks.diagnostic
+  if (diagnostic) {
+    let errBuffer = ""
+    child.stderr?.on("data", (chunk: Buffer) => {
+      errBuffer += chunk.toString("utf8")
+      let newlineIndex: number
+      while ((newlineIndex = errBuffer.indexOf("\n")) >= 0) {
+        const line = errBuffer.slice(0, newlineIndex).trimEnd()
+        errBuffer = errBuffer.slice(newlineIndex + 1)
+        if (line) diagnostic(line.slice(0, MAX_DIAGNOSTIC_LINE))
+      }
+    })
+  } else {
+    child.stderr?.resume()
+  }
 
   let buffer = ""
   child.stdout?.on("data", (chunk: Buffer) => {
@@ -118,34 +157,54 @@ export function ensureSidecar(input: EnsureSidecarInput, deliver: Deliver): void
         if (typeof e.pid === "number") managed.pid = e.pid
         if (typeof e.socketPath === "string") managed.socketPath = e.socketPath
       } else if (e.type === "inbound" && typeof e.text === "string") {
-        deliver(
-          input.sessionID,
-          e.text,
-          typeof e.fromName === "string" ? e.fromName : undefined,
-          typeof e.from === "string" ? e.from : undefined,
-        )
+        deliver({
+          sessionID: input.sessionID,
+          text: e.text,
+          fromName: typeof e.fromName === "string" ? e.fromName : undefined,
+          from: typeof e.from === "string" ? e.from : undefined,
+          msgID: typeof e.msgID === "string" ? e.msgID : undefined,
+          priority: typeof e.priority === "string" ? e.priority : undefined,
+        })
       }
     }
   })
 
   child.once("exit", (code, signal) => {
     if (active.get(input.sessionID) === managed) active.delete(input.sessionID)
-    if (code !== 0 && code !== null) {
-      console.error(`[claude-sidecar ${input.sessionID}] exited with code ${code}${signal ? ` (${signal})` : ""}`)
+    // A signal kill reports code null, so testing the code alone left a
+    // SIGKILL/SIGTERM'd sidecar silent.
+    if ((code !== 0 && code !== null) || signal) {
+      diagnostic?.(`sidecar exited with code ${code}${signal ? ` (${signal})` : ""}`)
     }
   })
 }
 
-/** Mirror a session's status into its registry entry; a no-op for sessions without a sidecar. */
-export function setSidecarStatus(sessionID: string, status: "idle" | "busy"): void {
+function control(sessionID: string, message: Record<string, unknown>): void {
   const managed = active.get(sessionID)
   const stdin = managed?.child.stdin as { write?: (chunk: string) => unknown } | null | undefined
   if (!stdin?.write) return
   try {
-    stdin.write(`${JSON.stringify({ type: "status", status })}\n`)
+    stdin.write(`${JSON.stringify(message)}\n`)
   } catch {
     // sidecar gone; the exit handler cleans up
   }
+}
+
+/** Mirror a session's status into its registry entry; a no-op for sessions without a sidecar. */
+export function setSidecarStatus(sessionID: string, status: "idle" | "busy"): void {
+  control(sessionID, { type: "status", status })
+}
+
+/**
+ * Mirror a session's title into its registry entry. Sessions are registered
+ * at creation, when the title is still a placeholder, so without this every
+ * peer sees the placeholder for the life of the session.
+ */
+export function setSidecarName(sessionID: string, name: string): void {
+  const managed = active.get(sessionID)
+  if (!managed || managed.name === name) return
+  managed.name = name
+  control(sessionID, { type: "name", name })
 }
 
 export async function stopSidecar(sessionID: string): Promise<void> {

@@ -16,6 +16,7 @@ import { InstallationVersion } from "@opencode-ai/core/installation/version"
 import { iife } from "@/util/iife"
 import { ThemeState } from "@opencode-ai/core/local/theme-state"
 import { SkeinLoading } from "@/local/skein-loading"
+import { contextThatFits, type CtxFitReport } from "@/local/ctx-fit"
 import { LocalProviderSync } from "@/local/sync"
 // fork: control-plane client used to auto-lower ctx on a local "context too large" 413.
 import { createClient as createLocalClient, createConfig as createLocalConfig } from "@/local/llama-skein/gen/client"
@@ -1409,6 +1410,8 @@ function openAICompatibleDiscoveryEnabled(provider: NonNullable<Config.Info["pro
 const LLAMA_SKEIN_PROMPT_OVERFLOW_TYPE = "exceed_context_size_error"
 const LLAMA_SKEIN_PROMPT_OVERFLOW_CODE = "prompt_over_max_safe_ctx"
 const LLAMA_SKEIN_MAX_SAFE_CTX_HEADER = "X-Skein-Max-Safe-Ctx"
+/** HTTP 507: the model would not LOAD at the context it is configured for. */
+const LLAMA_SKEIN_DOES_NOT_FIT_TYPE = "model_does_not_fit_error"
 
 /**
  * fork: recover from a local backend rejecting a request with HTTP 413. Two
@@ -1501,6 +1504,67 @@ export async function adjustLocalContextOnOverflow(
 }
 
 /**
+ * fork: a local backend can refuse a request in two different ways, and only
+ * one of them had a recovery path.
+ *
+ * 413 means the PROMPT overflowed the context the model is already serving —
+ * handled above. 507 (`model_does_not_fit_error` / `model_over_host_memory`)
+ * means the model would not LOAD AT ALL at the context it is configured for,
+ * because that pushes the host's VRAM estimate past the card. Nothing handled
+ * that, so the request fell through to the generic retry and re-sent an
+ * identical, identically doomed request until the user gave up. Observed on a
+ * 24 GB host: weights 19281 MB, estimate 28949 MB at a configured 262144
+ * context, retrying forever.
+ *
+ * Lower the context to something the report says will fit and let the caller
+ * retry once. `max_fit_ctx` is preferred when the host computed one; it is
+ * null exactly in this failure mode (a negative KV budget has no hard
+ * ceiling), which is why `contextThatFits` can derive a target from the
+ * report's own VRAM arithmetic instead of giving up.
+ *
+ * This patches the model's configuration on the host, which is what the 413
+ * path already does. The model being patched is one that just failed to load,
+ * so it has no process of its own to disturb — but a llama-skein config reload
+ * can stop other models the same router is serving, so this deliberately fires
+ * only on a real refusal and only when the report proves a smaller context
+ * would help. Returns true only when the context actually changed, so the
+ * caller retries once and never loops. Never throws.
+ */
+export async function adjustLocalContextOnLoadFailure(
+  baseURL: string,
+  requestBody: string,
+  res: Response,
+): Promise<boolean> {
+  try {
+    const peek = (await res.clone().json()) as { error?: { type?: string } }
+    if (peek?.error?.type !== LLAMA_SKEIN_DOES_NOT_FIT_TYPE) return false
+
+    let modelID: string | undefined
+    try {
+      modelID = JSON.parse(requestBody)?.model
+    } catch {
+      return false
+    }
+    if (!modelID) return false
+
+    const ctrlBase = baseURL.replace(/\/+$/, "").replace(/\/v1$/, "")
+    const client = new LlamaSkeinClient({ client: createLocalClient(createLocalConfig({ baseUrl: ctrlBase })) })
+    const probe = await client.getModelFit({ path: { model: modelID } }).catch(() => null)
+    if (!probe?.data) return false
+
+    const target = contextThatFits(probe.data as CtxFitReport)
+    // No context would help — the weights alone overrun the host, or the
+    // report cannot say. Surface the refusal rather than patching a guess.
+    if (!target) return false
+
+    const patch = await client.patchModelConfig({ path: { id: modelID }, body: { ctx_size: target } })
+    return !patch.error
+  } catch {
+    return false
+  }
+}
+
+/**
  * fork: pull each local llama-skein backend's `/api/fit` report so we can size a
  * model's context window to its `max_safe_ctx` — the prompt budget that already
  * reserves output + a tokenizer-mismatch margin below the hard n_ctx. Using this
@@ -1570,7 +1634,8 @@ export function isSlowColdStart(providerID: string, modelID: string): boolean {
 export function noteSlowColdStart(providerID: string, modelID: string, fit?: { configuredCtx?: number }): void {
   if (!fit) return
   const key = `${providerID}/${modelID}`
-  if (fit.configuredCtx !== undefined && fit.configuredCtx >= SLOW_COLD_START_CTX_THRESHOLD) slowColdStartModels.add(key)
+  if (fit.configuredCtx !== undefined && fit.configuredCtx >= SLOW_COLD_START_CTX_THRESHOLD)
+    slowColdStartModels.add(key)
   else slowColdStartModels.delete(key)
 }
 
@@ -2148,8 +2213,7 @@ export const layer = Layer.effect(
               ),
             ),
           )
-          for (const result of results)
-            for (const w of result.warnings) yield* Effect.logWarning(w.message, w.fields)
+          for (const result of results) for (const w of result.warnings) yield* Effect.logWarning(w.message, w.fields)
           toDiscover.forEach(({ target }, i) => {
             for (const [modelID, model] of Object.entries(results[i].models)) {
               target.models[modelID] = mergeDiscoveredModel(target.models[modelID], model)
@@ -2320,7 +2384,11 @@ export const layer = Layer.effect(
           // is shared by every model of the provider, so per-model decisions must
           // parse the id from the request body.
           let requestModelID: string | undefined
-          if (model.api.npm === "@ai-sdk/openai-compatible" && opts.method === "POST" && typeof opts.body === "string") {
+          if (
+            model.api.npm === "@ai-sdk/openai-compatible" &&
+            opts.method === "POST" &&
+            typeof opts.body === "string"
+          ) {
             try {
               requestModelID = JSON.parse(opts.body)?.model
             } catch {
@@ -2347,7 +2415,9 @@ export const layer = Layer.effect(
           // this, the 1800s watchdog floor is dead code: the 120s chunk timer
           // kills the stream first.
           const effectiveChunkTimeout =
-            typeof chunkTimeout === "number" && requestModelID !== undefined && isHostPaced(model.providerID, requestModelID)
+            typeof chunkTimeout === "number" &&
+            requestModelID !== undefined &&
+            isHostPaced(model.providerID, requestModelID)
               ? Math.max(chunkTimeout, HOST_PACED_STREAM_DEADLINE_SECONDS * 1000)
               : chunkTimeout
 
@@ -2388,22 +2458,29 @@ export const layer = Layer.effect(
             timeout: false,
           }).finally(() => headerTimeoutCtl?.clear())
 
-          // fork: if a local backend rejected the request because the configured
-          // context is too large to load, lower ctx to the safe max it reported
-          // and retry once — instead of stalling the conversation.
+          // fork: a local backend refuses in two recoverable ways, and both are
+          // answered by lowering the context rather than by retrying blindly.
+          // 413 — the prompt overflowed the context being served. 507 — the
+          // model would not load at the context it is configured for.
           if (
-            res.status === 413 &&
             model.api.npm === "@ai-sdk/openai-compatible" &&
             typeof options["baseURL"] === "string" &&
             opts.method === "POST" &&
             typeof opts.body === "string" &&
-            (await adjustLocalContextOnOverflow(s, model, options["baseURL"] as string, opts.body, res))
+            (res.status === 413 || res.status === 507)
           ) {
-            res = await fetchFn(input, {
-              ...opts,
-              // @ts-ignore see here: https://github.com/oven-sh/bun/issues/16682
-              timeout: false,
-            }).finally(() => headerTimeoutCtl?.clear())
+            const localBaseURL = options["baseURL"] as string
+            const adjusted =
+              res.status === 413
+                ? await adjustLocalContextOnOverflow(s, model, localBaseURL, opts.body, res)
+                : await adjustLocalContextOnLoadFailure(localBaseURL, opts.body, res)
+            if (adjusted) {
+              res = await fetchFn(input, {
+                ...opts,
+                // @ts-ignore see here: https://github.com/oven-sh/bun/issues/16682
+                timeout: false,
+              }).finally(() => headerTimeoutCtl?.clear())
+            }
           }
 
           // Order matters: the chunk timer must watch the RAW stream, before

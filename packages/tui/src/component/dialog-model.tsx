@@ -16,7 +16,34 @@ import { useSDK } from "../context/sdk"
 import { useProject } from "../context/project"
 import { createClient, createConfig } from "../local/llama-skein/gen/client"
 import { LlamaSkeinClient } from "../local/llama-skein/gen/sdk.gen"
+import type { FitReport } from "../local/llama-skein/gen/types.gen"
 import { extractMem, fmtGB, normalizeBaseURL } from "../local/model-fit"
+
+/**
+ * Fetches a host's `/api/fit` report and caches it by provider id, the same
+ * shape as the VRAM fetch below it. Never throws: a host that doesn't serve
+ * `/api/fit` (non-llama-skein, or unreachable) simply has no fit data, which
+ * every helper in `local/model-fit.ts` already treats as "unknown" rather
+ * than "cannot load" — so a failed fetch degrades the dialog to the
+ * unannotated list it showed before fit data existed, never to a false
+ * "does not fit". The cache is untouched on failure, not cleared, so a
+ * transient failure after a successful fetch doesn't erase a good report.
+ */
+export async function fetchFitReportForProvider(
+  client: LlamaSkeinClient,
+  providerID: string,
+  setCache: (updater: (prev: Record<string, FitReport>) => Record<string, FitReport>) => void,
+): Promise<FitReport | undefined> {
+  try {
+    const res = await client.getFitReport()
+    if (!res.data) return undefined
+    const report = res.data
+    setCache((prev) => ({ ...prev, [providerID]: report }))
+    return report
+  } catch {
+    return undefined
+  }
+}
 
 export function DialogModel(props: { providerID?: string }) {
   const local = useLocal()
@@ -35,6 +62,11 @@ export function DialogModel(props: { providerID?: string }) {
   // lifetime — never blocks dialog open, and a provider that doesn't answer
   // /api/hardware (non-local, or an older backend) simply has no label.
   const [vram, setVram] = createSignal<Record<string, string>>({})
+  // Per-model fit verdicts, same lifetime and the same "never blocks, no
+  // data is not an error" contract. Not yet read by the option list below —
+  // wiring "(Recommended)" and a cannot-fit marker into the picker itself is
+  // its own task (2.4); this fetches and caches the data that task consumes.
+  const [fitReports, setFitReports] = createSignal<Record<string, FitReport>>({})
 
   onMount(() => {
     void sync.refreshProviders().catch(() => undefined)
@@ -55,6 +87,7 @@ export function DialogModel(props: { providerID?: string }) {
         .catch(() => {
           // backend may not support /api/hardware — no VRAM label, nothing else changes
         })
+      void fetchFitReportForProvider(llamaClient, item.id, setFitReports)
     }
   })
 

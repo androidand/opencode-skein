@@ -8,6 +8,7 @@ import {
   settleTaskReply,
   type PeerCandidate,
 } from "../../src/peer/delegate"
+import { formatPeerEnvelope, peerBody } from "../../src/peer/envelope"
 
 const claude: PeerCandidate = { owner: "claude-code", id: "4242", name: "example-corp-5e", status: "idle" }
 const cloudPeer: PeerCandidate = {
@@ -69,6 +70,13 @@ describe("reply registry", () => {
   })
   test("a reply nobody waits for is not consumed", () => {
     expect(settleTaskReply("[peer-task-result nobody]\nx")).toBe(false)
+  })
+  test("a header in front of the marker still settles, because the header is stripped first", async () => {
+    const waiting = awaitTaskReply("t4", 5_000)
+    const wrapped = formatPeerEnvelope({ mode: "reply", messageID: "m1", taskID: "t4" }, "[peer-task-result t4]\ndone")
+    expect(/^\s*\[peer-task-result /.test(peerBody(wrapped))).toBe(true)
+    expect(settleTaskReply(peerBody(wrapped))).toBe(true)
+    expect(await waiting).toEqual({ ok: true, text: "done" })
   })
   test("times out", async () => {
     expect(await awaitTaskReply("t2", 5)).toEqual({ ok: false, reason: "timeout" })

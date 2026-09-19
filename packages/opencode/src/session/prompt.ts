@@ -1133,6 +1133,36 @@ export const layer = Layer.effect(
       }
 
       if (input.noReply === true) return message
+
+      // A message persisted here can land in a narrow window that loses it
+      // silently. `loop` calls `Runner.ensureRunning`, which for a run already
+      // in flight returns `awaitDone` — it JOINS that run and discards the work
+      // submitted with it (effect/runner.ts, the Running case). Normally that is
+      // fine: the step loop re-reads the session's messages every step, so it
+      // picks up whatever was persisted. But between the loop's final exit check
+      // and the runner returning to Idle, the run has already decided to stop and
+      // will never read messages again. A message persisted in that gap is
+      // joined onto a corpse: no error, no retry, and the caller is told the
+      // message was accepted while nothing will ever process it. It sits until
+      // something unrelated prompts the session.
+      //
+      // This is what made peer delivery unreliable — `send_peer_message` reports
+      // "accepted for delivery" and the receiver never wakes.
+      //
+      // Ask the cheap question instead of guessing: did the turn that just
+      // finished actually answer THIS message? If an assistant message parented
+      // to it exists, it was processed, however that turn ended — an error, a
+      // step cap and a normal finish all parent to it. If none exists, nothing
+      // ran it, and a fresh run is started. One retry, because this closes a
+      // race rather than papering over a session that refuses to answer.
+      const answered = (latest: SessionV1.WithParts) =>
+        latest.info.role !== "user" && latest.info.parentID === message.info.id
+      const first = yield* loop({ sessionID: input.sessionID })
+      if (answered(first)) return first
+      yield* Effect.logInfo("prompt landed after its turn had already finished — starting a new run", {
+        "session.id": input.sessionID,
+        messageID: message.info.id,
+      })
       return yield* loop({ sessionID: input.sessionID })
     })
 
@@ -1485,7 +1515,9 @@ export const layer = Layer.effect(
             )
             const currentTurn: LoopDetect.TurnSnapshot = {
               text: currentText,
-              toolSignature: LoopDetect.toolCallSignature(toolParts.map((p) => ({ tool: p.tool, input: p.state.input }))),
+              toolSignature: LoopDetect.toolCallSignature(
+                toolParts.map((p) => ({ tool: p.tool, input: p.state.input })),
+              ),
             }
             const result = LoopDetect.detectRepeat(currentTurn, lastTurn, LoopSimilarityThreshold)
             if (result.repeated) {

@@ -41,8 +41,9 @@ export async function runSidecarEntry() {
 
   process.stdout.write(`${JSON.stringify({ type: "ready", pid: sidecar.pid, socketPath: sidecar.socketPath })}\n`)
 
-  // The parent mirrors the owner session's status down this pipe so the
-  // registry entry other processes read says busy/idle truthfully.
+  // The parent mirrors the owner session's status and title down this pipe so
+  // the registry entry other processes read stays truthful — a session is
+  // registered before it has a real title, and its status changes constantly.
   let stdinBuffer = ""
   process.stdin.on("data", (chunk: Buffer) => {
     stdinBuffer += chunk.toString("utf8")
@@ -52,9 +53,11 @@ export async function runSidecarEntry() {
       stdinBuffer = stdinBuffer.slice(newline + 1)
       if (!line.trim()) continue
       try {
-        const event = JSON.parse(line) as { type?: string; status?: string }
+        const event = JSON.parse(line) as { type?: string; status?: string; name?: string }
         if (event.type === "status" && (event.status === "idle" || event.status === "busy")) {
           void sidecar.setStatus(event.status).catch(() => undefined)
+        } else if (event.type === "name" && typeof event.name === "string" && event.name) {
+          void sidecar.setName(event.name).catch(() => undefined)
         }
       } catch {
         // ignore malformed control lines

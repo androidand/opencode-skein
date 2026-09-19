@@ -292,7 +292,10 @@ export const TaskTool = Tool.define(
               ),
             )
       // pick() stays plain so its slot reservation is synchronous; it reports
-      // the outcome and the logging happens here, in Effect context.
+      // the outcome and the logging happens here, in Effect context. Every
+      // decision is logged with the chosen option and the rejected candidates'
+      // scores, so "why did this subagent run here" is answerable from the log
+      // rather than a guess (Phase 0, task 0.1).
       if (outcome?.kind === "placed") {
         yield* Effect.logInfo("placed subagent on idle local provider", {
           provider: outcome.placement.providerID,
@@ -300,6 +303,7 @@ export const TaskTool = Tool.define(
           parent: inherited.providerID,
           requiredCtx: outcome.requiredCtx,
           probed: outcome.probed,
+          candidates: outcome.candidates,
         })
         // The probe just read the host's current per-slot context; discovery
         // may have seen a different --parallel. Trim to what is true now.
@@ -314,6 +318,7 @@ export const TaskTool = Tool.define(
         yield* Effect.logInfo("no idle local provider, inheriting parent", {
           parent: inherited.providerID,
           probed: outcome.probed,
+          candidates: outcome.candidates,
         })
       else if (outcome?.kind === "failed")
         yield* Effect.logError("placement failed, inheriting parent", { error: outcome.error })
@@ -449,6 +454,10 @@ export const TaskTool = Tool.define(
             fromSessionID: ctx.sessionID,
             fromName: parent.title,
             text: envelope,
+            // `all` is this instance's own project listing, so a candidate in
+            // it is one this process may prompt directly; anything else has to
+            // go through its owner's socket.
+            owned: all.some((item) => item.id === peer.id),
             local: () =>
               ops
                 .prompt({

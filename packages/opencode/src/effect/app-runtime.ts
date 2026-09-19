@@ -4,6 +4,7 @@ import * as Observability from "@opencode-ai/core/observability"
 
 import { FSUtil } from "@opencode-ai/core/fs-util"
 import { Database } from "@opencode-ai/core/database/database"
+import { EventRetention } from "@opencode-ai/core/event/retention"
 import { Auth } from "@/auth"
 import { Account } from "@/account/account"
 import { Config } from "@/config/config"
@@ -122,10 +123,27 @@ export const AppLayer = AppNodeBuilderV1.build(
     Installation.node,
     ShareNext.node,
     SessionShare.node,
+    // fork: the event journal grows forever without this. The retention
+    // service and its hourly sweep were written and tested, and then nothing
+    // ever scheduled them — `sweepLayer` had no consumers anywhere in the
+    // repo, so no build has ever pruned a journal. Measured on this machine
+    // before wiring it up: 37 GB of database, of which the event table was
+    // 31 GB across 1.38M rows, and 91% of those rows belonged to the 18,283
+    // sessions that had been idle for more than the 48-hour retention window.
+    // The sweep forks scoped and runs in the background, so a first pass over
+    // a journal this size does not block startup.
+    EventRetention.node,
   ]),
 ).pipe(Layer.provideMerge(AppNodeBuilderV1.build(Ripgrep.node)), Layer.provideMerge(Observability.layer))
 
-const rt = ManagedRuntime.make(AppLayer, { memoMap })
+/**
+ * fork: the graph plus the hourly journal sweep actually running. `sweepLayer`
+ * needs `EventRetention.Service`, so it is layered over the graph rather than
+ * listed inside it; `provideMerge` keeps every service the graph exposes.
+ */
+const AppLayerWithSweep = EventRetention.sweepLayer.pipe(Layer.provideMerge(AppLayer))
+
+const rt = ManagedRuntime.make(AppLayerWithSweep, { memoMap })
 type Runtime = Pick<typeof rt, "runSync" | "runPromise" | "runPromiseExit" | "runFork" | "runCallback" | "dispose">
 
 /** Services provided by AppRuntime — i.e. what an Effect run via AppRuntime.runPromise can yield. */
