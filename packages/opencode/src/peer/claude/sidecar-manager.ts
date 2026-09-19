@@ -171,7 +171,9 @@ export function ensureSidecar(input: EnsureSidecarInput, deliver: Deliver, hooks
 
   child.once("exit", (code, signal) => {
     if (active.get(input.sessionID) === managed) active.delete(input.sessionID)
-    if (code !== 0 && code !== null) {
+    // A signal kill reports code null, so testing the code alone left a
+    // SIGKILL/SIGTERM'd sidecar silent.
+    if ((code !== 0 && code !== null) || signal) {
       diagnostic?.(`sidecar exited with code ${code}${signal ? ` (${signal})` : ""}`)
     }
   })
