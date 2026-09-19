@@ -7,7 +7,7 @@ import { Global } from "../global"
 import { Flag } from "../flag/flag"
 import { isAbsolute, join } from "path"
 import { DatabaseMigration } from "./migration"
-import { InstallationChannel } from "../installation/version"
+import { InstallationChannel, InstallationIsRelease } from "../installation/version"
 import { LayerNode } from "../effect/layer-node"
 import { makeGlobalNode } from "../effect/app-node"
 
@@ -57,7 +57,7 @@ export function path() {
     return join(Global.Path.data, Flag.OPENCODE_DB)
   }
   if (
-    ["latest", "beta", "prod"].includes(InstallationChannel) ||
+    InstallationIsRelease ||
     process.env.OPENCODE_DISABLE_CHANNEL_DB === "1" ||
     process.env.OPENCODE_DISABLE_CHANNEL_DB === "true"
   )
