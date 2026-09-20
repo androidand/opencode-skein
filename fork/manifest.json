@@ -192,6 +192,7 @@
     "packages/opencode/src/peer/claude/sidecar-manager.ts",
     "packages/opencode/test/peer/claude/sidecar-e2e.test.ts",
     "packages/opencode/test/peer/claude/sidecar-manager.test.ts",
+    "packages/opencode/test/peer/claude/lifecycle-inject.test.ts",
     "packages/opencode/src/peer/claude/lifecycle.ts",
     "packages/opencode/src/peer/delegate.ts",
     "packages/opencode/test/peer/delegate.test.ts",
