@@ -283,7 +283,6 @@ export const TaskTool = Tool.define(
                   LocalPlacement.pick({
                     parent: inherited,
                     providers,
-                    allowedModels: cfg.experimental?.local_subagent_placement_models,
                     promptText: params.prompt,
                     target: params.provider,
                     prefer: rolePlacement,

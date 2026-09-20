@@ -128,6 +128,8 @@ export type Probe = {
   providerID: ProviderV2.ID
   hardware: ResourceSnapshot
   fit: FitReport
+  /** The host's own configured default model (`GET /api/config/info`), if any. */
+  defaultModel?: string
 }
 
 async function probe(providerID: ProviderV2.ID, baseURL: string, signal: AbortSignal): Promise<Probe | null> {
@@ -135,7 +137,7 @@ async function probe(providerID: ProviderV2.ID, baseURL: string, signal: AbortSi
     client: createClient(createConfig({ baseUrl: normalizeBaseURL(baseURL) })),
     key: `placement:${providerID}`,
   })
-  const [hardware, fit] = await Promise.all([
+  const [hardware, fit, configInfo] = await Promise.all([
     llama
       .getHardware({ signal })
       .then((res) => res.data ?? null)
@@ -144,13 +146,19 @@ async function probe(providerID: ProviderV2.ID, baseURL: string, signal: AbortSi
       .getFitReport({ signal })
       .then((res) => res.data ?? null)
       .catch(() => null),
+    // Best-effort: an older host without this endpoint simply has no default
+    // model preference, not a reason to skip placement on it.
+    llama
+      .getConfigInfo({ signal })
+      .then((res) => res.data?.default_model ?? undefined)
+      .catch(() => undefined),
   ])
   // Both signals are required: hardware to judge busyness, fit to judge which
   // model can actually serve a subagent. A plain llama-swap host without the
   // llama-skein API yields nulls and is skipped — capacity we can't see is
   // capacity we don't schedule on.
   if (!hardware || !fit) return null
-  return { providerID, hardware, fit }
+  return { providerID, hardware, fit, defaultModel: configInfo }
 }
 
 export function bestModel(input: {
@@ -158,21 +166,14 @@ export function bestModel(input: {
   info: Provider.Info
   parentModelID: string
   requiredCtx: number
-  allowedModels?: readonly string[]
 }): { modelID: ModelV2.ID; score: number; maxSafeCtx: number } | null {
   const loadedID = input.probe.hardware.loaded_model?.id
+  const defaultID = input.probe.defaultModel
   let best: { modelID: ModelV2.ID; score: number; maxSafeCtx: number } | null = null
   for (const fit of input.probe.fit.models) {
     const model = input.info.models[fit.model]
     if (!model) continue // not registered with opencode — can't be prompted
-    // Discovered local models default toolcall to true, so this filter alone
-    // can't be trusted — the allowlist below is the real vetting mechanism.
     if (!model.capabilities.toolcall) continue
-    // Curated list of models proven to handle subagent tool calls. Anything
-    // else may be loaded and fast yet flub tool-call JSON, wasting the whole
-    // task. The parent's own model is always trusted — the user picked it.
-    if (input.allowedModels?.length && fit.model !== input.parentModelID && !input.allowedModels.includes(fit.model))
-      continue
     // Hard context filter. A model whose usable context (max_safe_ctx) can't
     // hold the subagent prompt will 413 or silently truncate it — never pick
     // it, regardless of how well it fits VRAM or how fast it is. This is the
@@ -188,12 +189,15 @@ export function bestModel(input: {
       // Swapping models on a host mid-session evicts what the user (or skein)
       // deliberately keeps loaded and costs a multi-second reload both ways.
       // An eligible resident model always beats anything that needs a load;
-      // eligibility (allowlist, ctx, fit) is still enforced by the filters
-      // above, so an unvetted or too-small resident model never wins by
-      // residency alone.
+      // eligibility (ctx, fit, toolcall) is still enforced by the filters
+      // above, so a too-small resident model never wins by residency alone.
       (fit.model === loadedID ? 100_000 : 0) +
-      // Among models that would need a load, prefer the parent's own model:
-      // proven behavior beats an arbitrary pick.
+      // Among models that would need a load, prefer the host's own configured
+      // default (GET /api/config/info) — the operator chose it for this host
+      // specifically, which beats guessing from fit/speed alone.
+      (fit.model === defaultID ? 20_000 : 0) +
+      // Failing that, prefer the parent's own model: proven behavior beats an
+      // arbitrary pick.
       (fit.model === input.parentModelID ? 5_000 : 0) +
       Math.min(fit.est_tokens_per_sec ?? 0, 500) -
       // Host-bandwidth-paced placements rank below every GPU-resident
@@ -415,7 +419,6 @@ export type PickOutcome =
 export async function pick(input: {
   parent: Placement
   providers: Record<string, Provider.Info>
-  allowedModels?: readonly string[]
   promptText?: string
   requiredCtx?: number
   timeoutMs?: number
@@ -496,7 +499,6 @@ export async function pick(input: {
         info: candidates[i].info,
         parentModelID: input.parent.modelID,
         requiredCtx,
-        allowedModels: input.allowedModels,
       })
       if (!model) {
         scored.push({ providerID, eligible: false })
