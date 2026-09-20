@@ -209,10 +209,6 @@ export const Info = Schema.Struct({
         description:
           "When the parent session runs on a local llama-skein provider, place subagents on an idle peer provider instead of queueing behind the parent (default: true)",
       }),
-      local_subagent_placement_models: Schema.optional(Schema.mutable(Schema.Array(Schema.String))).annotate({
-        description:
-          "Model IDs trusted for local subagent placement (the parent's own model is always trusted). Unset: any tool-capable model on an idle provider qualifies",
-      }),
       peer_delegation: Schema.optional(Schema.Boolean).annotate({
         description:
           "When no local host has a free slot for a subagent, hand the task to an idle peer agent (Claude Code or opencode) over A2A instead of failing (default: true)",
