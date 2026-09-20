@@ -28,6 +28,7 @@ export interface SidecarInfo {
 
 interface Managed extends SidecarInfo {
   name: string
+  directory: string
   child: ReturnType<typeof Process.spawn>
 }
 
@@ -38,6 +39,16 @@ export function sidecarNameFor(sessionID: string): string | undefined {
   const managed = active.get(sessionID)
   if (!managed?.pid) return undefined
   return `opencode:${managed.name}`
+}
+
+/**
+ * The owning session's project directory, known since `ensureSidecar` was
+ * called for it. `deliver` needs this to resolve an `InstanceRef` *before*
+ * calling any session-scoped service (`Session.Service.get` itself requires
+ * one) — looking the directory up via the session store would be circular.
+ */
+export function sidecarDirectoryFor(sessionID: string): string | undefined {
+  return active.get(sessionID)?.directory
 }
 
 /**
@@ -116,7 +127,7 @@ export function ensureSidecar(input: EnsureSidecarInput, deliver: Deliver, hooks
     stderr: "pipe",
   })
 
-  const managed: Managed = { sessionID: input.sessionID, name: input.name, child }
+  const managed: Managed = { sessionID: input.sessionID, name: input.name, directory: input.cwd, child }
   active.set(input.sessionID, managed)
 
   const diagnostic = hooks.diagnostic
