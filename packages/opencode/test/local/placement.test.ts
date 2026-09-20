@@ -27,11 +27,12 @@ function info(...models: string[]): Provider.Info {
   } as unknown as Provider.Info
 }
 
-function probe(models: ModelFit[], loadedID?: string): Probe {
+function probe(models: ModelFit[], loadedID?: string, defaultModel?: string): Probe {
   return {
     providerID: "host" as Probe["providerID"],
     hardware: hw({ slots_total: 1, in_flight: 0, busy: false }, loadedID),
     fit: { models } as Probe["fit"],
+    defaultModel,
   }
 }
 
@@ -110,7 +111,7 @@ describe("bestModel context-adequacy filter", () => {
   })
 })
 
-describe("bestModel resident-model tier (skein rule: loaded > preferred > any)", () => {
+describe("bestModel scoring tiers: loaded > host default > parent's model > any", () => {
   const requiredCtx = 9_000
 
   test("an eligible resident model beats swapping to the parent's own model", () => {
@@ -134,22 +135,57 @@ describe("bestModel resident-model tier (skein rule: loaded > preferred > any)",
     expect(result?.modelID as string | undefined).toBe("parentm")
   })
 
-  test("residency never overrides vetting — an unlisted resident model loses to an allowed cold one", () => {
+  test("a resident model beats a model that would need a fresh load, tool-capable or not", () => {
+    // No allowlist anymore — every registered, tool-capable model is eligible.
+    // Residency still wins over a cold load regardless of raw fit/speed.
     const p = probe(
       [
-        fitModel("resident", { fit_level: "perfect", max_safe_ctx: 32_768 }),
-        fitModel("vetted", { fit_level: "good", max_safe_ctx: 32_768 }),
+        fitModel("resident", { fit_level: "good", max_safe_ctx: 32_768, est_tokens_per_sec: 20 }),
+        fitModel("faster", { fit_level: "perfect", max_safe_ctx: 32_768, est_tokens_per_sec: 400 }),
       ],
       "resident",
     )
-    const result = bestModel({
-      probe: p,
-      info: info("resident", "vetted"),
-      parentModelID: "cloud",
-      requiredCtx,
-      allowedModels: ["vetted"],
-    })
-    expect(result?.modelID as string | undefined).toBe("vetted")
+    const result = bestModel({ probe: p, info: info("resident", "faster"), parentModelID: "cloud", requiredCtx })
+    expect(result?.modelID as string | undefined).toBe("resident")
+  })
+
+  test("with nothing resident, the host's own default model is preferred over a better fit", () => {
+    const p = probe(
+      [
+        fitModel("default", { fit_level: "good", max_safe_ctx: 32_768, est_tokens_per_sec: 20 }),
+        fitModel("other", { fit_level: "perfect", max_safe_ctx: 32_768, est_tokens_per_sec: 400 }),
+      ],
+      undefined,
+      "default",
+    )
+    const result = bestModel({ probe: p, info: info("default", "other"), parentModelID: "cloud", requiredCtx })
+    expect(result?.modelID as string | undefined).toBe("default")
+  })
+
+  test("the host's default model outranks the parent's own model", () => {
+    const p = probe(
+      [
+        fitModel("default", { fit_level: "good", max_safe_ctx: 32_768 }),
+        fitModel("parentm", { fit_level: "good", max_safe_ctx: 32_768 }),
+      ],
+      undefined,
+      "default",
+    )
+    const result = bestModel({ probe: p, info: info("default", "parentm"), parentModelID: "parentm", requiredCtx })
+    expect(result?.modelID as string | undefined).toBe("default")
+  })
+
+  test("residency still outranks the host's own default model", () => {
+    const p = probe(
+      [
+        fitModel("resident", { fit_level: "good", max_safe_ctx: 32_768 }),
+        fitModel("default", { fit_level: "good", max_safe_ctx: 32_768 }),
+      ],
+      "resident",
+      "default",
+    )
+    const result = bestModel({ probe: p, info: info("resident", "default"), parentModelID: "cloud", requiredCtx })
+    expect(result?.modelID as string | undefined).toBe("resident")
   })
 })
 
