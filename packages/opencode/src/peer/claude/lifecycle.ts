@@ -80,21 +80,38 @@ const layer = Layer.effect(
       // This runs from a background event listener, not inside any request's
       // own instance context (unlike a tool call, which inherits one from
       // whatever originally invoked the session) — an `InstanceRef` has to be
-      // established explicitly before any session-scoped service will work,
-      // `Session.Service.get` included. The directory therefore cannot come
-      // from `session.get()` — that call itself dies with "InstanceRef not
-      // provided" without one already in scope. `ensureSidecar` was given the
-      // directory at registration time and the sidecar manager still has it;
-      // read it from there instead.
+      // established explicitly before any session-scoped service will work
+      // (`SessionStatus.get` and `SessionPrompt.prompt` need one;
+      // `Session.get` itself reads the global DB). The directory therefore
+      // cannot come from a session-scoped lookup — `ensureSidecar` was given
+      // the directory at registration time and the sidecar manager still has
+      // it; read it from there instead. `inbound.sessionID` is the sidecar's
+      // own owner ID, not sender-controlled text, so resolving/booting the
+      // instance before the `info` existence check below cannot be triggered
+      // by a remote peer.
       const directory = sidecarDirectoryFor(inbound.sessionID)
-      if (!directory) return
+      if (!directory) {
+        runFork(
+          Effect.logWarning("claude sidecar: dropping inbound for unmanaged session", {
+            "session.id": inbound.sessionID,
+            msgID: inbound.msgID,
+          }),
+        )
+        return
+      }
       runFork(
         instanceStore
           .provide(
             { directory },
             Effect.gen(function* () {
               const info = yield* session.get(SessionID.make(inbound.sessionID)).pipe(Effect.orElseSucceed(() => undefined))
-              if (!info) return
+              if (!info) {
+                yield* Effect.logWarning("claude sidecar: dropping inbound for unknown session", {
+                  "session.id": inbound.sessionID,
+                  msgID: inbound.msgID,
+                })
+                return
+              }
               // `fromName` and `from` are envelope attributes — display and
               // addressing only, never authorization (codec.ts). `from` is the
               // sender's return address; it is what the receiving agent has to
@@ -221,6 +238,9 @@ const layer = Layer.effect(
       // that is doing something is exactly the one worth an address, so
       // register it the first time it reports a status.
       if (isManaged(data.sessionID)) return Effect.void
+      // Safe without an explicit `InstanceRef`: `Session.get` reads the
+      // global DB directly (no `InstanceState.context`), and `ensureFor`
+      // only spawns a sidecar — no session-scoped service is touched.
       return session.get(SessionID.make(data.sessionID)).pipe(
         Effect.flatMap((info) => Effect.sync(() => ensureFor(info))),
         Effect.ignore,

@@ -28,6 +28,7 @@ export interface SidecarInfo {
 
 interface Managed extends SidecarInfo {
   name: string
+  // Immutable: the owning session's project directory never changes.
   directory: string
   child: ReturnType<typeof Process.spawn>
 }
@@ -44,8 +45,9 @@ export function sidecarNameFor(sessionID: string): string | undefined {
 /**
  * The owning session's project directory, known since `ensureSidecar` was
  * called for it. `deliver` needs this to resolve an `InstanceRef` *before*
- * calling any session-scoped service (`Session.Service.get` itself requires
- * one) — looking the directory up via the session store would be circular.
+ * calling any session-scoped service (`SessionStatus.get` and
+ * `SessionPrompt.prompt` need one) — looking the directory up via a
+ * session-scoped store would be circular.
  */
 export function sidecarDirectoryFor(sessionID: string): string | undefined {
   return active.get(sessionID)?.directory
