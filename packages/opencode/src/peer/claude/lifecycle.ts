@@ -7,7 +7,6 @@
 import { Context, Effect, Layer } from "effect"
 import { LayerNode } from "@opencode-ai/core/effect/layer-node"
 import { EventV2Bridge } from "@/event-v2-bridge"
-import { InstanceRef } from "@/effect/instance-ref"
 import { RuntimeFlags } from "@/effect/runtime-flags"
 import { InstanceStore } from "@/project/instance-store"
 import { Session } from "@/session/session"
@@ -25,6 +24,7 @@ import {
   isManaged,
   setSidecarName,
   setSidecarStatus,
+  sidecarDirectoryFor,
   stopAllSidecars,
   stopSidecar,
   sweepOrphanedSidecars,
@@ -77,76 +77,94 @@ const layer = Layer.effect(
       // the message as a prompt. Falls through to prompt injection when there
       // is no pending request — the reply is still delivered as context.
       if (settlePeerReply(inbound.text)) return
+      // This runs from a background event listener, not inside any request's
+      // own instance context (unlike a tool call, which inherits one from
+      // whatever originally invoked the session) — an `InstanceRef` has to be
+      // established explicitly before any session-scoped service will work,
+      // `Session.Service.get` included. The directory therefore cannot come
+      // from `session.get()` — that call itself dies with "InstanceRef not
+      // provided" without one already in scope. `ensureSidecar` was given the
+      // directory at registration time and the sidecar manager still has it;
+      // read it from there instead.
+      const directory = sidecarDirectoryFor(inbound.sessionID)
+      if (!directory) return
       runFork(
-        Effect.gen(function* () {
-          const info = yield* session.get(SessionID.make(inbound.sessionID)).pipe(Effect.orElseSucceed(() => undefined))
-          if (!info) return
-          // This runs from a background event listener, not inside any
-          // request's own instance context (unlike a tool call, which
-          // inherits it from whatever originally invoked the session) — the
-          // project instance has to be resolved explicitly from the target
-          // session's own directory before anything session-scoped will work.
-          const instance = yield* instanceStore.load({ directory: info.directory })
-          // `fromName` and `from` are envelope attributes — display and
-          // addressing only, never authorization (codec.ts). `from` is the
-          // sender's return address; it is what the receiving agent has to
-          // hand back to `send_peer_message` for its answer to arrive.
-          const sender = yield* Effect.promise(() => resolveOpencodeSender(inbound.from))
-          const pid = claudePidOf(inbound.from)
-          const wrapped = sender
-            ? formatPeerMessage(
-                { sessionID: sender, title: inbound.fromName ?? sender, reply: { target: sender } },
-                inbound.text,
-              )
-            : formatPeerMessage(
-                {
-                  harness: "claude-code",
-                  sessionID: pid ?? "unknown-pid",
-                  title: inbound.fromName ?? "a Claude Code peer",
-                  // `resolveClaudeTarget` accepts a pid; the display name is a
-                  // weaker fallback (it must be an unambiguous prefix). With
-                  // neither there is nothing to address an answer to.
-                  reply: pid
-                    ? { target: pid }
-                    : inbound.fromName
-                      ? { target: inbound.fromName }
-                      : { unreachable: true },
-                },
-                inbound.text,
-              )
-          const targetID = SessionID.make(inbound.sessionID)
-          const inject = () =>
-            promptSvc
-              .prompt({
-                sessionID: targetID,
-                agent: info.agent,
-                parts: [{ type: "text", synthetic: true, text: wrapped }],
-              })
-              .pipe(Effect.provideService(InstanceRef, instance), Effect.asVoid)
+        instanceStore
+          .provide(
+            { directory },
+            Effect.gen(function* () {
+              const info = yield* session.get(SessionID.make(inbound.sessionID)).pipe(Effect.orElseSucceed(() => undefined))
+              if (!info) return
+              // `fromName` and `from` are envelope attributes — display and
+              // addressing only, never authorization (codec.ts). `from` is the
+              // sender's return address; it is what the receiving agent has to
+              // hand back to `send_peer_message` for its answer to arrive.
+              const sender = yield* Effect.promise(() => resolveOpencodeSender(inbound.from))
+              const pid = claudePidOf(inbound.from)
+              const wrapped = sender
+                ? formatPeerMessage(
+                    { sessionID: sender, title: inbound.fromName ?? sender, reply: { target: sender } },
+                    inbound.text,
+                  )
+                : formatPeerMessage(
+                    {
+                      harness: "claude-code",
+                      sessionID: pid ?? "unknown-pid",
+                      title: inbound.fromName ?? "a Claude Code peer",
+                      // `resolveClaudeTarget` accepts a pid; the display name is a
+                      // weaker fallback (it must be an unambiguous prefix). With
+                      // neither there is nothing to address an answer to.
+                      reply: pid
+                        ? { target: pid }
+                        : inbound.fromName
+                          ? { target: inbound.fromName }
+                          : { unreachable: true },
+                    },
+                    inbound.text,
+                  )
+              const targetID = SessionID.make(inbound.sessionID)
+              // `instanceStore.provide` only wraps this generator's own
+              // computation, not a closure called later from outside it
+              // (`PeerInbox.enqueue` runs `inject` from a *different* fiber,
+              // once the target goes idle) — `inject` re-provides InstanceRef
+              // itself so it works from either call site.
+              const inject = () =>
+                instanceStore.provide(
+                  { directory },
+                  promptSvc
+                    .prompt({
+                      sessionID: targetID,
+                      agent: info.agent,
+                      parts: [{ type: "text", synthetic: true, text: wrapped }],
+                    })
+                    .pipe(Effect.asVoid),
+                )
 
-          // Every inbound message — from a real Claude Code peer, or from
-          // another opencode process reached over the same socket — lands
-          // here regardless of who sent it. A target mid-turn cannot be
-          // injected into safely, so hold it and let `SessionStatus.set`'s
-          // idle transition run it: the same signal `send_peer_message`'s
-          // owned-target path now waits on, so both directions of "someone
-          // tried to reach a busy session" resolve the same way instead of
-          // one silently discarding the message and the other queueing it.
-          const currentStatus = yield* sessionStatus.get(targetID)
-          if (currentStatus.type === "busy" || currentStatus.type === "retry") {
-            PeerInbox.enqueue(inbound.sessionID, inject)
-            return
-          }
-          yield* inject()
-        }).pipe(
-          Effect.catchCause((cause) =>
-            Effect.logError("claude sidecar: failed to deliver inbound message", {
-              "session.id": inbound.sessionID,
-              msgID: inbound.msgID,
-              cause,
+              // Every inbound message — from a real Claude Code peer, or from
+              // another opencode process reached over the same socket — lands
+              // here regardless of who sent it. A target mid-turn cannot be
+              // injected into safely, so hold it and let `SessionStatus.set`'s
+              // idle transition run it: the same signal `send_peer_message`'s
+              // owned-target path now waits on, so both directions of "someone
+              // tried to reach a busy session" resolve the same way instead of
+              // one silently discarding the message and the other queueing it.
+              const currentStatus = yield* sessionStatus.get(targetID)
+              if (currentStatus.type === "busy" || currentStatus.type === "retry") {
+                PeerInbox.enqueue(inbound.sessionID, inject)
+                return
+              }
+              yield* inject()
             }),
+          )
+          .pipe(
+            Effect.catchCause((cause) =>
+              Effect.logError("claude sidecar: failed to deliver inbound message", {
+                "session.id": inbound.sessionID,
+                msgID: inbound.msgID,
+                cause,
+              }),
+            ),
           ),
-        ),
       )
     }
 
