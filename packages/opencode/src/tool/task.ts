@@ -4,6 +4,7 @@ import { ToolJsonSchema } from "./json-schema"
 import { SessionV1 } from "@opencode-ai/core/v1/session"
 import { BackgroundJob } from "@/background/job"
 import { Session } from "@/session/session"
+import { Unattended } from "@/session/unattended"
 import { SessionID, MessageID } from "../session/schema"
 import { MessageV2 } from "../session/message-v2"
 import { Agent } from "../agent/agent"
@@ -240,6 +241,14 @@ export const TaskTool = Tool.define(
             ),
           ],
         }))
+
+      // A subagent spawned under an unattended (`/loop`-driven) session has
+      // the same nobody-to-answer problem as its parent — mark it too, so an
+      // `ask` in the subagent's own role permissions (or a nested subagent
+      // it spawns in turn, propagated the same way one level down) auto-
+      // allows instead of hanging. Idempotent: harmless to re-mark a resumed
+      // session that already carries the mark.
+      if (Unattended.isUnattended(ctx.sessionID)) Unattended.mark(nextSession.id)
 
       // fork: publish the child session id as soon as it exists. The local
       // placement probing below adds `model` to this metadata, but it can take
@@ -540,8 +549,13 @@ export const TaskTool = Tool.define(
       // Release the local-placement slot reservation (if we hopped to an idle
       // peer) when the subagent finishes, however it finishes — success,
       // error, or interrupt. release() is idempotent and a no-op when we
-      // inherited the parent (placed === null).
-      const releaseSlot = Effect.sync(() => placed?.release())
+      // inherited the parent (placed === null). Also drop this session's
+      // unattended mark (a no-op if it was never marked) so a long-running
+      // server's registry does not grow forever with finished subagents.
+      const releaseSlot = Effect.sync(() => {
+        placed?.release()
+        Unattended.unmark(nextSession.id)
+      })
 
       const runTask = Effect.fn("TaskTool.runTask")(function* () {
         if (delegated) {

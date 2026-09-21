@@ -10,6 +10,7 @@ import { InstanceStore } from "../../src/project/instance-store"
 import { TestInstance, tmpdirScoped } from "../fixture/fixture"
 import { testEffect } from "../lib/effect"
 import { MessageID, SessionID } from "../../src/session/schema"
+import { Unattended } from "../../src/session/unattended"
 import { AppNodeBuilder } from "@opencode-ai/core/effect/app-node-builder"
 import { LayerNode } from "@opencode-ai/core/effect/layer-node"
 
@@ -607,6 +608,59 @@ it.instance(
       expect(yield* waitForPending(1)).toHaveLength(1)
       yield* rejectAll()
       yield* Fiber.await(fiber)
+    }),
+  { git: true },
+)
+
+it.instance(
+  "ask - auto-allows instead of hanging when the session is marked unattended (/loop)",
+  () =>
+    Effect.gen(function* () {
+      const sessionID = SessionID.make("session_unattended")
+      Unattended.mark(sessionID)
+      try {
+        // No `Effect.forkScoped` here on purpose: if this ever regresses back
+        // to blocking, the test hangs until its own timeout rather than
+        // failing fast on a wrong value — a stronger signal that the fix is
+        // gone than a false pass ever would be.
+        const result = yield* ask({
+          sessionID,
+          permission: "bash",
+          patterns: ["ls"],
+          metadata: {},
+          always: [],
+          ruleset: [{ permission: "bash", pattern: "*", action: "ask" }],
+        })
+        expect(result).toBeUndefined()
+        expect(yield* list()).toHaveLength(0)
+      } finally {
+        Unattended.unmark(sessionID)
+      }
+    }),
+  { git: true },
+)
+
+it.instance(
+  "ask - an explicit deny still applies even when the session is marked unattended",
+  () =>
+    Effect.gen(function* () {
+      const sessionID = SessionID.make("session_unattended_deny")
+      Unattended.mark(sessionID)
+      try {
+        const err = yield* fail(
+          ask({
+            sessionID,
+            permission: "bash",
+            patterns: ["rm -rf /"],
+            metadata: {},
+            always: [],
+            ruleset: [{ permission: "bash", pattern: "*", action: "deny" }],
+          }),
+        )
+        expect(err).toBeInstanceOf(PermissionV1.DeniedError)
+      } finally {
+        Unattended.unmark(sessionID)
+      }
     }),
   { git: true },
 )
