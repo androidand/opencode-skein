@@ -13,12 +13,12 @@ on:
   workflow_dispatch:
     inputs:
       version:
-        description: "Release version, e.g. 1.17.8-skein.1 (no leading v)"
+        description: "Release version: <the upstream version in packages/opencode/package.json>-skein.<n>, no leading v"
         required: true
         type: string
   push:
     tags:
-      - "skein-v*" # e.g. skein-v1.17.8-skein.1 — push a tag to release
+      - "skein-v*" # e.g. skein-v1.18.18-skein.1 — push a tag to release
 
 concurrency:
   group: skein-release-${{ github.ref }}
@@ -45,12 +45,46 @@ jobs:
           if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
             VERSION="${{ inputs.version }}"
           else
-            # tag like skein-v1.17.8-skein.1 → strip "skein-v"
+            # tag like skein-v1.18.18-skein.1 → strip "skein-v"
             VERSION="${GITHUB_REF_NAME#skein-v}"
           fi
           VERSION="${VERSION#v}"
           echo "version=$VERSION" >> "$GITHUB_OUTPUT"
           echo "Releasing opencode-skein v$VERSION"
+
+      # This version is not cosmetic: it is compiled in as OPENCODE_VERSION and
+      # goes out as the `opencode/<version>` User-Agent. Providers on the free
+      # tier refuse anything below 1.17.0, so a release named with a fork-local
+      # number (0.1.0) would ship a binary whose free providers all reject it.
+      #
+      # The scheme that keeps that honest: <upstream version>-skein.<n>, where
+      # <upstream version> is whatever packages/opencode/package.json says we
+      # last synced to. Enforcing the base exactly pins the name to the sync,
+      # and the floor then follows from upstream having passed 1.17.0 long ago.
+      - name: Check version is a valid skein version above the provider floor
+        env:
+          VERSION: ${{ steps.v.outputs.version }}
+        run: |
+          FLOOR=1.17.0
+          UPSTREAM=$(node -p 'require("./packages/opencode/package.json").version')
+
+          if [[ ! "$VERSION" =~ ^([0-9]+\.[0-9]+\.[0-9]+)-skein\.([0-9]+)$ ]]; then
+            echo "::error::'$VERSION' is not a skein version. Expected <major>.<minor>.<patch>-skein.<n>, e.g. ${UPSTREAM}-skein.1"
+            exit 1
+          fi
+          BASE="${BASH_REMATCH[1]}"
+
+          if [ "$BASE" != "$UPSTREAM" ]; then
+            echo "::error::'$VERSION' has base $BASE but packages/opencode/package.json says we are synced to $UPSTREAM. Release ${UPSTREAM}-skein.<n>, or sync first."
+            exit 1
+          fi
+
+          if [ "$(printf '%s\n%s\n' "$FLOOR" "$BASE" | sort -V | head -1)" != "$FLOOR" ]; then
+            echo "::error::base version $BASE is below the $FLOOR provider floor; free providers would reject this build"
+            exit 1
+          fi
+
+          echo "$VERSION: upstream $BASE (>= $FLOOR), fork build ${BASH_REMATCH[2]}"
 
       - name: Create draft GitHub release
         env:
