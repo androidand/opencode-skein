@@ -487,13 +487,16 @@ export const TaskTool = Tool.define(
         return { peer, reply }
       })
       if (willInherit && placementRan) {
-        const capacity = yield* provider
-          .list()
-          .pipe(
-            Effect.flatMap((providers) =>
-              Effect.promise(() => LocalPlacement.parentCapacity({ parent: inherited, providers })),
-            ),
-          )
+        const providers = yield* provider.list()
+        const parentInfo = providers[inherited.providerID]
+        // A cloud parent has no queue problem and is reused as-is — see
+        // parentCapacity, which reports "free" for it unconditionally. A
+        // local parent is different even when it happens to have a free slot
+        // of its own: sharing the box that is already running the parent is
+        // the exact thing delegation exists to avoid, so it is tried only
+        // after every peer has been asked, never before.
+        const parentIsLocal = !!parentInfo && !!LocalPlacement.baseURLOf(parentInfo)
+        const capacity = yield* Effect.promise(() => LocalPlacement.parentCapacity({ parent: inherited, providers }))
         // Block inheritance only when the parent is KNOWN busy. A probe failure
         // returns "unknown", and an unreachable probe is not evidence of a full
         // queue: failing closed there turns any transient probe blip — or a
@@ -505,9 +508,12 @@ export const TaskTool = Tool.define(
           yield* Effect.logWarning("subagent capacity probe unreachable, inheriting parent anyway", {
             provider: inherited.providerID,
           })
-        if (capacity === "no-slot") {
+        if (parentIsLocal && (capacity === "no-slot" || capacity === "free")) {
           if (cfg.experimental?.peer_delegation !== false) delegated = yield* delegate()
-          if (!delegated)
+          // "free" with no peer found still falls back to inheriting the
+          // parent below — it has a verified slot, just not the preferred
+          // option. "no-slot" has no such fallback: reusing it would queue.
+          if (!delegated && capacity === "no-slot")
             return yield* Effect.fail(
               new Error(
                 `No capacity for subagent: local provider "${inherited.providerID}" has no free slot, ` +

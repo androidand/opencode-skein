@@ -76,6 +76,15 @@ Scoring keeps the existing terms and adds one tier: a role may say `prefer: "pee
 Default: hosts first (a fresh session is a cleaner sandbox), peers when no host has a free
 slot. Nothing changes for a single instance with no peers.
 
+That "hosts first" default is about *other* hosts — `pick`'s own candidate search already
+excludes the parent's own provider. The parent itself is a separate, narrower case: a local
+parent used to be inherited as soon as it had a free slot of its own, without ever asking
+whether a peer could take the work instead. It is now inherited only as the last resort —
+`delegate()` is tried first whenever the parent is local, whether its own slot reads `free`
+or `no-slot`, and self-inheritance happens only when that search comes back empty. A cloud
+parent is unaffected: it has no queue problem, so it is reused with no search at all, the
+same as before.
+
 ### 2. Delegation over A2A
 
 Delegating to a `peer` reuses `send_peer_message`'s transport (opencode → synthetic prompt,

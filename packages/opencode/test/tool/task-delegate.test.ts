@@ -65,6 +65,10 @@ let previousConfigDir: string | undefined
 beforeEach(async () => {
   // A real local endpoint that reports its only slot is taken, so the parent's
   // host reads as `no-slot` and the task must delegate rather than place.
+  // /api/fit must answer too (even empty) — parentCapacity's probe requires
+  // both hardware and fit to be non-null, and a 404 here makes it read as
+  // `unknown` rather than `no-slot`, silently skipping the branch this test
+  // means to exercise.
   server = createServer((req, res) => {
     if (req.url === "/api/hardware") {
       res.writeHead(200, { "content-type": "application/json" })
@@ -75,6 +79,11 @@ beforeEach(async () => {
           loaded_model: { id: "local-model" },
         }),
       )
+      return
+    }
+    if (req.url === "/api/fit") {
+      res.writeHead(200, { "content-type": "application/json" })
+      res.end(JSON.stringify({ models: [] }))
       return
     }
     res.writeHead(404)
@@ -150,10 +159,12 @@ const layer = (flags: Partial<RuntimeFlags.Info> = {}) =>
       Database.node,
       RuntimeFlags.node,
       Ripgrep.node,
+      Provider.node,
     ]),
     [
       [RuntimeFlags.node, RuntimeFlags.layer(flags)],
       [Permission.node, permissionLayer],
+      [Provider.node, providerLayer],
     ],
   )
 
@@ -301,6 +312,109 @@ describe("tool.task peer delegation (2.5)", () => {
 
       if ("__defect" in result) throw new Error("delegation did not complete")
       const text = ((result as { output: string }).output ?? "")
+      expect(text).toContain(REPLY_TEXT)
+    }),
+    20_000,
+  )
+})
+
+// A local parent whose own host is NOT full — it reports a free slot — used to
+// be inherited directly with no delegation attempt at all. A local host is
+// still the one place the parent's own subagent runs unshared, so it is tried
+// last, not first: an idle peer is preferred even when the parent could serve
+// the request itself.
+describe("tool.task peer delegation — local parent with a free slot of its own", () => {
+  beforeEach(async () => {
+    // Replace the outer beforeEach's "no-slot" server with one that reports a
+    // free slot, so parentCapacity reads "free" instead of "no-slot" — the
+    // case this block exists to cover.
+    server?.close()
+    server = createServer((req, res) => {
+      if (req.url === "/api/hardware") {
+        res.writeHead(200, { "content-type": "application/json" })
+        res.end(
+          JSON.stringify({
+            gpus: [{ utilization_pct: 0 }],
+            inference: { busy: false, in_flight: 0, slots_total: 1 },
+            loaded_model: { id: "local-model" },
+          }),
+        )
+        return
+      }
+      if (req.url === "/api/fit") {
+        res.writeHead(200, { "content-type": "application/json" })
+        res.end(JSON.stringify({ models: [] }))
+        return
+      }
+      res.writeHead(404)
+      res.end()
+    })
+    await new Promise<void>((resolve) => server!.listen(0, "127.0.0.1", resolve))
+    const port = (server!.address() as { port: number }).port
+    baseURL = `http://127.0.0.1:${port}/v1`
+  })
+
+  it.instance(
+    "delegates to the idle peer instead of silently reusing the parent's own free slot",
+    Effect.gen(function* () {
+      const { chat, assistant } = yield* seed("parent", localModel)
+      yield* seedPeer("cloud peer", cloudModel)
+
+      // A dedicated ops so this test can tell "ran on the peer" apart from
+      // "ran on the inherited parent" — both would otherwise return the same
+      // REPLY_TEXT, since the mock answers every prompt identically.
+      let sawPeerEnvelope = false
+      const ops: TaskPromptOps = {
+        cancel: () => Effect.void,
+        resolvePromptParts: (template) => Effect.succeed([{ type: "text" as const, text: template }]),
+        prompt: (input) =>
+          Effect.gen(function* () {
+            const text = input.parts
+              .filter((p) => p.type === "text")
+              .map((p) => (p as { text: string }).text)
+              .join("\n")
+            const m = text.match(/\[peer-task\s+([A-Za-z0-9_-]+)\]/)
+            if (m) {
+              sawPeerEnvelope = true
+              settleTaskReply(`[peer-task-result ${m[1]}]\n${REPLY_TEXT}`)
+            }
+            const id = MessageID.ascending()
+            return {
+              info: {
+                id,
+                role: "assistant" as const,
+                parentID: input.messageID ?? MessageID.ascending(),
+                sessionID: input.sessionID,
+                mode: input.agent ?? "general",
+                agent: input.agent ?? "general",
+                cost: 0,
+                path: { cwd: tmp, root: tmp },
+                tokens: { input: 0, output: 0, reasoning: 0, cache: { read: 0, write: 0 } },
+                modelID: input.model?.modelID ?? cloudModelID,
+                providerID: input.model?.providerID ?? cloudProviderID,
+                time: { created: Date.now() },
+                finish: "stop",
+              },
+              parts: [
+                {
+                  id: PartID.ascending(),
+                  messageID: id,
+                  sessionID: input.sessionID,
+                  type: "text" as const,
+                  text: REPLY_TEXT,
+                },
+              ],
+            } as unknown as SessionV1.WithParts
+          }),
+      }
+
+      const result = yield* runTask(chat, assistant, ops).pipe(
+        Effect.catchCause(() => Effect.succeed({ __defect: true as const })),
+      )
+
+      if ("__defect" in result) throw new Error("delegation did not complete")
+      expect(sawPeerEnvelope).toBe(true)
+      const text = (result as { output: string }).output ?? ""
       expect(text).toContain(REPLY_TEXT)
     }),
     20_000,

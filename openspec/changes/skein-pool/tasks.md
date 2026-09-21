@@ -40,8 +40,22 @@
       sender's process; the owner mirrors busy/idle into its registry entry so `peers`
       reads truth instead of guessing from recency; sidecars now run without Claude Code
       installed. Found by the gpuhost4 test (2026-09-18) where opencode↔opencode A2A did not work.
-- [ ] 2.5 Live: local parent on a full host + idle Claude Code peer → task lands on the peer,
-      reply arrives as the task result; same with an idle opencode peer on a cloud model
+- [x] 2.5 Live: local parent on a full host + idle Claude Code peer → task lands on the peer,
+      reply arrives as the task result; same with an idle opencode peer on a cloud model.
+      `test/tool/task-delegate.test.ts` drove `TaskTool` end to end — found in the process that
+      the test's own `Provider.node` was never wired into its layer (dead `providerLayer`
+      const), so `placementRan` was always false and the suite's one assertion passed for
+      the wrong reason regardless of whether delegation actually ran. Fixed the wiring so the
+      real placement/delegate path is exercised, and the mock host now answers `/api/fit`
+      too — `parentCapacity`'s probe needs both endpoints and was silently reading `unknown`
+      off a 404, never `no-slot`.
+- [x] 2.7 A local parent is inherited only as the last resort, never because it happens to
+      have a free slot of its own: `willInherit` now tries `delegate()` whenever the parent
+      is local, for both `no-slot` and `free` capacity, and only actually reuses the parent
+      when no peer is found (`free`) or fails hard (`no-slot`, unchanged). A cloud parent is
+      untouched — `parentCapacity` already reports it `free` unconditionally, so it is used
+      as-is with no search. `task.ts`, `test/tool/task-delegate.test.ts` (new case: a local
+      parent with a verified free slot still delegates to an idle peer first).
 
 ## Phase 3: Leases on the host (llama-skein)
 
