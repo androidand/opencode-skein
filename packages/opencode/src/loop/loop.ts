@@ -42,6 +42,7 @@ import {
   nearbyOpenspecRepos,
   quarantine,
   resolveQueue,
+  retryQuarantined,
   unquarantine,
   type QueueChange,
 } from "./spec-queue/queue"
@@ -1069,13 +1070,13 @@ export const layer = Layer.effect(
         // iteration: an unattended run is only auditable if you can see what it
         // decided to work, and in what order, up front.
         if (initial) {
-          const first = resolveQueue(initial.info.directory, initial.queue?.only)
+          const firstPass = resolveQueue(initial.info.directory, initial.queue?.only)
           // "Nothing eligible" and "this is not an openspec repo" are the same
           // empty queue but completely different situations. Reporting the
           // second as a drained backlog tells someone their work is done when
           // in fact nothing was ever found — most likely because the run was
           // started in a workspace directory rather than in a repo.
-          if (!first.hasOpenspec) {
+          if (!firstPass.hasOpenspec) {
             const nearby = nearbyOpenspecRepos(initial.info.directory)
             yield* finishQueue(
               id,
@@ -1087,6 +1088,16 @@ export const layer = Layer.effect(
             )
             return
           }
+          // A new run is a new attempt: blockers left by earlier runs are
+          // retried (see retryQuarantined) rather than silently emptying the
+          // queue forever.
+          const retried = retryQuarantined(initial.info.directory, initial.queue?.only)
+          if (retried.length > 0) {
+            yield* Effect.logInfo("queue retrying quarantined changes from earlier runs", {
+              "queue.retried": retried.join(", "),
+            })
+          }
+          const first = resolveQueue(initial.info.directory, initial.queue?.only)
           yield* Effect.logInfo("queue resolved", {
             "queue.order": first.eligible.map((c) => c.slug).join(", ") || "(nothing eligible)",
             "queue.quarantined": first.quarantined.join(", ") || "(none)",
@@ -1140,6 +1151,20 @@ export const layer = Layer.effect(
           const resolved = resolveQueue(record.info.directory, queueState.only)
           const change = cursor(resolved)
           if (!change) {
+            // Nothing attempted and nothing complete is not a finished
+            // backlog — say what is in the way instead of "completing".
+            if (queueState.outcomes.length === 0 && resolved.quarantined.length > 0) {
+              yield* finishQueue(
+                id,
+                "error",
+                `nothing to run — ${resolved.quarantined.length} change(s) are blocked (see .skein/blocker.md in each): ${resolved.quarantined.join(", ")}`,
+              )
+              return
+            }
+            if (queueState.outcomes.length === 0 && resolved.complete.length === 0) {
+              yield* finishQueue(id, "error", "nothing to run — no change under openspec/changes has a tasks.md with open tasks")
+              return
+            }
             yield* finishQueue(id, "completed", "queue drained — every change is complete or quarantined")
             return
           }

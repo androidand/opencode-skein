@@ -1531,7 +1531,7 @@ export const layer = Layer.effect(
                 // auto-compaction refuses to run, so the terminal error
                 // below is the last word instead of another silent cycle.
                 const { breaks, terminal } = SessionCompaction.noteLoopBreak(sessionID)
-                yield* Effect.logWarning("agent loop detected — breaking", {
+                yield* Effect.logWarning(terminal ? "agent loop detected — breaking" : "agent loop detected — nudging", {
                   "session.id": sessionID,
                   step,
                   kind: result.kind,
@@ -1540,12 +1540,34 @@ export const layer = Layer.effect(
                   sessionBreaks: breaks,
                   terminal,
                 })
+                if (!terminal) {
+                  // fork: a detected loop is first a prompt to the model, not
+                  // an error — tell it what it is doing and ask for a
+                  // different approach. Only when nudges keep failing
+                  // (LoopMaxSessionBreaks in a row) does the run terminate.
+                  const nudgeMsg: SessionV1.User = {
+                    id: MessageID.ascending(),
+                    sessionID,
+                    role: "user",
+                    time: { created: Date.now() },
+                    agent: lastUser.agent,
+                    model: lastUser.model,
+                  }
+                  yield* sessions.updateMessage(nudgeMsg)
+                  yield* sessions.updatePart({
+                    id: PartID.ascending(),
+                    messageID: nudgeMsg.id,
+                    sessionID,
+                    type: "text",
+                    text: LoopDetect.nudgeText(result.kind, loopStreak),
+                    synthetic: true,
+                  } satisfies SessionV1.TextPart)
+                  loopStreak = 0
+                  lastTurn = undefined
+                  continue
+                }
                 handle.message.error = new NamedError.Unknown({
-                  message: terminal
-                    ? `Agent stuck in a loop ${breaks} times in a row with no progress — auto-recovery disabled for this session. Send a new message to reset, or start a fresh session.`
-                    : result.kind === "tool"
-                      ? `Agent appears stuck in a loop — ${loopStreak} consecutive turns repeated the exact same tool call with no progress`
-                      : `Agent appears stuck in a loop — ${loopStreak} consecutive turns produced near-identical output with no progress`,
+                  message: `Agent stuck in a loop ${breaks} times in a row with no progress — auto-recovery disabled for this session. Send a new message to reset, or start a fresh session.`,
                 }).toObject()
                 handle.message.time.completed = Date.now()
                 yield* sessions.updateMessage(handle.message)

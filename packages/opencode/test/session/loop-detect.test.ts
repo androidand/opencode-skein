@@ -94,3 +94,11 @@ describe("loop-detect.detectRepeat", () => {
     expect(LoopDetect.detectRepeat(toolTurn, textTurn, threshold)).toEqual({ repeated: false })
   })
 })
+
+describe("loop-detect.nudgeText", () => {
+  test("names the repeated behaviour and asks for a different approach", () => {
+    expect(LoopDetect.nudgeText("tool", 3)).toContain("exact same tool call 3 turns")
+    expect(LoopDetect.nudgeText("text", 3)).toContain("near-identical output")
+    expect(LoopDetect.nudgeText("tool", 3)).toContain("different approach")
+  })
+})
