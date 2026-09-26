@@ -9,6 +9,7 @@ import {
   quarantine,
   compareOrder,
   nearbyOpenspecRepos,
+  retryQuarantined,
   DefaultPriority,
   type QueueChange,
 } from "@/loop/spec-queue/queue"
@@ -475,5 +476,35 @@ describe("starting somewhere without a backlog", () => {
 
   test("a directory that cannot be read is not an error", () => {
     expect(nearbyOpenspecRepos(path.join(os.tmpdir(), "definitely-missing-dir-xyz"))).toEqual([])
+  })
+})
+
+describe("retryQuarantined", () => {
+  const { mkdtempSync, mkdirSync, writeFileSync, existsSync } = fs
+  const { tmpdir } = os
+  const { join } = path
+
+  function repo() {
+    const root = mkdtempSync(join(tmpdir(), "rq-"))
+    for (const [slug, blocker] of [
+      ["auto", "- Quarantined: 2026-09-19T00:00:00.000Z (by loop-spec-queue)"],
+      ["human", "manual hold — do not touch"],
+    ] as const) {
+      const dir = join(root, "openspec", "changes", slug)
+      mkdirSync(join(dir, ".skein"), { recursive: true })
+      writeFileSync(join(dir, "tasks.md"), "- [ ] 1. work\n")
+      writeFileSync(join(dir, ".skein", "blocker.md"), blocker)
+    }
+    return root
+  }
+
+  test("clears blockers the queue wrote and leaves hand-written ones", () => {
+    const root = repo()
+    expect(resolveQueue(root).eligible).toEqual([])
+    expect(retryQuarantined(root)).toEqual(["auto"])
+    const after = resolveQueue(root)
+    expect(after.eligible.map((c) => c.slug)).toEqual(["auto"])
+    expect(after.quarantined).toEqual(["human"])
+    expect(existsSync(join(root, "openspec", "changes", "auto", ".skein"))).toBe(false)
   })
 })

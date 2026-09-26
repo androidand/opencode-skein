@@ -435,3 +435,49 @@ Everything here is uncommitted and nothing is deployed; the sessions that
 produced this incident were running the morning build. Until it ships, the
 roster keeps hiding idle peers, the return address stays unreachable, and the
 retry loop stays possible.
+
+## Live incident, 2026-09-22 ~16:15–16:18: message accepted for delivery but silently dropped
+
+Repro on the running install (model glm-5.3-flash session
+`ses_<sender>` in a sibling repo sending to idle peer
+`ses_<target>`, same repo, iTerm2 workspace window): the sender called
+`send_peer_message` while the target was **busy mid-turn**. The call returned
+the standard "Accepted for delivery ... picks the message up on its next turn",
+so the sender correctly moved on (send-once). The message never arrived.
+
+Evidence:
+
+- opencode.log, run `352817eb`: `prompt landed after its turn had already
+  finished — starting a new run` at 16:18:14.199, references
+  `messageID=msg_<old>`. The loop starts (`step=0` at 16:18:14.206)
+  and exits 2 ms later (16:18:14.208) with **no** `process`/`stream` lines, i.e.
+  no LLM call, no persist, no user-visible turn in the receiving TUI.
+- The referenced messageID is the receiver's *old* 16:02 prompt, not a new
+  message row. The delivered text appears **nowhere** in `opencode-dev.db`
+  (`message` table has zero rows matching a substring of the sent text).
+- The receiver's owner had only just finished its turn (last `exiting loop`
+  for it at 16:18:06); the "prompt landed after turn finished" fallback path
+  fired (94 occurrences of that log line in the current log file) but this
+  instance ran empty and dropped the prompt.
+- User-visible symptom: a full-screen black/red flash in the target window,
+  4× since the incident started — consistent with the display-tearing failure
+  mode already recorded in this change (inbound render race), plus a doomed
+  run starting and dying instantly.
+
+Implications for Phase 1/3:
+
+1. "Accepted for delivery" is not an honest delivery state when the target's
+   owner process is present but between runs: the queued prompt can reach
+   `deliver` yet produce an empty run that persists nothing. Delivery states
+   must be observable end-to-end (`queued` → `persisted` → `delivered/inbox`),
+   and a run that exits at `step=0` without persisting must surface as
+   `dropped`, not success-on-sender.
+2. The 2 ms run apocalypse has no `process`/`stream` log lines, so the only
+   signal is the absence of output — the runner should log an explicit reason
+   (e.g. "no pending message rows; run had nothing to process") and
+   cross-check `SessionPrompt.prompt`'s persistence result.
+3. To correlate a side effect with a code path, the synthetic message id in
+   the `prompt landed` log line should be the *newly created* message id, not
+   an unrelated old one — the current line pointed at the receiver's 16:02
+   message while its own new row was missing, and it initially looked like an
+   ID-mismatch bug rather than non-persistence.
