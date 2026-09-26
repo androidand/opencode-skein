@@ -40,6 +40,20 @@ describe("loop-detect.toolCallSignature", () => {
   })
 })
 
+describe("loop-detect.toolCallSignature results", () => {
+  test("same call with a different result is not a repeat (polling makes progress)", () => {
+    const a = LoopDetect.toolCallSignature([{ tool: "bash", input: { command: "make test" }, result: "3 failed" }])
+    const b = LoopDetect.toolCallSignature([{ tool: "bash", input: { command: "make test" }, result: "1 failed" }])
+    expect(a).not.toBe(b)
+  })
+
+  test("same call with the same result is a repeat", () => {
+    const a = LoopDetect.toolCallSignature([{ tool: "bash", input: { command: "make test" }, result: "3 failed" }])
+    const b = LoopDetect.toolCallSignature([{ tool: "bash", input: { command: "make test" }, result: "3 failed" }])
+    expect(a).toBe(b)
+  })
+})
+
 describe("loop-detect.detectRepeat", () => {
   const threshold = 0.92
 
@@ -70,9 +84,16 @@ describe("loop-detect.detectRepeat", () => {
     expect(LoopDetect.detectRepeat(current, last, threshold)).toEqual({ repeated: false })
   })
 
+  test("empty or very short text is never a repeat", () => {
+    const empty = { text: "", toolSignature: undefined }
+    const short = { text: "Continuing.", toolSignature: undefined }
+    expect(LoopDetect.detectRepeat(empty, empty, threshold)).toEqual({ repeated: false })
+    expect(LoopDetect.detectRepeat(short, short, threshold)).toEqual({ repeated: false })
+  })
+
   test("flags near-identical text with no tool calls", () => {
-    const last = { text: "Thinking about the next step...", toolSignature: undefined }
-    const current = { text: "Thinking about the next step..", toolSignature: undefined }
+    const last = { text: "Thinking about the next step in the plan for this task...", toolSignature: undefined }
+    const current = { text: "Thinking about the next step in the plan for this task..", toolSignature: undefined }
     const result = LoopDetect.detectRepeat(current, last, threshold)
     expect(result.repeated).toBe(true)
     if (result.repeated) expect(result.kind).toBe("text")
@@ -92,5 +113,13 @@ describe("loop-detect.detectRepeat", () => {
     const textTurn = { text: "Let me check that file.", toolSignature: undefined }
     expect(LoopDetect.detectRepeat(textTurn, toolTurn, threshold)).toEqual({ repeated: false })
     expect(LoopDetect.detectRepeat(toolTurn, textTurn, threshold)).toEqual({ repeated: false })
+  })
+})
+
+describe("loop-detect.nudgeText", () => {
+  test("names the repeated behaviour and asks for a different approach", () => {
+    expect(LoopDetect.nudgeText("tool", 3)).toContain("exact same tool call 3 turns")
+    expect(LoopDetect.nudgeText("text", 3)).toContain("near-identical output")
+    expect(LoopDetect.nudgeText("tool", 3)).toContain("different approach")
   })
 })
