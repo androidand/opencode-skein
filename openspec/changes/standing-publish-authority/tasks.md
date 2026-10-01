@@ -10,7 +10,7 @@
 
 ## Phase 1: Policy parse
 
-- [x] 1.1 `policy/publish.ts` (branch publish-policy-validation, 01f709f428, not pushed; verified 16 pass): closed schema, load, never-list constant.
+- [x] 1.1 `policy/publish.ts` (branch publish-policy-validation, cfc7bc710d, not pushed; 18 pass live / 16 + 2 skipped offline): closed schema, load, never-list constant.
 - [x] 1.2 Observed-red tests for each rejection in D2 (unknown key, scalar-for-mapping,
       pattern matching the default branch, remote/repo mismatch, visibility mismatch), each
       run against a deliberately bad file and seen to fail first.
@@ -24,6 +24,8 @@ Findings from Phase 1 (peer session):
   loosens a standing deny, so it is not applied until they say so.
 - `git remote get-url` returns the scp form `git@host:owner/name` by default; a parser that only
   handles URLs denies every valid policy. Both forms are tested.
+- Rejections are a closed set of named reason tokens (`PublishPolicy.Reason`) with per-repo specifics in a separate `detail` field. An upstream like `origin/feature/x` is refused, not reduced to `feature`.
+- The live forge test (PUBLISH_POLICY_LIVE=1) found a bug the injected tests could not: `gh` answers `PUBLIC` in uppercase, the policy says `public`. Fixed by lower-casing at the boundary. Rule for this epic: each security check gets one test against the real dependency, behind a flag.
 - Mutation checks must assert that the intended line changed, not only that the file differs.
 
 ## Phase 2: Renderings
