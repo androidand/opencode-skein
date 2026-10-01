@@ -248,6 +248,7 @@ export { similarity } from "./similarity"
 import { similarity } from "./similarity"
 export { continuationPrompt, type PreviousOutcome } from "./continuation"
 import { continuationPrompt, type PreviousOutcome } from "./continuation"
+import { classifyStop, ladderNudge } from "./stop-reason"
 
 function promptHead(prompt: string) {
   const trimmed = prompt.trim()
@@ -678,6 +679,7 @@ export const layer = Layer.effect(
               toolCalls: result.toolCalls,
               outputLength: result.outputLength,
               wasNearIdentical: nearIdentical,
+              stop: classifyStop(result.output),
             },
             noProgressStreak: streak,
           }))
@@ -906,6 +908,7 @@ export const layer = Layer.effect(
             guidance: record.queue?.guidance,
             steers: record.steers,
             persona,
+            stopNudge: ladderNudge(record.lastOutcome?.stop ?? "other"),
           })
           const result = yield* runIteration(record, { promptText: brief, sessionID: changeSessionID })
 
@@ -921,6 +924,14 @@ export const layer = Layer.effect(
 
           yield* patch(id, (current) => ({
             ...current,
+            // What ended this turn, so the next brief can say "do not stop to ask" when it was a
+            // question to the user or a wait on a peer (loop-done-handoff / escalate-before-idle).
+            lastOutcome: {
+              toolCalls: result.toolCalls,
+              outputLength: result.outputLength,
+              wasNearIdentical: false,
+              stop: classifyStop(result.output),
+            },
             info: {
               ...current.info,
               iteration: result.iteration,

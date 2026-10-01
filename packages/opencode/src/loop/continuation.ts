@@ -10,11 +10,15 @@
 // imports SessionPrompt, so anything prompt.ts might also want must not route
 // through loop.ts (see ./similarity.ts for the boot crash that cycle caused).
 
+import { ladderNudge, type StopReason } from "./stop-reason"
+
 /** Signals from the previous iteration that drive prompt selection. */
 export interface PreviousOutcome {
   toolCalls: number
   outputLength: number
   wasNearIdentical: boolean
+  /** Why the previous turn ended, when it ended by asking the user or waiting on a peer. */
+  stop?: StopReason
 }
 
 // Outputs at or below this length with zero tool calls read as "announced a
@@ -30,6 +34,11 @@ const StallOutputLength = 50
  */
 export function continuationPrompt(base: string, prev: PreviousOutcome | undefined): string {
   if (prev === undefined) return base
+  // A turn that stopped to ask the user or wait on a peer gets the ladder, ahead of the
+  // generic stall directives: it did not go quiet, it handed the work to someone who is
+  // not coming back inside this run.
+  const ladder = prev.stop ? ladderNudge(prev.stop) : undefined
+  if (ladder) return `${ladder}\n\n${base}`
   if (prev.toolCalls === 0 && prev.outputLength === 0) {
     return `Your previous response was empty. Please continue the task with tool calls.\n\n${base}`
   }
