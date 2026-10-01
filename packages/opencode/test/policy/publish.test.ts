@@ -1,5 +1,9 @@
 import { describe, expect, test } from "bun:test"
-import { Effect } from "effect"
+import { Effect, Result } from "effect"
+import path from "path"
+import { mkdir, mkdtemp } from "fs/promises"
+import { tmpdir } from "os"
+import { Process } from "@/util/process"
 import { PublishPolicy } from "@/policy/publish"
 
 // Every test here asserts a denial, so each one is also a claim that the grant
@@ -46,12 +50,26 @@ function deps(overrides: Partial<PublishPolicy.LoadDeps> = {}, yaml: string | nu
 const load = (directory: string, overrides: Partial<PublishPolicy.LoadDeps> = {}, yaml: string | null = VALID) =>
   Effect.runPromise(PublishPolicy.load({ directory, deps: deps(overrides, yaml) }))
 
-/** Asserts a denial and hands back the reason, so a test can pin which check fired. */
+/** Asserts a denial and hands back the result, so a test can pin which check fired. */
 async function denied(yaml: string | null, overrides: Partial<PublishPolicy.LoadDeps> = {}) {
   const result = await load("/repo", overrides, yaml)
   expect(result.status).toBe("denied")
   if (result.status !== "denied") throw new Error("unreachable")
-  return result.reason
+  return result
+}
+
+/** Writes a policy into a scratch git repo, so the real dependency wiring runs. */
+async function makeRepoWithPolicy(yaml: string) {
+  const dir = await mkdtemp(path.join(tmpdir(), "publish-policy-"))
+  const git = (...args: string[]) => Process.text(["git", ...args], { cwd: dir, nothrow: true })
+  await mkdir(path.join(dir, ".skein"), { recursive: true })
+  await Bun.write(path.join(dir, ".skein", "publish-policy.yaml"), yaml)
+  await git("init", "--quiet")
+  await git("remote", "add", "origin", `git@github.com:${REPO}.git`)
+  // origin/HEAD is what a clone sets; `remote set-head` is what makes it exist.
+  await git("update-ref", "refs/remotes/origin/dev", "HEAD")
+  await git("symbolic-ref", "refs/remotes/origin/HEAD", "refs/remotes/origin/dev")
+  return dir
 }
 
 describe("publish policy load", () => {
@@ -65,30 +83,37 @@ describe("publish policy load", () => {
   })
 
   test("an absent file grants nothing", async () => {
-    expect(await denied(null)).toBe("no publish policy")
+    expect((await denied(null)).reason).toBe(PublishPolicy.Reason.absent)
   })
 
   test("an unknown key is rejected, so the never-list cannot be relaxed by file", async () => {
     // The never-list is a code constant on purpose. A policy that could turn it
     // off would be a knob the model can edit, which is the thing the grant exists
     // to prevent, so this key must not be accepted and ignored.
-    expect(await denied(`${VALID}\nneverList: []\n`)).toContain("neverList")
+    expect((await denied(`${VALID}\nneverList: []\n`)).detail).toContain("neverList")
   })
 
   test("a scalar where a mapping belongs is rejected", async () => {
-    const reason = await denied(VALID.replace('commit:\n  branches: ["loop/*", "feat/*"]', 'commit: "loop/*"'))
-    expect(reason).toContain("commit")
+    const result = await denied(VALID.replace('commit:\n  branches: ["loop/*", "feat/*"]', 'commit: "loop/*"'))
+    expect(result.reason).toBe(PublishPolicy.Reason.malformed)
+    expect(result.detail).toContain("commit")
   })
 
   test("a branch pattern matching the default branch is rejected", async () => {
     // Both a literal and a wildcard that covers it must fail: `*` is the shape
     // that would let a granted session push straight to the default branch.
-    expect(await denied(VALID.replace('branches: ["loop/*", "feat/*"]', 'branches: ["dev"]'))).toContain("dev")
-    expect(await denied(VALID.replace('branches: ["loop/*", "feat/*"]', 'branches: ["*"]'))).toContain("*")
+    const literal = await denied(VALID.replace('branches: ["loop/*", "feat/*"]', 'branches: ["dev"]'))
+    expect(literal.reason).toBe(PublishPolicy.Reason.grantsDefaultBranch)
+    expect(literal.detail).toContain("dev")
+    const wildcard = await denied(VALID.replace('branches: ["loop/*", "feat/*"]', 'branches: ["*"]'))
+    expect(wildcard.reason).toBe(PublishPolicy.Reason.grantsDefaultBranch)
+    expect(wildcard.detail).toContain("*")
   })
 
   test("a push pattern matching the default branch is rejected", async () => {
-    expect(await denied(VALID.replace('branches: ["loop/*"]', 'branches: ["dev", "loop/*"]'))).toContain("dev")
+    const result = await denied(VALID.replace('branches: ["loop/*"]', 'branches: ["dev", "loop/*"]'))
+    expect(result.reason).toBe(PublishPolicy.Reason.grantsDefaultBranch)
+    expect(result.detail).toContain("dev")
   })
 
   test("the default branch is read, not assumed", async () => {
@@ -97,44 +122,83 @@ describe("publish policy load", () => {
     // which is the whole reason the value is injected.
     const grantsMain = VALID.replace('branches: ["loop/*", "feat/*"]', 'branches: ["loop/*", "main"]')
     expect((await load("/repo", { defaultBranch: Effect.succeed("dev") }, grantsMain)).status).toBe("granted")
-    expect(await denied(grantsMain, { defaultBranch: Effect.succeed("main") })).toContain("main")
+    expect((await denied(grantsMain, { defaultBranch: Effect.succeed("main") })).detail).toContain("main")
   })
 
-  test("an unreadable default branch grants nothing", async () => {
-    expect(
-      await denied(VALID, { defaultBranch: Effect.fail(new Error("no origin/HEAD")) }),
-    ).toContain("default branch")
+  test("an undeterminable default branch grants nothing", async () => {
+    // Neither origin/HEAD nor an upstream yields a name, so there is no ceiling
+    // to check against and the guess is refused.
+    const result = await denied(VALID, { defaultBranch: Effect.fail(new Error("no origin/HEAD")) })
+    expect(result.reason).toBe(PublishPolicy.Reason.defaultBranchUnknown)
   })
 
   test("a remote that does not point at the asserted repo is rejected", async () => {
-    expect(
-      await denied(VALID, { remoteUrl: () => Effect.succeed("git@github.com:someone-else/other.git") }),
-    ).toContain("origin")
+    const result = await denied(VALID, { remoteUrl: () => Effect.succeed("git@github.com:someone-else/other.git") })
+    expect(result.reason).toBe(PublishPolicy.Reason.remoteRepoMismatch)
+    expect(result.detail).toContain("origin")
   })
 
   test("an unreadable remote configuration grants nothing", async () => {
-    expect(await denied(VALID, { remoteUrl: () => Effect.fail(new Error("not a git repo")) })).toContain(
-      "remote",
-    )
+    const result = await denied(VALID, { remoteUrl: () => Effect.fail(new Error("not a git repo")) })
+    expect(result.reason).toBe(PublishPolicy.Reason.remoteUnreadable)
   })
 
   test("a visibility that disagrees with the forge is rejected", async () => {
-    expect(await denied(VALID, { visibility: () => Effect.succeed("private") })).toContain("visibility mismatch")
+    const result = await denied(VALID, { visibility: () => Effect.succeed("private") })
+    expect(result.reason).toBe(PublishPolicy.Reason.visibilityMismatch)
+    expect(result.detail).toContain("private")
   })
 
   test("an unreachable forge grants nothing rather than assuming a match", async () => {
     // The dangerous direction is treating "could not check" as "checked and
-    // fine". This reason string is deliberately distinct from the mismatch
-    // reason so the two cannot be confused: with the unreachable branch removed,
-    // the failure falls through and reports a mismatch instead.
-    expect(await denied(VALID, { visibility: () => Effect.fail(new Error("offline")) })).toContain(
-      "forge was unreachable",
-    )
+    // fine". This reason is deliberately distinct from the mismatch reason, so
+    // removing the unreachable branch cannot leave the test passing on the
+    // fallback's message.
+    const result = await denied(VALID, { visibility: () => Effect.fail(new Error("offline")) })
+    expect(result.reason).toBe(PublishPolicy.Reason.forgeUnreachable)
   })
 
   test("the public-content scan cannot be claimed for a private repo", async () => {
     const priv = VALID.replace("visibility: public", "visibility: private")
-    expect(await denied(priv, { visibility: () => Effect.succeed("private") })).toContain("scan")
+    const result = await denied(priv, { visibility: () => Effect.succeed("private") })
+    expect(result.reason).toBe(PublishPolicy.Reason.scanNeedsPublic)
+  })
+})
+
+// The suite above injects every dependency, which is what makes each rejection
+// deterministic and offline. That leaves the real `gh` call unexercised, so this
+// one runs the actual binary. It is opt-in because it needs network and
+// credentials: set PUBLISH_POLICY_LIVE=1 to include it.
+//
+// The assertion is deliberately about failing closed rather than about the
+// answer. Visibility for a repo is a fact that can change and a machine state
+// that can differ, so pinning "public" here would make a test fail for a reason
+// that has nothing to do with this code. What must hold everywhere is that an
+// answer comes back and is one of the two words the schema knows — or that the
+// loader denies rather than guessing.
+describe.if(process.env.PUBLISH_POLICY_LIVE === "1")("live forge", () => {
+  test("the real gh lookup either answers with a known visibility or denies", async () => {
+    const deps = PublishPolicy.systemDeps({ directory: process.cwd() })
+    const reported = await Effect.runPromise(
+      deps.visibility(REPO).pipe(Effect.result),
+    )
+    if (Result.isFailure(reported)) return
+    expect(["public", "private"]).toContain(reported.success)
+  })
+
+  test("the loader denies rather than granting when the forge cannot be asked", async () => {
+    // Point the lookup at a repo that does not exist, so gh fails for a reason
+    // unrelated to the network. The grant must not survive that.
+    const deps = PublishPolicy.systemDeps({ directory: process.cwd() })
+    const result = await Effect.runPromise(
+      PublishPolicy.load({
+        directory: await makeRepoWithPolicy(VALID),
+        deps: { ...deps, visibility: (repo: string) => deps.visibility(`nonexistent-owner/${repo}`) },
+      }),
+    )
+    expect(result.status).toBe("denied")
+    if (result.status !== "denied") throw new Error("unreachable")
+    expect(result.reason).toBe(PublishPolicy.Reason.forgeUnreachable)
   })
 })
 
