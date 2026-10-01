@@ -362,6 +362,33 @@ it.instance(
 )
 
 it.instance(
+  "a finished queue loop does not keep blocking its directory",
+  () =>
+    Effect.gen(function* () {
+      // The other half of the one-queue-per-directory rule. Refusing a second
+      // live queue loop is only correct if a *finished* one stops blocking —
+      // otherwise a directory is permanently unusable after its first run, and
+      // the guard that protects the cursor would also be the thing that ends the
+      // driver.
+      const { directory: dir } = yield* TestInstance
+      const llm = yield* TestLLMServer
+      yield* writeConfig(dir, providerCfg(llm.url))
+      writeChange(dir, "quick-change", "- [ ] 1.1 do the work\n")
+      const loop = yield* Loop.Service
+
+      const first = yield* loop.create({ prompt: "", mode: "queue", interval: 0 })
+      yield* loop.cancel(first.id)
+      const settled = yield* waitForTerminal(first.id)
+      expect(settled.status).not.toBe("running")
+
+      const second = yield* loop.create({ prompt: "", mode: "queue", interval: 0 }).pipe(Effect.result)
+      if (Result.isFailure(second)) throw new Error(`expected a second queue loop to be allowed, got ${second.failure._tag}`)
+      yield* loop.cancel(second.success.id)
+    }),
+  { config: {} },
+)
+
+it.instance(
   "a failing gate spends a repair turn instead of burning strikes silently",
   () =>
     Effect.gen(function* () {

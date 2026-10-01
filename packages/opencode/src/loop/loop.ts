@@ -1475,6 +1475,27 @@ export const layer = Layer.effect(
       anyGatePassed: false,
     })
 
+    // The one-queue-per-directory rule, in one place (loop-done-handoff 0.3).
+    //
+    // Two queue loops over one directory fight over the same derived cursor and
+    // working tree. This existed inline at both entry points with one difference
+    // between them — the prompt-to-queue transition has to exclude the loop that
+    // is asking, because at that moment it IS the live loop for the directory. An
+    // invariant written twice with a subtle difference is one refactor away from
+    // being wrong in a way no test covers, so the difference is a parameter.
+    //
+    // `exceptID` is the loop asking the question. Omit it when the loop does not
+    // yet exist.
+    const activeQueueOver = Effect.fnUntraced(function* (directory: string, exceptID?: LoopID) {
+      return Array.from((yield* Ref.get(state)).values()).find(
+        (record) =>
+          record.info.mode === "queue" &&
+          record.info.directory === directory &&
+          !isTerminal(record.info.status) &&
+          record.info.id !== exceptID,
+      )
+    })
+
     // Runs a prompt-mode loop; on completion, checks the openspec backlog
     // before finalizing (design: loop-eternal-by-default). If planned work
     // remains and the loop opted in (the default), the loop does not stop —
@@ -1501,14 +1522,9 @@ export const layer = Layer.effect(
         // same derived cursor and working tree (the exact conflict
         // QueueActiveError exists to prevent at creation time) — the same
         // guard applies here since this transition makes this loop
-        // queue-shaped too.
-        const activeQueue = Array.from((yield* Ref.get(state)).values()).find(
-          (other) =>
-            other.info.id !== id &&
-            other.info.mode === "queue" &&
-            other.info.directory === record.info.directory &&
-            !isTerminal(other.info.status),
-        )
+        // queue-shaped too. `exceptID` is this loop, which at this moment is
+        // itself the live loop for the directory.
+        const activeQueue = yield* activeQueueOver(record.info.directory, id)
         if (activeQueue) {
           yield* Effect.logInfo(
             "loop completed with backlog work remaining, but another queue run is already active in this directory — not transitioning",
@@ -1566,15 +1582,12 @@ export const layer = Layer.effect(
           directory = parent.directory
         }
         if (mode === "queue") {
-          // Two queue loops over one directory would fight over the same
-          // derived cursor and working tree (design D1) — refuse the second.
-          const active = Array.from((yield* Ref.get(state)).values()).find(
-            (record) =>
-              record.info.mode === "queue" && record.info.directory === directory && !isTerminal(record.info.status),
-          )
-          if (active) {
-            return yield* Effect.fail(new QueueActiveError({ activeLoopID: active.info.id, directory }))
-          }
+// Two queue loops over one directory would fight over the same
+        // derived cursor and working tree (design D1) — refuse the second.
+        const active = yield* activeQueueOver(directory)
+        if (active) {
+          return yield* Effect.fail(new QueueActiveError({ activeLoopID: active.info.id, directory }))
+        }
         }
         const completionToken = input.completionToken?.trim() || DEFAULT_COMPLETION_TOKEN
         // A token that already appears in the user's prompt cannot be told
