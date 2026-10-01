@@ -149,8 +149,27 @@
 
 ## Phase 4: Optional progress and task lifecycle
 
-- [ ] 4.1 Evaluate whether working/progress/failure status is needed after the
-      request/reply slice is live.
+- [x] 4.1 Define the delivery-state state machine the spec's delivery-states
+      requirement calls for. `packages/opencode/src/peer/delivery-state.ts`
+      owns one `PeerDelivery` per conversation with a fixed sequence
+      accepted → acknowledged → working → replied and terminal
+      failed/timed out/unreachable states that refuse any further
+      transition. `acknowledged`/`working` are observable signals only, never
+      proof of completion; only `replied` settles. `test/peer/delivery-state.test.ts`
+      (9 tests) covers the transitions, the terminal-state invariant, and the
+      late-reply-after-timeout case (the state is refused, recorded as
+      superseded, never flipped back to replied). 2026-10-01: 134 peer tests
+      pass (was 125), `tsgo --noEmit` clean. Pure module, no transport
+      coupling; the transports (send_peer_message, Claude sidecar, delegate
+      registry) own the state machine but are not yet wired to it — wiring is
+      the next step.
+- [ ] 4.2 Wire the `PeerDelivery` state machine into the sender-facing paths so
+      a live request actually reports acknowledged/working and a timeout fires
+      from accepted as well as working. The machine exists; delivery states are
+      still only accepted/replied/timeout in the running code.
+- [ ] 4.3 Evaluate whether correlated status events/polling are needed now the
+      state machine exists, or whether the sender-facing tool metadata is
+      enough. Do not add streaming/push without a concrete user flow.
 - [ ] 4.2 If needed, add minimal correlated status events or polling; do not
       implement streaming or push notifications without a concrete user flow.
 - [ ] 4.3 Add a compact peer conversation view or command only if agents and
