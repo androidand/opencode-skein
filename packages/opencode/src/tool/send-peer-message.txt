@@ -43,8 +43,16 @@ returns; if the peer replies, that reply reaches you later as a new message that
 turn. So send once and move on. Do not send the same message again because no answer appeared,
 do not ask a peer whether it is done, and do not loop over a list of targets hoping one
 responds — sending the same text to the same peer twice in a row is refused, and a target that
-does not exist will not start existing on the second attempt. If you cannot continue without an
-answer, say that to your own user rather than asking the peer again.
+does not exist will not start existing on the second attempt.
+
+If you are blocked on a peer, climb the ladder instead of stopping: ask the owning peer once,
+with a deadline, while switching to another item (rung 1); if the deadline passes without a
+reply, ask the lead once (rung 2); if that does not resolve it, record a blocker tagged
+`needs: team` and continue with other work (rung 3). Only a blocker tagged `needs: human`
+reaches the human, as a board item — never as a stop.
+
+The last rung, and only the last, is telling your own user. If you cannot continue without an
+answer after climbing the ladder, say that to your own user rather than asking the peer again.
 
 Peers can answer. A Claude Code or opencode-skein peer replies by messaging this session back,
 and the reply arrives here as a peer message that starts a new turn — you do not poll for it,
