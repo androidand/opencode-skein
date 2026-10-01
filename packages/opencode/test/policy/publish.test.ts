@@ -177,6 +177,55 @@ describe("publish policy load", () => {
 // that has nothing to do with this code. What must hold everywhere is that an
 // answer comes back and is one of the two words the schema knows — or that the
 // loader denies rather than guessing.
+// The real kimi prompt's rule line, verbatim rather than paraphrased: the
+// removal matches one exact sentence, so a fixture that merely resembles the file
+// would pass whether or not the match still works.
+const KIMI =
+  "Git safety rules:\n- DO NOT run `git commit`, `git push`, `git reset`, `git rebase` and/or do any other git mutations unless explicitly asked to do so. Ask for confirmation each time when you need to do git mutations, even if the user has confirmed in earlier conversations.\n- Never force push."
+
+describe("prompt application", () => {
+  test("lifts the ask-each-time clause when a policy grants", () => {
+    const applied = PublishPolicy.composeSystem([KIMI], POLICY)
+    expect(applied).not.toContain("Ask for confirmation each time")
+    // Only that sentence goes. The surrounding rule the user actually wrote
+    // stays, so a grant does not quietly widen into "commit whenever".
+    expect(applied).toContain("unless explicitly asked to do so")
+    expect(applied).toContain("Never force push")
+  })
+
+  test("removes the clause without leaving doubled whitespace", () => {
+    expect(PublishPolicy.composeSystem([KIMI], POLICY)).toContain("do so.\n- Never force push.")
+  })
+
+  test("appends the standing-authorization section", () => {
+    expect(PublishPolicy.composeSystem([KIMI], POLICY)).toContain("Standing authorization from your user")
+  })
+
+  test("a prompt with no such clause is returned untouched", () => {
+    const other = "You are a careful assistant."
+    expect(PublishPolicy.composeSystem([other], POLICY)).toContain(other)
+  })
+
+  test("the section does not claim the branch ceiling is enforced for it", () => {
+    // The derived allows gate command shapes, not the checked-out branch, so
+    // promising branch safety here would be a claim the code cannot keep.
+    expect(PublishPolicy.promptSection(POLICY)).toContain("Check the branch yourself before committing")
+  })
+})
+
+describe("no policy means no change at all", () => {
+  test("the composed system prompt is byte-for-byte the original", () => {
+    for (const prompt of [KIMI, "You are a careful assistant.", ""]) {
+      const before = [prompt, "extra system", undefined].filter((x) => x).join("\n")
+      expect(PublishPolicy.composeSystem([prompt], undefined, "extra system", undefined)).toBe(before)
+    }
+  })
+
+  test("an ungranted session keeps the ask-each-time clause", () => {
+    expect(PublishPolicy.composeSystem([KIMI], undefined)).toContain("Ask for confirmation each time")
+  })
+})
+
 describe.if(process.env.PUBLISH_POLICY_LIVE === "1")("live forge", () => {
   test("the real gh lookup either answers with a known visibility or denies", async () => {
     const deps = PublishPolicy.systemDeps({ directory: process.cwd() })

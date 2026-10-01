@@ -355,22 +355,99 @@ export function sessionRules(policy: Policy): PermissionV1.Ruleset {
  * This is a rendering, not the enforcement: it tells the model what its user
  * authorized so it stops asking, while the rules above are what actually decide.
  * Kept separate so the two can disagree visibly in review rather than silently.
+ *
+ * It deliberately does NOT claim the branch ceiling is enforced here. The derived
+ * allows gate command shapes, and no shell pattern can see which branch is
+ * checked out, so promising branch safety in the prompt would be a lie the model
+ * could act on.
  */
 export function promptSection(policy: Policy): string {
   return [
     `Standing authorization from your user for ${policy.repo}:`,
-    `- commit to ${policy.commit.branches.join(", ")}`,
-    `- push to ${policy.push.remotes.map((r) => `${r}/${policy.push.branches.join(",")}`).join(", ")} — driver-executed; ask for it, do not run it yourself`,
+    `- commit on branches matching ${policy.commit.branches.join(", ")}`,
+    `- push ${policy.push.remotes.map((r) => `${r}/${policy.push.branches.join(",")}`).join(", ")} — driver-executed; ask for it, do not run it yourself`,
     `- merge into ${policy.merge.into.join(", ")} by ${policy.merge.by.join(", ")}, ${policy.merge.method}, requiring ${policy.merge.requires.join(", ")}`,
     policy.scan === "public-content"
       ? "- the outgoing diff is scanned for private content before any push; a hit blocks it and is reported"
       : undefined,
     "",
     "This is the explicit instruction your general guidance asks for, and it is durable. It never covers history rewrites, tag or release publication, remote mutation, credential or git-config changes, deploy or remote-execution surfaces — those stay refused whatever this file says.",
+    "",
+    "The commit permission above is not a promise that the current branch is one of the listed ones: that check is made when the commit is made, not by your shell. Check the branch yourself before committing.",
   ]
     .filter((line) => line !== undefined)
     .join("\n")
 }
+
+// The one sentence in kimi.txt that makes a durable grant impossible: it asks for
+// confirmation on every git mutation "even if the user has confirmed in earlier
+// conversations", which no standing authorization can ever satisfy. Removed only
+// when a policy actually grants, and matched exactly so a future edit to kimi.txt
+// cannot silently stop the removal.
+const KimiAskEachTime =
+  "Ask for confirmation each time when you need to do git mutations, even if the user has confirmed in earlier conversations."
+
+/**
+ * Applies a granted policy to a session's system prompt.
+ *
+ * With no policy the caller must not call this at all — the point of the
+ * conditional is that an ungranted session's prompt is byte-for-byte what it was
+ * before this module existed, so the absence of a policy leaves no trace.
+ */
+export function applyToPrompt(prompts: string[], policy: Policy): string[] {
+  return [...prompts.map(stripAskEachTime), promptSection(policy)]
+}
+
+function stripAskEachTime(prompt: string): string {
+  if (!prompt.includes(KimiAskEachTime)) return prompt
+  // Collapse the double space the sentence leaves behind, so the surrounding text
+  // does not change shape when the clause is lifted out.
+  return prompt.replace(` ${KimiAskEachTime}`, "").replace(KimiAskEachTime, "")
+}
+
+/**
+ * The policy in force for a directory, or undefined.
+ *
+ * Cached on the policy file's mtime. The lookup shells out to `gh` and `git`, so
+ * running it on every model request would put a subprocess on the hot path; keying
+ * on mtime rather than on the directory means an edited policy takes effect on the
+ * next request instead of after a restart. `InstanceState` would give per-directory
+ * caching too, but it requires a scoped layer, and a grant lookup is not worth
+ * making this module a service.
+ */
+/**
+ * Composes a session's system prompt, applying the grant only when one exists.
+ *
+ * The `granted === undefined` branch is the important one and must stay
+ * byte-for-byte identical to pre-policy behaviour: no section, no clause removal,
+ * no added whitespace. A session without a grant should not be able to tell that
+ * this module exists.
+ */
+export function composeSystem(
+  basePrompts: string[],
+  granted: Policy | undefined,
+  ...rest: ReadonlyArray<string | undefined>
+): string {
+  // `.flat()` before the filter matters: the pre-policy expression was
+  // `[...base, ...rest].filter(Boolean)`, which dropped an empty base prompt along
+  // with an undefined rest entry. Filtering only the outer array would keep the
+  // empty string and add a leading newline to every ungranted session.
+  return [(granted ? applyToPrompt(basePrompts, granted) : basePrompts), ...rest].flat().filter((x) => x).join("\n")
+}
+
+const cache = new Map<string, { mtime: number; policy: Policy | undefined }>()
+
+export const current = Effect.fnUntraced(function* (directory: string) {
+  const file = path.join(directory, ...POLICY_FILE)
+  const stamp = yield* Effect.promise(() => Bun.file(file).exists().then((exists) => (exists ? Bun.file(file).lastModified : 0)))
+  if (stamp === 0) return undefined
+  const hit = cache.get(directory)
+  if (hit?.mtime === stamp) return hit.policy
+  const loaded = yield* load({ directory, deps: systemDeps({ directory }) })
+  const policy = loaded.status === "granted" ? loaded.policy : undefined
+  cache.set(directory, { mtime: stamp, policy })
+  return policy
+})
 
 const decode = (text: string) =>
   // `onExcessProperty: "error"` is what makes the schema closed: an unknown key

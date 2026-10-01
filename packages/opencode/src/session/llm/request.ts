@@ -9,6 +9,7 @@ import type { MessageV2 } from "../message-v2"
 import type { Provider } from "@/provider/provider"
 import { ProviderTransform } from "@/provider/transform"
 import { SystemPrompt } from "../system"
+import { PublishPolicy } from "@/policy/publish"
 import { InstallationVersion } from "@opencode-ai/core/installation/version"
 import { Effect, Record } from "effect"
 import { jsonSchema, tool as aiTool, type ModelMessage, type Tool } from "ai"
@@ -55,14 +56,16 @@ const mergeOptions = (target: Record<string, any>, source: Record<string, any> |
 
 export const prepare = Effect.fn("LLMRequestPrep.prepare")(function* (input: PrepareInput) {
   const isOpenaiOauth = input.provider.id === "openai" && input.auth?.type === "oauth"
+  // Read only to reach the directory; the policy itself is resolved per instance.
+  const instanceDirectory = (yield* InstanceState.context).directory
+  const granted = yield* PublishPolicy.current(instanceDirectory)
+  const basePrompts = input.agent.prompt ? [input.agent.prompt] : SystemPrompt.provider(input.model)
+  // With no valid policy the base prompt is passed through untouched. The
+  // standing-authorization section and the ask-each-time removal only happen when
+  // a grant actually exists, so an ungranted session's prompt is byte-for-byte
+  // what it was before this existed.
   const system = [
-    [
-      ...(input.agent.prompt ? [input.agent.prompt] : SystemPrompt.provider(input.model)),
-      ...input.system,
-      ...(input.user.system ? [input.user.system] : []),
-    ]
-      .filter((x) => x)
-      .join("\n"),
+    PublishPolicy.composeSystem(basePrompts, granted, ...input.system, input.user.system),
   ]
 
   const header = system[0]
