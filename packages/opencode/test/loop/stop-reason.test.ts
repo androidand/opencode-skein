@@ -6,7 +6,7 @@ import { classifyStop, ladderNudge } from "../../src/loop/stop-reason"
 const BLOCKED_STOPS: Array<[string, "asking-user" | "waiting-on-peer"]> = [
   ["Should I proceed with option A or B?", "asking-user"],
   ["I should confirm with the user before running the migration.", "asking-user"],
-  ["This requires a decision from the owner.", "asking-user"],
+  ["This requires a decision from the owner.", "waiting-on-peer"],
   ["How should I proceed with the failing tests?", "asking-user"],
   ["What should I choose between the two approaches?", "asking-user"],
   ["I can't continue until the peer resolves the merge conflict.", "waiting-on-peer"],
