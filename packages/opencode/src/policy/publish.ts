@@ -3,6 +3,7 @@ export * as PublishPolicy from "./publish"
 import path from "path"
 import { Effect, Result, Schema } from "effect"
 import { Wildcard } from "@opencode-ai/core/util/wildcard"
+import type { PermissionV1 } from "@opencode-ai/core/v1/permission"
 import { Process } from "@/util/process"
 
 // D1: a standing, per-repo authorization that satisfies the way-of-working rule
@@ -274,6 +275,101 @@ export const load = Effect.fn("PublishPolicy.load")(function* (input: { director
 /** True when a command matches the never-list or a force-rewrite shape. */
 export function denied(command: string): boolean {
   return [...NeverList, ...ForceRewritePatterns].some((pattern) => Wildcard.match(command, pattern))
+}
+
+// Command shapes a grant may turn from "ask" into "allow" in a model-reachable
+// shell. Deliberately not a list of what the grant permits, but a list of what it
+// might plausibly permit; the two filters below decide.
+const CandidateShapes: readonly string[] = [
+  "git add*",
+  "git commit*",
+  "git checkout -b*",
+  "git switch -c*",
+  "git stash list",
+  "git push*",
+  "gh pr merge*",
+  "git tag*",
+]
+
+// Shapes that stay out of a model shell no matter what the policy says: D4 keeps
+// push and merge driver-executed so no model-reachable shell ever holds
+// credentials. Listed here as candidates on purpose — naming what is withheld is
+// what makes the exclusion checkable, rather than relying on their absence from
+// the list above going unnoticed.
+const DriverOnly: readonly string[] = ["*push*", "*merge*", "*tag*"]
+
+/**
+ * Derives the allow rules a valid policy contributes.
+ *
+ * Three invariants, two of them enforced rather than left to a comment:
+ *
+ * 1. **A deny always wins.** `Permission.evaluate` resolves with `findLast`, so
+ *    the LAST matching rule decides. These allows are therefore meant to be
+ *    layered BEFORE the never-list denies; a caller that appends them after would
+ *    invert the whole ceiling. `sessionRules` returns them already ordered.
+ * 2. **Driver-executed shapes are never emitted.** Filtered by name, not by
+ *    hoping the never-list happens to refuse them.
+ * 3. **No allow covers something the never-list denies**, so the ceiling does not
+ *    depend on every call site ordering the rulesets correctly.
+ *
+ * Filters 2 and 3 overlap on today's lists — every `DriverOnly` shape is already
+ * denied by `*git*push*` and friends — so filter 3 is defence in depth that
+ * currently removes nothing. Only filter 2 is carrying weight today, and the
+ * tests say so rather than implying both are load-bearing.
+ *
+ * Note the limit of what a pattern can express: these allows gate command
+ * *shapes*, not the branch the session is on. "Never commit to the default
+ * branch" belongs to the commit gate, because no shell pattern can see which
+ * branch is checked out.
+ */
+export function deriveRules(_policy: Policy): PermissionV1.Ruleset {
+  return CandidateShapes.filter(
+    (shape) => !DriverOnly.some((driver) => Wildcard.match(shape, driver)) && !denied(shape),
+  ).map((pattern) => ({
+    permission: "bash",
+    pattern,
+    action: "allow",
+  }))
+}
+
+/** The never-list as deny rules, for a caller that needs to append them. */
+export function denyRules(): PermissionV1.Ruleset {
+  return [...NeverList, ...ForceRewritePatterns].map((pattern) => ({
+    permission: "bash",
+    pattern,
+    action: "deny",
+  }))
+}
+
+/**
+ * The full ruleset for a granted policy: allows first, never-list denies last,
+ * so `findLast` lands on a deny whenever both match.
+ */
+export function sessionRules(policy: Policy): PermissionV1.Ruleset {
+  return [...deriveRules(policy), ...denyRules()]
+}
+
+/**
+ * The standing-authorization section injected into a session's prompt.
+ *
+ * This is a rendering, not the enforcement: it tells the model what its user
+ * authorized so it stops asking, while the rules above are what actually decide.
+ * Kept separate so the two can disagree visibly in review rather than silently.
+ */
+export function promptSection(policy: Policy): string {
+  return [
+    `Standing authorization from your user for ${policy.repo}:`,
+    `- commit to ${policy.commit.branches.join(", ")}`,
+    `- push to ${policy.push.remotes.map((r) => `${r}/${policy.push.branches.join(",")}`).join(", ")} — driver-executed; ask for it, do not run it yourself`,
+    `- merge into ${policy.merge.into.join(", ")} by ${policy.merge.by.join(", ")}, ${policy.merge.method}, requiring ${policy.merge.requires.join(", ")}`,
+    policy.scan === "public-content"
+      ? "- the outgoing diff is scanned for private content before any push; a hit blocks it and is reported"
+      : undefined,
+    "",
+    "This is the explicit instruction your general guidance asks for, and it is durable. It never covers history rewrites, tag or release publication, remote mutation, credential or git-config changes, deploy or remote-execution surfaces — those stay refused whatever this file says.",
+  ]
+    .filter((line) => line !== undefined)
+    .join("\n")
 }
 
 const decode = (text: string) =>

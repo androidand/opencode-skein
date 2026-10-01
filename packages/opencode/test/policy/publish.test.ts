@@ -4,6 +4,7 @@ import path from "path"
 import { mkdir, mkdtemp } from "fs/promises"
 import { tmpdir } from "os"
 import { Process } from "@/util/process"
+import { Permission } from "@/permission"
 import { PublishPolicy } from "@/policy/publish"
 
 // Every test here asserts a denial, so each one is also a claim that the grant
@@ -248,5 +249,127 @@ describe("never-list", () => {
       "git checkout -b loop/publish-policy",
     ])
       expect({ command, denied: PublishPolicy.denied(command) }).toEqual({ command, denied: false })
+  })
+})
+
+const POLICY: PublishPolicy.Policy = {
+  version: 1,
+  repo: REPO,
+  visibility: "public",
+  commit: { branches: ["loop/*"] },
+  push: { remotes: ["origin"], branches: ["loop/*"] },
+  merge: { into: ["dev"], method: "squash", requires: ["gates", "review"], by: ["integrator"] },
+  scan: "public-content",
+}
+
+describe("derived rules", () => {
+  test("turns the granted commit shapes from ask into allow", () => {
+    // The point of the grant: a session no longer has to ask about work its user
+    // already authorized.
+    for (const command of ["git add src/x.ts", "git commit -m 'feat: x'", "git checkout -b loop/x"]) {
+      expect({ command, action: Permission.evaluate("bash", command, PublishPolicy.sessionRules(POLICY)).action }).toEqual(
+        { command, action: "allow" },
+      )
+    }
+  })
+
+  test("a deny beats an allow because the never-list is layered last", () => {
+    // `Permission.evaluate` resolves with findLast, so ordering is the entire
+    // mechanism. Each command below matches BOTH an allow shape and a
+    // never-list entry, which is the only situation in which the order changes
+    // the answer — a command only the deny matches cannot tell you anything
+    // about layering. `git commit -m "docs: run publish.ts"` is the realistic
+    // case: an ordinary commit whose message happens to contain the words.
+    for (const command of [
+      "git commit -m 'docs: run publish.ts'",
+      "git add script/release/notes.md",
+      "git commit -m 'chore: touch credential docs'",
+    ])
+      expect({ command, action: Permission.evaluate("bash", command, PublishPolicy.sessionRules(POLICY)).action }).toEqual(
+        { command, action: "deny" },
+      )
+  })
+
+  test("the same commands are allowed when the layers are reversed", () => {
+    // The control for the test above. If this stops producing "allow" then the
+    // deny verdicts were never coming from the ordering, and the test above was
+    // proving nothing.
+    const reversed = [...PublishPolicy.denyRules(), ...PublishPolicy.deriveRules(POLICY)]
+    for (const command of ["git commit -m 'docs: run publish.ts'"])
+      expect({ command, action: Permission.evaluate("bash", command, reversed).action }).toEqual({
+        command,
+        action: "allow",
+      })
+  })
+
+  test("no emitted allow is driver-executed or never-list denied", () => {
+    // The property, stated once. `deriveRules` enforces it twice — by name via
+    // DriverOnly, and by asking the never-list — and on today's lists those two
+    // filters overlap, so neither can be isolated by mutating it alone. Asserting
+    // the property is what actually holds; the redundancy is deliberate.
+    const emitted = PublishPolicy.deriveRules(POLICY).map((rule) => rule.pattern)
+    for (const pattern of emitted) {
+      expect({ pattern, driverOnly: /push|merge|tag/.test(pattern), denied: PublishPolicy.denied(pattern) }).toEqual({
+        pattern,
+        driverOnly: false,
+        denied: false,
+      })
+    }
+  })
+
+  test("the emitted allows are exactly the local commit shapes", () => {
+    // Pins the other direction too: a filter that removed everything would also
+    // satisfy the property above, and a grant that permits nothing is useless.
+    expect(PublishPolicy.deriveRules(POLICY).map((rule) => rule.pattern)).toEqual([
+      "git add*",
+      "git commit*",
+      "git checkout -b*",
+      "git switch -c*",
+      "git stash list",
+    ])
+  })
+
+  test("force-push variants stay denied", () => {
+    // `--force`, the `-f` short form, the lease variant and the `+ref` form all
+    // reach a push, which the never-list refuses outright. `-f` cannot be caught
+    // by a bare `*-f*` pattern — that would deny nearly every command — so this
+    // holds because the push itself is refused, not because a flag is matched.
+    for (const command of [
+      "git push --force origin dev",
+      "git push -f origin dev",
+      "git push --force-with-lease origin dev",
+      "git push origin +refs/heads/dev",
+      "git -c core.hooksPath=/tmp/x push --force origin dev",
+      "FOO=1 git push -f",
+      "git push --force-if-includes origin dev",
+    ])
+      expect({ command, action: Permission.evaluate("bash", command, PublishPolicy.sessionRules(POLICY)).action }).toEqual(
+        { command, action: "deny" },
+      )
+  })
+
+  test("force-rewrite shapes are denied on their own, not only via push", () => {
+    // `reset --hard` discards work and never mentions a push.
+    expect(PublishPolicy.denied("git reset --hard HEAD~1")).toBe(true)
+    expect(PublishPolicy.denied("git push origin --delete dev")).toBe(true)
+  })
+})
+
+describe("prompt section", () => {
+  test("states the grant and the standing refusals", () => {
+    const section = PublishPolicy.promptSection(POLICY)
+    expect(section).toContain("Standing authorization from your user for androidand/opencode-skein")
+    expect(section).toContain("loop/*")
+    expect(section).toContain("driver-executed")
+    expect(section).toContain("never covers history rewrites")
+  })
+
+  test("mentions the public-content scan only when the policy claims one", () => {
+    expect(PublishPolicy.promptSection(POLICY)).toContain("scanned for private content")
+    expect(PublishPolicy.promptSection({ ...POLICY, scan: undefined })).not.toContain("scanned for private content")
+  })
+
+  test("tells the model to ask rather than run a push itself", () => {
+    expect(PublishPolicy.promptSection(POLICY)).toContain("do not run it yourself")
   })
 })
