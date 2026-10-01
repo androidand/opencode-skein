@@ -232,6 +232,7 @@
     "packages/app/src/components/settings-v2/models-discover.tsx",
     "packages/app/src/components/settings-v2/models-operations.tsx",
     "packages/opencode/test/peer/lead.test.ts",
+    "packages/opencode/test/session/unattended.test.ts",
     "packages/opencode/test/tool/send-peer-message-ladder.test.ts",
     "packages/tui/src/component/dialog-gallery.tsx",
     "packages/opencode/src/local/model-gallery/manage.ts",
@@ -843,8 +844,8 @@
     },
     {
       "file": "packages/opencode/src/permission/index.ts",
-      "marker": "Unattended.isUnattended",
-      "note": "A /loop-driven session (or a subagent under one) auto-allows an undecided 'ask' instead of blocking forever on a Deferred nobody can resolve. Explicit deny rules are untouched."
+      "marker": "Unattended.decide",
+      "note": "A /loop-driven session (or a subagent under one) applies its unattended policy to an undecided 'ask' instead of blocking forever on a Deferred nobody can resolve: scoped (default) allows a closed in-project list and refuses the rest with a reason, full allows everything, off asks a human. Explicit deny rules are untouched and always win."
     },
     {
       "file": "packages/opencode/test/permission/next.test.ts",
