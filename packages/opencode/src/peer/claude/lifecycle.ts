@@ -6,6 +6,7 @@
 // set — no sidecar is ever spawned, no session event is even inspected.
 import { Context, Effect, Layer } from "effect"
 import { LayerNode } from "@opencode-ai/core/effect/layer-node"
+import { Config } from "@/config/config"
 import { EventV2Bridge } from "@/event-v2-bridge"
 import { RuntimeFlags } from "@/effect/runtime-flags"
 import { InstanceStore } from "@/project/instance-store"
@@ -16,6 +17,7 @@ import { formatPeerMessage } from "@/session/peers"
 import { settleTaskReply } from "@/peer/delegate"
 import { peerBody, settlePeerReply } from "@/peer/envelope"
 import { PeerInbox } from "@/peer/inbox"
+import { leadVerdictFor } from "@/peer/lead-runtime"
 import { RecentIDs } from "@/peer/recent-ids"
 import { claudePidOf, resolveOpencodeSender } from "@/peer/route"
 import { SessionStatus } from "@/session/status"
@@ -47,6 +49,7 @@ const layer = Layer.effect(
     const promptSvc = yield* SessionPrompt.Service
     const instanceStore = yield* InstanceStore.Service
     const sessionStatus = yield* SessionStatus.Service
+    const config = yield* Config.Service
 
     // Everything below runs from plain callbacks (a child process's stdout,
     // an exit handler), outside any Effect fiber. Forking on the DEFAULT
@@ -118,9 +121,26 @@ const layer = Layer.effect(
               // hand back to `send_peer_message` for its answer to arrive.
               const sender = yield* Effect.promise(() => resolveOpencodeSender(inbound.from))
               const pid = claudePidOf(inbound.from)
+              // Whether this sender is the user's designated lead. Decided from the
+              // authenticated sender (the socket the frame arrived on, resolved above),
+              // never from the text. Off unless this session's user opted in.
+              const cfg = yield* config.get().pipe(Effect.orElseSucceed(() => undefined))
+              const verdict = leadVerdictFor(
+                sender
+                  ? { harness: "opencode-skein", sessionID: sender }
+                  : { harness: "claude-code", pid: pid ? Number(pid) : undefined, address: inbound.from },
+                cfg?.experimental?.follow_lead === true,
+              )
+              const lead = verdict.granted ? verdict : undefined
+              if (lead) {
+                yield* Effect.logInfo("claude sidecar: inbound from the granted lead", {
+                  "session.id": inbound.sessionID,
+                  grant: lead.grantID,
+                })
+              }
               const wrapped = sender
                 ? formatPeerMessage(
-                    { sessionID: sender, title: inbound.fromName ?? sender, reply: { target: sender } },
+                    { sessionID: sender, title: inbound.fromName ?? sender, reply: { target: sender }, lead },
                     inbound.text,
                   )
                 : formatPeerMessage(
@@ -136,6 +156,7 @@ const layer = Layer.effect(
                         : inbound.fromName
                           ? { target: inbound.fromName }
                           : { unreachable: true },
+                      lead,
                     },
                     inbound.text,
                   )
@@ -260,7 +281,7 @@ const layer = Layer.effect(
 export const node = LayerNode.make({
   service: Service,
   layer,
-  deps: [EventV2Bridge.node, Session.node, SessionPrompt.node, RuntimeFlags.node, InstanceStore.node, SessionStatus.node],
+  deps: [Config.node, EventV2Bridge.node, Session.node, SessionPrompt.node, RuntimeFlags.node, InstanceStore.node, SessionStatus.node],
 })
 
 // No standalone `defaultLayer` composition: `InstanceStore` is a "global

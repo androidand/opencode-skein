@@ -2100,6 +2100,7 @@ export type Config = {
     local_subagent_placement?: boolean
     local_subagent_placement_models?: Array<string>
     peer_delegation?: boolean
+    follow_lead?: boolean
     queue_gate?: {
       cwd?: string
       test_command?: string
