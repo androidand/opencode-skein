@@ -27,7 +27,7 @@ out of iterations, or when several consecutive iterations make no progress.
 | `-n, --max` | iterations before giving up (default 50) |
 | `-i, --interval` | seconds between iterations (default 2) |
 | `--completion-token` | the stop word (default `<promise>COMPLETE</promise>`) |
-| `--no-progress-limit` | consecutive no-progress iterations before stopping (default 3, 0 disables) |
+| `--no-progress-limit` | consecutive no-progress iterations before stopping (default 15, 0 disables) |
 
 ```bash
 opencode loop list
