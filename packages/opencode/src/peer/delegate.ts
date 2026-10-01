@@ -10,6 +10,8 @@
 //
 // Pure formatting/parsing plus an in-memory registry; no transport.
 
+import { InvalidTransition, PeerDelivery } from "./delivery-state"
+
 export const TASK_RESULT_MARKER = "[peer-task-result"
 
 const REPLY_RE = /^\s*\[peer-task-result\s+([A-Za-z0-9_-]+)\]\s*\n?([\s\S]*)$/
@@ -76,38 +78,86 @@ export function parseTaskReply(text: string): { taskID: string; text: string } |
   return { taskID: match[1], text: match[2].trim() }
 }
 
-type Settle = (result: TaskReplyResult) => void
-export type TaskReplyResult = { ok: true; text: string } | { ok: false; reason: "timeout" | "cancelled" }
-
-const pending = new Map<string, { settle: Settle; timer: ReturnType<typeof setTimeout> }>()
-
-export function awaitTaskReply(taskID: string, timeoutMs: number): Promise<TaskReplyResult> {
-  return new Promise((resolve) => {
-    const settle: Settle = (result) => {
-      const entry = pending.get(taskID)
-      if (!entry) return
-      clearTimeout(entry.timer)
-      pending.delete(taskID)
-      resolve(result)
-    }
-    const timer = setTimeout(() => settle({ ok: false, reason: "timeout" }), timeoutMs)
-    ;(timer as { unref?: () => void }).unref?.()
-    pending.set(taskID, { settle, timer })
-  })
+type TaskEntry = {
+  settle: (result: TaskReplyResult) => void
+  timer: ReturnType<typeof setTimeout>
+  delivery: PeerDelivery
 }
 
-/** True when the text was a reply to a task still being waited on. */
+export type TaskReplyResult = { ok: true; text: string } | { ok: false; reason: "timeout" | "cancelled" }
+
+const pending = new Map<string, TaskEntry>()
+
+/**
+ * Register a pending task by its `taskID` and return a `{ promise, delivery }`
+ * pair. The promise resolves when a reply carrying the task marker arrives.
+ * The `delivery` object owns the bounded state machine.
+ */
+export function awaitTaskReply(taskID: string, timeoutMs: number): {
+  promise: Promise<TaskReplyResult>
+  delivery: PeerDelivery
+} {
+  const delivery = new PeerDelivery()
+  return {
+    promise: new Promise<TaskReplyResult>((resolve) => {
+      const settle: TaskEntry["settle"] = (result) => {
+        const entry = pending.get(taskID)
+        if (!entry) return
+        clearTimeout(entry.timer)
+        pending.delete(taskID)
+        resolve(result)
+      }
+      const timer = setTimeout(() => {
+        const entry = pending.get(taskID)
+        if (!entry) return
+        clearTimeout(entry.timer)
+        pending.delete(taskID)
+        try {
+          delivery.transition("timed out")
+        } catch {
+          // A late reply already settled the task; the timeout is superseded.
+        }
+        resolve({ ok: false, reason: "timeout" })
+      }, timeoutMs)
+      ;(timer as { unref?: () => void }).unref?.()
+      pending.set(taskID, { settle, timer, delivery })
+    }),
+    delivery,
+  }
+}
+
+/**
+ * True when the text was a reply to a task still being waited on.
+ *
+ * When the task has already terminalised (timed out, failed, or already
+ * replied), the reply is recorded as superseded and the state machine refuses
+ * the flip — the return value is `false` so the caller treats it as "no
+ * pending task was settled" rather than throwing.
+ */
 export function settleTaskReply(text: string): boolean {
   const reply = parseTaskReply(text)
   if (!reply) return false
   const entry = pending.get(reply.taskID)
   if (!entry) return false
+  try {
+    entry.delivery.transition("replied")
+  } catch {
+    // A terminal state refuses the flip; the reply is superseded.
+    return false
+  }
   entry.settle({ ok: true, text: reply.text })
   return true
 }
 
 export function cancelTaskReply(taskID: string): void {
-  pending.get(taskID)?.settle({ ok: false, reason: "cancelled" })
+  const entry = pending.get(taskID)
+  if (!entry) return
+  try {
+    entry.delivery.transition("failed")
+  } catch {
+    // Already in a terminal state — the cancel is a no-op for state purposes.
+  }
+  entry.settle({ ok: false, reason: "cancelled" })
 }
 
 export function pendingTaskIDs(): string[] {

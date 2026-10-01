@@ -64,7 +64,7 @@ describe("task envelope round trip", () => {
 
 describe("reply registry", () => {
   test("a matching reply settles the wait", async () => {
-    const waiting = awaitTaskReply("t1", 5_000)
+    const { promise: waiting } = awaitTaskReply("t1", 5_000)
     expect(settleTaskReply("[peer-task-result t1]\ndone")).toBe(true)
     expect(await waiting).toEqual({ ok: true, text: "done" })
   })
@@ -72,17 +72,17 @@ describe("reply registry", () => {
     expect(settleTaskReply("[peer-task-result nobody]\nx")).toBe(false)
   })
   test("a header in front of the marker still settles, because the header is stripped first", async () => {
-    const waiting = awaitTaskReply("t4", 5_000)
+    const { promise: waiting } = awaitTaskReply("t4", 5_000)
     const wrapped = formatPeerEnvelope({ mode: "reply", messageID: "m1", taskID: "t4" }, "[peer-task-result t4]\ndone")
     expect(/^\s*\[peer-task-result /.test(peerBody(wrapped))).toBe(true)
     expect(settleTaskReply(peerBody(wrapped))).toBe(true)
     expect(await waiting).toEqual({ ok: true, text: "done" })
   })
   test("times out", async () => {
-    expect(await awaitTaskReply("t2", 5)).toEqual({ ok: false, reason: "timeout" })
+    expect(await (awaitTaskReply("t2", 5)).promise).toEqual({ ok: false, reason: "timeout" })
   })
   test("cancel settles as cancelled and a late reply is not consumed", async () => {
-    const waiting = awaitTaskReply("t3", 5_000)
+    const { promise: waiting } = awaitTaskReply("t3", 5_000)
     cancelTaskReply("t3")
     expect(await waiting).toEqual({ ok: false, reason: "cancelled" })
     expect(settleTaskReply("[peer-task-result t3]\nlate")).toBe(false)

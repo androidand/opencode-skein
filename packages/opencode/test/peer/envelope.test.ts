@@ -223,7 +223,7 @@ describe("parsing is conservative", () => {
 
 describe("settlePeerReply", () => {
   test("a reply with in-reply-to settles a pending request", async () => {
-    const waiting = awaitPeerReply("m1", 5_000)
+    const { promise: waiting } = awaitPeerReply("m1", 5_000)
     const reply = formatPeerEnvelope({ mode: "reply", messageID: "m2", inReplyTo: "m1", contextID: "ctx-1" }, "the fix is in commit abc")
     expect(settlePeerReply(reply)).toBe(true)
     expect(await waiting).toEqual({ ok: true, text: "the fix is in commit abc" })
@@ -247,18 +247,18 @@ describe("settlePeerReply", () => {
   })
 
   test("a header without a body returns empty text", async () => {
-    const waiting = awaitPeerReply("m3", 5_000)
+    const { promise: waiting } = awaitPeerReply("m3", 5_000)
     expect(settlePeerReply("[peer reply id=m4 in-reply-to=m3]\n")).toBe(true)
     expect(await waiting).toEqual({ ok: true, text: "" })
   })
 
   test("timeout settles as cancelled and a late reply is not consumed", async () => {
-    expect(await awaitPeerReply("m5", 5)).toEqual({ ok: false, reason: "timeout" })
+    expect(await (awaitPeerReply("m5", 5)).promise).toEqual({ ok: false, reason: "timeout" })
     expect(settlePeerReply(formatPeerEnvelope({ mode: "reply", messageID: "m6", inReplyTo: "m5" }, "late"))).toBe(false)
   })
 
   test("cancel settles as cancelled and a late reply is not consumed", async () => {
-    const waiting = awaitPeerReply("m7", 5_000)
+    const { promise: waiting } = awaitPeerReply("m7", 5_000)
     cancelPeerReply("m7")
     expect(await waiting).toEqual({ ok: false, reason: "cancelled" })
     expect(settlePeerReply(formatPeerEnvelope({ mode: "reply", messageID: "m8", inReplyTo: "m7" }, "late"))).toBe(false)

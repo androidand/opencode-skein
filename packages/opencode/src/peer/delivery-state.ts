@@ -30,8 +30,8 @@ const TERMINAL: ReadonlySet<PeerDeliveryState> = new Set([
 
 /** The ordered set a live conversation moves through before it settles. */
 const REACHABLE: Record<PeerDeliveryState, ReadonlySet<PeerDeliveryState>> = {
-  accepted: new Set(["acknowledged", "working", "failed", "timed out", "unreachable"]),
-  acknowledged: new Set(["working", "failed", "timed out", "unreachable"]),
+  accepted: new Set(["acknowledged", "working", "replied", "failed", "unreachable"]),
+  acknowledged: new Set(["working", "replied", "failed", "unreachable"]),
   working: new Set(["replied", "failed", "timed out", "unreachable"]),
   replied: new Set(),
   failed: new Set(),

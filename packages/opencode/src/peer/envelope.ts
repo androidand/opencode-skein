@@ -31,6 +31,8 @@
 
 import { randomUUID } from "crypto"
 
+import { InvalidTransition, PeerDelivery, type PeerDeliveryState } from "./delivery-state"
+
 export type PeerMode = "notify" | "request" | "reply"
 
 export interface PeerEnvelope {
@@ -284,41 +286,77 @@ export function expectsReply(envelope: PeerEnvelope): boolean {
 
 export type PeerReplyResult = { ok: true; text: string } | { ok: false; reason: "timeout" | "cancelled" }
 
-const pendingReplies = new Map<string, { settle: (r: PeerReplyResult) => void; timer: ReturnType<typeof setTimeout> }>()
+/** A pending reply registration: the promise resolver, the timer, and the delivery state machine. */
+type PendingReply = {
+  settle: (r: PeerReplyResult) => void
+  timer: ReturnType<typeof setTimeout>
+  delivery: PeerDelivery
+}
+
+const pendingReplies = new Map<string, PendingReply>()
 
 /**
- * Register a pending request by its `messageID` and return a Promise that
- * resolves when a reply carrying `in-reply-to=<messageID>` arrives.
+ * Register a pending request by its `messageID` and return a `{ promise,
+ * delivery }` pair. The promise resolves when a reply carrying
+ * `in-reply-to=<messageID>` arrives. The `delivery` object owns the bounded
+ * state machine: it transitions accepted → acknowledged → working → replied
+ * through terminal states (failed, timed out, unreachable) and refuses any
+ * transition the sequence does not allow.
  */
-export function awaitPeerReply(messageID: string, timeoutMs: number): Promise<PeerReplyResult> {
-  return new Promise((resolve) => {
-    const settle = (result: PeerReplyResult) => {
-      // Resolve directly — cancelPeerReply deletes the entry before calling
-      // settle, and a timeout that races a settle would otherwise find nothing
-      // and return without resolving. The entry is cleaned up by the caller
-      // (timeout timer, cancelPeerReply, or settlePeerReply) so we never
-      // double-resolve.
-      resolve(result)
-    }
-    const timer = setTimeout(() => {
-      pendingReplies.delete(messageID)
-      settle({ ok: false, reason: "timeout" })
-    }, timeoutMs)
-    ;(timer as { unref?: () => void }).unref?.()
-    pendingReplies.set(messageID, { settle, timer })
-  })
+export function awaitPeerReply(messageID: string, timeoutMs: number): {
+  promise: Promise<PeerReplyResult>
+  delivery: PeerDelivery
+} {
+  const delivery = new PeerDelivery()
+  return {
+    promise: new Promise<PeerReplyResult>((resolve) => {
+      const settle = (result: PeerReplyResult) => {
+        // Resolve directly — cancelPeerReply deletes the entry before calling
+        // settle, and a timeout that races a settle would otherwise find
+        // nothing and return without resolving. The entry is cleaned up by the
+        // caller (timeout timer, cancelPeerReply, or settlePeerReply) so we
+        // never double-resolve.
+        resolve(result)
+      }
+      const timer = setTimeout(() => {
+        pendingReplies.delete(messageID)
+        try {
+          delivery.transition("timed out")
+        } catch {
+          // A late reply already settled the conversation; the timeout is
+          // superseded and silently ignored.
+        }
+        settle({ ok: false, reason: "timeout" })
+      }, timeoutMs)
+      ;(timer as { unref?: () => void }).unref?.()
+      pendingReplies.set(messageID, { settle, timer, delivery })
+    }),
+    delivery,
+  }
 }
 
 /**
  * True when the text carries a structured envelope reply, and if so whether it
  * settled a pending request. A reply whose `in-reply-to` does not match any
  * pending request is ignored (not consumed).
+ *
+ * When the pending request has already terminalised (timed out, failed, or
+ * already replied), the reply is recorded as superseded and the state machine
+ * refuses the flip — the return value is `false` so the caller treats it as
+ * "no pending request was settled" rather than throwing.
  */
 export function settlePeerReply(text: string): boolean {
   const parsed = parsePeerEnvelope(text)
   if (!parsed || parsed.envelope.mode !== "reply" || !parsed.envelope.inReplyTo) return false
   const entry = pendingReplies.get(parsed.envelope.inReplyTo)
   if (!entry) return false
+  try {
+    entry.delivery.transition("replied")
+  } catch {
+    // A terminal state (timed out, failed, already replied) refuses the flip.
+    // The reply is superseded; drop it silently.
+    return false
+  }
   entry.settle({ ok: true, text: parsed.body })
   return true
 }
@@ -327,7 +365,10 @@ export function settlePeerReply(text: string): boolean {
 export function cancelPeerReply(messageID: string): void {
   const entry = pendingReplies.get(messageID)
   if (!entry) return
-  clearTimeout(entry.timer)
-  pendingReplies.delete(messageID)
+  try {
+    entry.delivery.transition("failed")
+  } catch {
+    // Already in a terminal state — the cancel is a no-op for state purposes.
+  }
   entry.settle({ ok: false, reason: "cancelled" })
 }

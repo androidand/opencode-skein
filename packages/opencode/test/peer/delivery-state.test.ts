@@ -35,6 +35,7 @@ describe("PeerDelivery", () => {
 
   test("a terminal state rejects any further transition", () => {
     const d = new PeerDelivery()
+    d.transition("working")
     d.transition("timed out")
     expect(d.currentState).toBe("timed out")
     expect(() => d.transition("replied")).toThrow(InvalidTransition)
@@ -45,6 +46,7 @@ describe("PeerDelivery", () => {
 
   test("a late reply after a timeout is recorded as superseded, not replied", () => {
     const d = new PeerDelivery()
+    d.transition("working")
     d.transition("timed out")
     const before = d.currentState
     // The state machine refuses the flip; the caller records the superseded
@@ -56,10 +58,11 @@ describe("PeerDelivery", () => {
   test("each terminal path settles exactly once", () => {
     // reached: the states you can transition straight into from accepted
     const reachableTerminal: Array<[PeerDeliveryState, PeerDeliveryState]> = [
+      ["replied", "accepted"],
       ["replied", "working"],
-      ["failed", "accepted"],
-      ["timed out", "accepted"],
-      ["unreachable", "accepted"],
+      ["failed", "working"],
+      ["timed out", "working"],
+      ["unreachable", "working"],
     ]
     for (const [terminal, from] of reachableTerminal) {
       const d = new PeerDelivery()

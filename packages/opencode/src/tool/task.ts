@@ -430,7 +430,7 @@ export const TaskTool = Tool.define(
           deadlineMs: SUBAGENT_TASK_TIMEOUT_MS,
         })
         // Register before sending so a fast reply cannot land first.
-        const reply = awaitTaskReply(nextSession.id, SUBAGENT_TASK_TIMEOUT_MS)
+        const { promise: reply } = awaitTaskReply(nextSession.id, SUBAGENT_TASK_TIMEOUT_MS)
         if (isClaude) {
           const sent = yield* Effect.promise(() =>
             sendClaudeMessage({
