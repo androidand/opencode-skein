@@ -8,6 +8,7 @@ import fs from "fs"
 import path from "path"
 
 import { parseTasksMd, type TaskItem } from "./tasks-md"
+import { readChangeFile } from "./branch-read"
 
 /** Directories under openspec/changes/ that are never queue candidates. */
 const EXCLUDED = new Set(["archive", "_repo", "todo"])
@@ -95,10 +96,10 @@ export function compareOrder(a: ChangeOrder, b: ChangeOrder): number {
   return a.slug < b.slug ? -1 : a.slug > b.slug ? 1 : 0
 }
 
-function readTasks(changeDir: string): TaskItem[] | undefined {
-  const file = path.join(changeDir, "tasks.md")
-  if (!fs.existsSync(file)) return undefined
-  return parseTasksMd(fs.readFileSync(file, "utf8"))
+function readTasks(root: string, slug: string): TaskItem[] | undefined {
+  const content = readChangeFile(root, slug, `openspec/changes/${slug}/tasks.md`)
+  if (content === undefined) return undefined
+  return parseTasksMd(content)
 }
 
 /**
@@ -125,7 +126,7 @@ export function resolveQueue(root: string, only?: readonly string[]): ResolvedQu
 
   for (const slug of order) {
     const directory = path.join(changesDir, slug)
-    const tasks = readTasks(directory)
+    const tasks = readTasks(root, slug)
     if (!tasks || tasks.length === 0) continue
     if (hasBlocker(directory)) {
       result.quarantined.push(slug)

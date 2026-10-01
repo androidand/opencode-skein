@@ -5,11 +5,14 @@ import fs from "fs"
 import path from "path"
 
 import { uncheckedTasks } from "./tasks-md"
+import { readChangeFile } from "./branch-read"
 import type { QueueChange } from "./queue"
 
 export type Gate = "implement" | "test" | "verify" | "commit"
 
 export interface BriefInput {
+  /** repo root, used to resolve the change's branch via `git show` */
+  root: string
   change: QueueChange
   gate: Gate
   /** failure output from the previous gate evaluation, when returning to implement */
@@ -138,10 +141,10 @@ export function buildBrief(input: BriefInput): string {
     parts.push(`Next unchecked task: ${next.id ? `${next.id} ` : ""}${next.text}`)
   }
 
-  const proposal = readIfExists(path.join(change.directory, "proposal.md"))
+  const proposal = readChangeFile(input.root, change.slug, `openspec/changes/${change.slug}/proposal.md`)
   if (proposal) parts.push(`## proposal.md\n\n${proposal}`)
 
-  const tasks = readIfExists(path.join(change.directory, "tasks.md"))
+  const tasks = readChangeFile(input.root, change.slug, `openspec/changes/${change.slug}/tasks.md`)
   if (tasks) parts.push(`## tasks.md\n\n${tasks}`)
 
   for (const file of specFiles(change.directory)) {

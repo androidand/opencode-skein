@@ -879,6 +879,7 @@ export const layer = Layer.effect(
           const peers = yield* idlePeers
           const neighbours = yield* activePeers(changeSessionID, record.info.directory)
           const brief = buildBrief({
+            root: record.info.directory,
             change,
             gate,
             failure,

@@ -134,14 +134,17 @@ describe("resolveQueue", () => {
   })
 })
 
-function fixtureChange(tasks: string = OPEN): QueueChange {
+function fixtureChange(tasks: string = OPEN): { change: QueueChange; root: string } {
   const root = fixtureTree({ demo: { tasks } })
   const directory = path.join(root, "openspec", "changes", "demo")
   return {
-    slug: "demo",
-    directory,
-    tasks: parseTasksMd(tasks),
-    order: { priority: DefaultPriority, created: "2026-01-01", slug: "demo" },
+    change: {
+      slug: "demo",
+      directory,
+      tasks: parseTasksMd(tasks),
+      order: { priority: DefaultPriority, created: "2026-01-01", slug: "demo" },
+    },
+    root,
   }
 }
 
@@ -153,7 +156,7 @@ describe("buildBrief", () => {
     fs.mkdirSync(path.join(dir, "specs", "demo"), { recursive: true })
     fs.writeFileSync(path.join(dir, "specs", "demo", "spec.md"), "## ADDED Requirements demo-spec-body")
     const change = cursor(resolveQueue(root))!
-    const brief = buildBrief({ change, gate: "implement", idlePeers: [] })
+    const brief = buildBrief({ root, change, gate: "implement", idlePeers: [] })
     expect(brief).toContain("IMPLEMENT gate")
     expect(brief).toContain("3.2 wire the flux capacitor")
     expect(brief).toContain("Demo proposal body")
@@ -163,7 +166,7 @@ describe("buildBrief", () => {
 
   test("failure context is embedded verbatim", () => {
     const brief = buildBrief({
-      change: fixtureChange(),
+      change: fixtureChange().change, root: fixtureChange().root,
       gate: "implement",
       failure: { gate: "test", output: "1 test failed: expected 2 to be 3" },
       idlePeers: [],
@@ -174,7 +177,7 @@ describe("buildBrief", () => {
 
   test("the fan-out nudge names the gate's agent", () => {
     const brief = buildBrief({
-      change: fixtureChange(),
+      change: fixtureChange().change, root: fixtureChange().root,
       gate: "implement",
       idlePeers: ["gpuhost2", "gpuhost4"],
       persona: "coder",
@@ -185,7 +188,7 @@ describe("buildBrief", () => {
   })
 
   test("a busy fleet suppresses the nudge even with an agent bound", () => {
-    const brief = buildBrief({ change: fixtureChange(), gate: "implement", idlePeers: [], persona: "coder" })
+    const brief = buildBrief({ change: fixtureChange().change, root: fixtureChange().root, gate: "implement", idlePeers: [], persona: "coder" })
     expect(brief).not.toContain("Fleet capacity")
   })
 
@@ -193,7 +196,7 @@ describe("buildBrief", () => {
   // instruction — the model cannot carry it out and will improvise.
   test("an active neighbour is named in the brief", () => {
     const brief = buildBrief({
-      change: fixtureChange(),
+      change: fixtureChange().change, root: fixtureChange().root,
       gate: "implement",
       idlePeers: [],
       peers: ['ses_1 — "Merge five specsync worktrees into main" [busy], last active 30s ago'],
@@ -205,7 +208,7 @@ describe("buildBrief", () => {
   // A collision warning that fires constantly stops being read.
   test("corrections are rendered, in order, after the standing guidance", () => {
     const brief = buildBrief({
-      change: fixtureChange(),
+      change: fixtureChange().change, root: fixtureChange().root,
       gate: "implement",
       idlePeers: [],
       guidance: "prefer small commits",
@@ -222,23 +225,23 @@ describe("buildBrief", () => {
   })
 
   test("no corrections produces no corrections section", () => {
-    expect(buildBrief({ change: fixtureChange(), gate: "implement", idlePeers: [], steers: [] })).not.toContain(
+    expect(buildBrief({ change: fixtureChange().change, root: fixtureChange().root, gate: "implement", idlePeers: [], steers: [] })).not.toContain(
       "Corrections from the operator",
     )
-    expect(buildBrief({ change: fixtureChange(), gate: "implement", idlePeers: [] })).not.toContain(
+    expect(buildBrief({ change: fixtureChange().change, root: fixtureChange().root, gate: "implement", idlePeers: [] })).not.toContain(
       "Corrections from the operator",
     )
   })
 
   test("a quiet repo produces no neighbour warning", () => {
-    const brief = buildBrief({ change: fixtureChange(), gate: "implement", idlePeers: [], peers: [] })
+    const brief = buildBrief({ change: fixtureChange().change, root: fixtureChange().root, gate: "implement", idlePeers: [], peers: [] })
     expect(brief).not.toContain("not alone in this checkout")
-    const noField = buildBrief({ change: fixtureChange(), gate: "implement", idlePeers: [] })
+    const noField = buildBrief({ change: fixtureChange().change, root: fixtureChange().root, gate: "implement", idlePeers: [] })
     expect(noField).not.toContain("not alone in this checkout")
   })
 
   test("no bound agent suppresses the nudge even with an idle fleet", () => {
-    const brief = buildBrief({ change: fixtureChange(), gate: "implement", idlePeers: ["gpuhost2"] })
+    const brief = buildBrief({ change: fixtureChange().change, root: fixtureChange().root, gate: "implement", idlePeers: ["gpuhost2"] })
     expect(brief).not.toContain("Fleet capacity")
   })
 })
@@ -251,11 +254,11 @@ function scripted(responses: Record<string, { code: number; output: string }>): 
 
 describe("gate evaluators", () => {
   test("implement fails while boxes are unchecked and passes when all are checked", () => {
-    const open = fixtureChange("- [ ] 1.1 first\n- [x] 1.2 second\n")
+    const { change: open } = fixtureChange("- [ ] 1.1 first\n- [x] 1.2 second\n")
     const fail = evaluateImplement(open)
     expect(fail.passed).toBe(false)
     expect(fail.output).toContain("1.1")
-    const done = fixtureChange("- [x] 1.1 first\n- [x] 1.2 second\n")
+    const { change: done } = fixtureChange("- [x] 1.1 first\n- [x] 1.2 second\n")
     expect(evaluateImplement(done).passed).toBe(true)
   })
 
@@ -267,7 +270,7 @@ describe("gate evaluators", () => {
   })
 
   test("verify runs typecheck plus each unique task validation", async () => {
-    const change = fixtureChange(
+    const { change } = fixtureChange(
       [
         "- [x] 1.1 a",
         "  - Validation: `check-a`",
@@ -290,7 +293,7 @@ describe("gate evaluators", () => {
   })
 
   test("commit gate demands a non-default branch, a change commit and a clean tree", async () => {
-    const change = fixtureChange()
+    const { change } = fixtureChange()
     const onDev = await evaluateCommit(
       scripted({ "git rev-parse --abbrev-ref HEAD": { code: 0, output: "dev\n" } }),
       change,
@@ -410,7 +413,7 @@ describe("queue ordering (priority, then creation date, then slug)", () => {
 describe("standing instruction (Auto's optional prompt)", () => {
   test("guidance is repeated in the brief and marked as applying to every iteration", () => {
     const brief = buildBrief({
-      change: fixtureChange(),
+      change: fixtureChange().change, root: fixtureChange().root,
       gate: "implement",
       idlePeers: [],
       guidance: "prefer small commits; do not touch the CLI",
@@ -424,13 +427,13 @@ describe("standing instruction (Auto's optional prompt)", () => {
     const dir = path.join(root, "openspec", "changes", "demo")
     fs.writeFileSync(path.join(dir, "proposal.md"), "# Demo\n\n" + "filler ".repeat(500))
     const change = cursor(resolveQueue(root))!
-    const brief = buildBrief({ change, gate: "implement", idlePeers: [], guidance: "STEER-ME" })
+    const brief = buildBrief({ root, change, gate: "implement", idlePeers: [], guidance: "STEER-ME" })
     expect(brief.indexOf("STEER-ME")).toBeLessThan(brief.indexOf("## proposal.md"))
   })
 
   test("blank or whitespace guidance adds nothing", () => {
     for (const guidance of [undefined, "", "   ", "\n\t "]) {
-      const brief = buildBrief({ change: fixtureChange(), gate: "implement", idlePeers: [], guidance })
+      const brief = buildBrief({ change: fixtureChange().change, root: fixtureChange().root, gate: "implement", idlePeers: [], guidance })
       expect(brief).not.toContain("Standing instruction")
     }
   })
