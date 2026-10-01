@@ -31,6 +31,7 @@ Findings from Phase 1 (peer session):
 ## Phase 2: Renderings
 
 - [ ] 2.1 Prompt section injection; remove the ask-each-time clause for `kimi` when active.
+- [ ] 2.2b Revise per D7: emit push allows for granted remote+branch (no force flags) for granted sessions; merge stays driver-only. The Phase 2 code emitted none, by the earlier default.
 - [ ] 2.2 `deriveRules(policy)`; test that a deny from the never-list beats any allow for all
       35 existing bypass shapes plus force-push variants.
 - [ ] 2.3 `skein policy check|show|instructions` CLI; Claude Code fragment.
@@ -40,7 +41,7 @@ Findings from Phase 1 (peer session):
 - [ ] 3.1 Commit gate: allow granted branches; stage explicit paths only.
 - [ ] 3.2 Push driver honours `push.*`; refuses on tracking mismatch (way-of-working: check
       remote and tracking before any push).
-- [ ] 3.3 Merge driver per D4, including empty-merge-base stop.
+- [ ] 3.3 (go-ahead 2026-10-01, merge into the policy's `into` branch; needs review evidence, so ship disabled and tested with fake evidence until #102) Merge driver per D4, including empty-merge-base stop.
 - [ ] 3.4 Public-content scan on the outgoing diff (D5), with a seeded positive case.
 
 ## Phase 4: Live
