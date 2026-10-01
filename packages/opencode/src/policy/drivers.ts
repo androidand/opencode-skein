@@ -11,6 +11,14 @@ import { PublishPolicy } from "./publish"
 // what lets the refusal cases be tested without a repository or a remote. Each
 // returns an explicit refusal reason rather than a boolean, because a driver that
 // says "no" without saying why produces a log nobody can act on.
+//
+// CALLERS: pass a policy from `PublishPolicy.loadNow`, never from
+// `PublishPolicy.current`. The latter is cached and exists for the prompt path,
+// where a stale answer costs a slightly wrong instruction. A driver's answer
+// decides whether something is published, so it reads the full load at action
+// time. `current` also keys on age rather than only on the file's mtime, because
+// the loader's verdict depends on the forge and the remote as well as the file —
+// see the note on TTLms in publish.ts.
 
 // Unambiguous forms of staging everything. `git add .` is deliberately absent: a
 // shell wildcard cannot tell it from `git add ./src/x.ts`, so denying the former

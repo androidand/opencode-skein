@@ -1,7 +1,7 @@
 export * as PublishPolicy from "./publish"
 
 import path from "path"
-import { Effect, Result, Schema } from "effect"
+import { Clock, Effect, Result, Schema } from "effect"
 import { Wildcard } from "@opencode-ai/core/util/wildcard"
 import type { PermissionV1 } from "@opencode-ai/core/v1/permission"
 import { Process } from "@/util/process"
@@ -435,19 +435,71 @@ export function composeSystem(
   return [(granted ? applyToPrompt(basePrompts, granted) : basePrompts), ...rest].flat().filter((x) => x).join("\n")
 }
 
-const cache = new Map<string, { mtime: number; policy: Policy | undefined }>()
+/**
+ * How long a resolved policy may be reused before the full load runs again.
+ *
+ * The mtime alone is not a sufficient cache key, and getting that wrong is the
+ * exact failure this module exists to prevent. The loader's verdict depends on
+ * facts OUTSIDE the policy file — the forge's visibility, the remote's URL, and
+ * origin/HEAD. A repository flipped from private to public, or a remote
+ * repointed, leaves the file untouched, so an mtime-keyed cache keeps serving a
+ * grant the loader would now refuse. The TTL bounds how long that can persist.
+ */
+const TTLms = 60_000
 
-export const current = Effect.fnUntraced(function* (directory: string) {
-  const file = path.join(directory, ...POLICY_FILE)
-  const stamp = yield* Effect.promise(() => Bun.file(file).exists().then((exists) => (exists ? Bun.file(file).lastModified : 0)))
+const cache = new Map<string, { mtime: number; checkedAt: number; policy: Policy | undefined }>()
+
+/**
+ * The cached load.
+ *
+ * Separate from `current` only so the cache can be driven with injected
+ * dependencies; there is one implementation, not a test-only twin.
+ */
+export const cachedLoad = Effect.fnUntraced(function* (input: { directory: string; deps: LoadDeps }) {
+  const file = path.join(input.directory, ...POLICY_FILE)
+  const stamp = yield* Effect.promise(() =>
+    Bun.file(file).exists().then((exists) => (exists ? Bun.file(file).lastModified : 0)),
+  )
   if (stamp === 0) return undefined
-  const hit = cache.get(directory)
-  if (hit?.mtime === stamp) return hit.policy
-  const loaded = yield* load({ directory, deps: systemDeps({ directory }) })
+  const now = yield* Clock.currentTimeMillis
+  const hit = cache.get(input.directory)
+  if (hit && hit.mtime === stamp && now - hit.checkedAt < TTLms) return hit.policy
+  const loaded = yield* load({ directory: input.directory, deps: input.deps })
   const policy = loaded.status === "granted" ? loaded.policy : undefined
-  cache.set(directory, { mtime: stamp, policy })
+  cache.set(input.directory, { mtime: stamp, checkedAt: now, policy })
   return policy
 })
+
+/**
+ * The policy for the prompt path: cached on mtime AND age.
+ *
+ * A failed re-load stores the denial rather than leaving the previous grant in
+ * place. That is a cost measure, not the safety mechanism: the stale entry's own
+ * `checkedAt` is already past the TTL, so it would be re-loaded anyway. Storing
+ * the denial just avoids re-shelling-out on every request while the forge is
+ * down. The safety comes from the age check refusing to serve anything unverified
+ * — not from this write, which a mutation removing it does not catch.
+ */
+export const current = Effect.fnUntraced(function* (directory: string) {
+  return yield* cachedLoad({ directory, deps: systemDeps({ directory }) })
+})
+
+/**
+ * The full load, with no cache at all.
+ *
+ * This is what an action-time caller uses. The prompt path can afford a cached
+ * answer; a driver about to push or merge cannot, because the decision it makes
+ * with the policy is the one that publishes something.
+ */
+export const loadNow = Effect.fnUntraced(function* (directory: string) {
+  const loaded = yield* load({ directory, deps: systemDeps({ directory }) })
+  return loaded.status === "granted" ? loaded.policy : undefined
+})
+
+/** Drops the cached entry for a directory. Exists for tests and for an explicit reload. */
+export function invalidate(directory: string) {
+  cache.delete(directory)
+}
 
 const decode = (text: string) =>
   // `onExcessProperty: "error"` is what makes the schema closed: an unknown key
