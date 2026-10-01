@@ -41,6 +41,38 @@ export interface ChangeOrder {
 
 export const DefaultPriority = 100
 
+/**
+ * A cheap fingerprint of everything that decides what the queue contains, read from the
+ * working tree only — no git. Idle-watch compares it between polls so it re-resolves the
+ * queue (which shells out to git once per change) only when something changed, and on a slow
+ * timer for branch-only changes. `tasks.md` and `.skein/blocker.md` of every candidate, plus
+ * which candidates exist. Deliberately a string: equality is all anyone needs.
+ */
+export function queueFingerprint(root: string): string {
+  const changesDir = path.join(root, "openspec", "changes")
+  let entries: fs.Dirent[]
+  try {
+    entries = fs.readdirSync(changesDir, { withFileTypes: true })
+  } catch {
+    return "no-openspec"
+  }
+  const parts: string[] = []
+  for (const entry of entries) {
+    if (!entry.isDirectory() || EXCLUDED.has(entry.name)) continue
+    const dir = path.join(changesDir, entry.name)
+    const stamp = (file: string) => {
+      try {
+        const s = fs.statSync(file)
+        return `${s.mtimeMs}:${s.size}`
+      } catch {
+        return "-"
+      }
+    }
+    parts.push(`${entry.name}|${stamp(path.join(dir, "tasks.md"))}|${stamp(path.join(dir, ".skein", "blocker.md"))}|${stamp(path.join(dir, ".openspec.yaml"))}`)
+  }
+  return parts.sort().join("\n")
+}
+
 export interface ResolvedQueue {
   /** eligible changes with at least one unchecked task, in queue order */
   eligible: QueueChange[]

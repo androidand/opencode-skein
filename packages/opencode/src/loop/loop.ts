@@ -42,6 +42,7 @@ import {
   cursor,
   nearbyOpenspecRepos,
   quarantine,
+  queueFingerprint,
   resolveQueue,
   retryQuarantined,
   unquarantine,
@@ -1216,7 +1217,12 @@ export const layer = Layer.effect(
                 yield* emit(id)
               }
               watchMs = watchMs === 0 ? Math.max(WatchMinMs, (record.info.interval ?? 0) * 1000) : Math.min(WatchMaxMs, watchMs * 2)
-              // Sleep in short slices so cancel and pause are felt promptly, not after the backoff.
+              // Sleep in short slices so cancel and pause are felt promptly, not after the backoff,
+              // and wake the moment the openspec files change. Re-resolving the queue shells out to
+              // git once per change, so it must not happen on every poll of an idle agent: it runs
+              // when the fingerprint moves, or when the backoff (capped at WatchMaxMs) expires, which
+              // catches changes that only exist on a loop/<slug> branch.
+              const before = queueFingerprint(record.info.directory)
               let waited = 0
               while (waited < watchMs) {
                 const slice = Math.min(250, watchMs - waited)
@@ -1224,6 +1230,7 @@ export const layer = Layer.effect(
                 waited += slice
                 const current = (yield* Ref.get(state)).get(id)
                 if (!current || current.info.status !== "running") break
+                if (queueFingerprint(record.info.directory) !== before) break
               }
               continue
             }
