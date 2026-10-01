@@ -84,11 +84,11 @@ export class PeerDelivery {
    * sidecar cannot flip a settled conversation back to a good state.
    */
   transition(to: PeerDeliveryState): void {
-    if (TERMINAL.has(this.state) || this.state === to) {
-      if (TERMINAL.has(this.state)) {
-        throw new InvalidTransition(this.state, to)
-      }
+    if (this.state === to) {
       return
+    }
+    if (TERMINAL.has(this.state)) {
+      throw new InvalidTransition(this.state, to)
     }
     if (!REACHABLE[this.state].has(to)) {
       throw new InvalidTransition(this.state, to)
