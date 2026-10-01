@@ -12,6 +12,7 @@ import { grantPath } from "@/peer/lead-runtime"
 import {
   buildGrant,
   identifyCaller,
+  selectSession,
   parseScopes,
   parseTtl,
   removeGrantFile,
@@ -89,6 +90,10 @@ const SetCommand = cmd({
     yargs
       .option("scope", { type: "string", describe: `comma list of: ${LEAD_SCOPES.join(", ")} (default: all)` })
       .option("ttl", { type: "string", describe: "lifetime, e.g. 30m or 8h (default 8h, max 24h)" })
+      .option("session", {
+        type: "string",
+        describe: "exact session id or pid to designate (required for opencode sessions; Claude Code is found automatically)",
+      })
       .option("no-confirm", {
         type: "boolean",
         describe: "skip the human confirmation (unsafe: a model in the same session could run this too)",
@@ -98,11 +103,13 @@ const SetCommand = cmd({
     if ("error" in scopes) return fail(scopes.error)
     const ttlMs = parseTtl(args.ttl)
     if (typeof ttlMs !== "number") return fail(ttlMs.error)
-    const lead = identifyCaller(ancestry(process.ppid), await knownSessions())
+    const sessions = await knownSessions()
+    const lead = args.session ? selectSession(sessions, String(args.session)) : identifyCaller(ancestry(process.ppid), sessions)
+    if (args.session && !lead) return fail(`no live session matches "${args.session}" by exact id or pid (see \`opencode agents\`)`)
     if (!lead) {
       return fail(
-        "this command is not running inside a session that can receive peer messages, so there is nothing to designate. " +
-          "Run it from the session you want as lead (in Claude Code: `! opencode lead set`).",
+        "this command is not running inside a Claude Code session, so there is nothing to find by ancestry. " +
+          "Run it from the session you want as lead (in Claude Code: `! opencode lead set`), or name an opencode session with --session <id>.",
       )
     }
     if (!args.noConfirm) {

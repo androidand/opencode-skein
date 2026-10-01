@@ -3,7 +3,7 @@ import { mkdtempSync, rmSync, statSync } from "fs"
 import { tmpdir } from "os"
 import { join } from "path"
 import { parseGrant, readGrantFile } from "../../src/peer/lead"
-import { buildGrant, identifyCaller, parseScopes, parseTtl, writeGrantFile, type SessionCandidate } from "../../src/peer/lead-issue"
+import { buildGrant, identifyCaller, selectSession, parseScopes, parseTtl, writeGrantFile, type SessionCandidate } from "../../src/peer/lead-issue"
 
 const NOW = 1_790_000_000_000
 const alive = () => true
@@ -20,6 +20,18 @@ describe("identifyCaller", () => {
   test("cannot name a session the command is not running inside", () => {
     expect(identifyCaller([1234, 500], [other])).toBeUndefined()
   })
+})
+
+describe("selectSession", () => {
+  const a: SessionCandidate = { harness: "opencode-skein", pid: 11, sessionID: "ses_a" }
+  const b: SessionCandidate = { harness: "opencode-skein", pid: 11, sessionID: "ses_b" }
+  test("matches an exact session id", () => expect(selectSession([a, b], "ses_b")).toBe(b))
+  test("a pid shared by two sessions is ambiguous and matches nothing", () => expect(selectSession([a, b], "11")).toBeUndefined())
+  test("a prefix or partial name never matches", () => {
+    expect(selectSession([a, b], "ses_")).toBeUndefined()
+    expect(selectSession([a, b], "ses")).toBeUndefined()
+  })
+  test("an unknown reference matches nothing", () => expect(selectSession([a], "ses_zzz")).toBeUndefined())
 })
 
 describe("parseScopes / parseTtl", () => {

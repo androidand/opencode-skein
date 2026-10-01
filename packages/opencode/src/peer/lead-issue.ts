@@ -38,6 +38,17 @@ export function identifyCaller(ancestors: readonly number[], sessions: readonly 
   return undefined
 }
 
+/**
+ * Resolves an explicit `--session` reference. An opencode session cannot be found by
+ * ancestry (its sidecar is a child process and its shell carries no session id), so
+ * the user names it. Exact session id or pid only — a name or prefix could match the
+ * wrong session, and this decides who may direct the others.
+ */
+export function selectSession(sessions: readonly SessionCandidate[], ref: string): SessionCandidate | undefined {
+  const matches = sessions.filter((s) => s.sessionID === ref || String(s.pid) === ref)
+  return matches.length === 1 ? matches[0] : undefined
+}
+
 export function parseScopes(input: string | undefined): LeadScope[] | { error: string } {
   if (!input) return ["assign", "sync", "reprioritise", "decide"]
   const scopes: LeadScope[] = []

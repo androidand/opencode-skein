@@ -35,7 +35,12 @@
       stops the ordinary case only. Open: the sidecar and Claude registry paths (`/tmp/cc-socks`,
       `~/.claude/sessions`) are Unix-shaped, so whether A2A itself runs on Windows is a separate
       question this change does not answer.
-- [ ] 1.4 TUI `/lead`, `/lead off`, `/follow`.
+- [x] 1.4 opencode leads: `opencode lead set --session <exact id or pid>`. Ancestry cannot find an
+      opencode session (the sidecar is a child process; the shell tool carries no session id), so
+      the user names it and the confirmation dialog states which session. A TUI `/lead` command
+      would need a server route plus SDK regeneration; deferred until `project-server` gives
+      sessions a server to ask. Following a lead is `experimental.follow_lead: true` in config
+      (no `/follow` yet).
 
 ## Phase 2: Verification and framing
 
