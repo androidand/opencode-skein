@@ -54,6 +54,12 @@ describe("parseLoopArgs", () => {
     expect(() => parseLoopArgs("work --max soon")).toThrow(LoopArgError)
   })
 
+  test("--once opts a queue run out of watching for new work; the default watches", () => {
+    expect(parseLoopArgs("--queue").once).toBe(false)
+    expect(parseLoopArgs("--queue --once").once).toBe(true)
+    expect(parseLoopArgs("--queue some-change --once").prompt).toBe("some-change")
+  })
+
   test("an empty line opens the management dialog rather than starting a loop", () => {
     const parsed = parseLoopArgs("")
     expect(parsed.prompt).toBe("")

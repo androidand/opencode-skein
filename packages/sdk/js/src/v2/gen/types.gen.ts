@@ -757,6 +757,7 @@ export type Loop = {
   currentChange?: string
   currentGate?: string
   report?: string
+  watching?: boolean
   startedAt: number
   lastRunAt?: number
   finishedAt?: number
@@ -9467,6 +9468,7 @@ export type LoopCreateData = {
     queueGuidance?: string
     queueSync?: boolean
     queuePush?: boolean
+    queueWatch?: boolean
     queueOptions?: {
       testCommand?: string
       verifyCommand?: string

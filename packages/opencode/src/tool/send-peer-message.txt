@@ -43,8 +43,13 @@ returns; if the peer replies, that reply reaches you later as a new message that
 turn. So send once and move on. Do not send the same message again because no answer appeared,
 do not ask a peer whether it is done, and do not loop over a list of targets hoping one
 responds — sending the same text to the same peer twice in a row is refused, and a target that
-does not exist will not start existing on the second attempt. If you cannot continue without an
-answer, say that to your own user rather than asking the peer again.
+does not exist will not start existing on the second attempt.
+
+If you cannot continue without an answer, do not stop and do not ask the peer again. Carry on with
+another item. If the answer has still not come when you need it, send ONE request to the lead (the
+session your user designated; `peers` marks it), record what you are waiting on in the change's
+`.skein/blocker.md`, and move to other work. Go to your own user only for a blocker that needs a
+human: credentials, an unclear goal, anything irreversible. Your user is the last step, not the first.
 
 Peers can answer. A Claude Code or opencode-skein peer replies by messaging this session back,
 and the reply arrives here as a peer message that starts a new turn — you do not poll for it,

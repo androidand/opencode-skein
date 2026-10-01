@@ -3087,6 +3087,7 @@ export class Loop extends HeyApiClient {
       queueGuidance?: string
       queueSync?: boolean
       queuePush?: boolean
+      queueWatch?: boolean
       queueOptions?: {
         testCommand?: string
         verifyCommand?: string
@@ -3115,6 +3116,7 @@ export class Loop extends HeyApiClient {
             { in: "body", key: "queueGuidance" },
             { in: "body", key: "queueSync" },
             { in: "body", key: "queuePush" },
+            { in: "body", key: "queueWatch" },
             { in: "body", key: "queueOptions" },
           ],
         },

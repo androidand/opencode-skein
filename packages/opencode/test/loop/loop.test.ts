@@ -527,6 +527,38 @@ it.instance(
 )
 
 it.instance(
+  "a turn that ends by asking the user gets the ladder next, not the stall directive, and the run continues",
+  () =>
+    Effect.gen(function* () {
+      const { directory: dir } = yield* TestInstance
+      const llm = yield* TestLLMServer
+      yield* writeConfig(dir, providerCfg(llm.url))
+      const loop = yield* Loop.Service
+
+      // The failure the operator reported: the agent stops to ask instead of deciding. Then it carries on.
+      yield* llm.text("I have refactored the parser. Should I also update the docs, or leave that for later?")
+      yield* llm.text("decided from the spec: updating the docs. all finished <promise>COMPLETE</promise>")
+
+      const info = yield* loop.create({ prompt: "refactor the parser", maxIterations: 5, interval: 0, noProgressLimit: 0 })
+      const final = yield* waitForTerminal(info.id)
+      expect(final.status).toBe("completed")
+
+      const hits = yield* llm.hits
+      const bodies = hits.map((h) => JSON.stringify(h.body))
+      const nudged = bodies.filter((b) => b.includes("Do not stop to ask"))
+      expect(nudged.length).toBeGreaterThanOrEqual(1)
+      // The user's own prompt is never lost, and the plain stall directive is not used for an ask.
+      for (const body of nudged) {
+        expect(body).toContain("refactor the parser")
+        expect(body).not.toContain("used no tools")
+      }
+      // The first iteration, before anything was asked, carries no nudge.
+      expect(bodies[0]).not.toContain("Do not stop to ask")
+    }),
+  { config: {} },
+)
+
+it.instance(
   "pause, resume, and cancel transition loop status",
   () =>
     Effect.gen(function* () {

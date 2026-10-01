@@ -236,6 +236,100 @@ const waitForTerminal = (id: Loop.LoopID, seconds = 15) =>
     `${seconds} seconds`,
   )
 
+// loop-done-handoff: a drained queue is not the end of the run when the client
+// asked to keep watching. The agent stays alive, quiet, and picks up the next
+// change that appears — it does not finalize and wait for a human to restart it.
+const waitFor = (label: string, check: Effect.Effect<boolean, never, Loop.Service>, seconds = 10) =>
+  pollWithTimeout(
+    Effect.gen(function* () {
+      return (yield* check) ? true : undefined
+    }),
+    label,
+    `${seconds} seconds`,
+  )
+
+it.instance(
+  "queueWatch: a drained queue keeps watching instead of completing, and says so",
+  () =>
+    Effect.gen(function* () {
+      const { directory: dir } = yield* TestInstance
+      const llm = yield* TestLLMServer
+      yield* writeConfig(dir, providerCfg(llm.url))
+      writeChange(dir, "done-change", "- [x] 1.1 already finished\n")
+      const loop = yield* Loop.Service
+
+      const info = yield* loop.create({ prompt: "", mode: "queue", interval: 0, queueWatch: true })
+      yield* waitFor("loop never entered watching", loop.get(info.id).pipe(Effect.map((l) => l?.watching === true)))
+      // Give it long enough that a finalizing loop would have finished several times over.
+      yield* Effect.sleep("1500 millis")
+      const still = yield* loop.get(info.id)
+      expect(still?.status).toBe("running")
+      expect(still?.watching).toBe(true)
+      expect(still?.finishedAt).toBeUndefined()
+      expect(yield* llm.hits).toHaveLength(0) // watching costs no model turns
+      yield* loop.cancel(info.id)
+    }),
+  { config: {} },
+)
+
+it.instance(
+  "queueWatch: a change that appears while watching is picked up",
+  () =>
+    Effect.gen(function* () {
+      const { directory: dir } = yield* TestInstance
+      const llm = yield* TestLLMServer
+      yield* writeConfig(dir, providerCfg(llm.url))
+      writeChange(dir, "done-change", "- [x] 1.1 already finished\n")
+      const loop = yield* Loop.Service
+
+      const info = yield* loop.create({ prompt: "", mode: "queue", interval: 0, queueWatch: true })
+      yield* waitFor("loop never entered watching", loop.get(info.id).pipe(Effect.map((l) => l?.watching === true)))
+      writeChange(dir, "late-change", "- [ ] 1.1 something new\n")
+      yield* waitFor(
+        "the late change was never picked up",
+        loop.get(info.id).pipe(Effect.map((l) => l?.currentChange === "late-change" && l?.watching !== true)),
+      )
+      yield* loop.cancel(info.id)
+    }),
+  { config: {} },
+)
+
+it.instance(
+  "queueWatch: cancel ends a watching loop promptly",
+  () =>
+    Effect.gen(function* () {
+      const { directory: dir } = yield* TestInstance
+      const llm = yield* TestLLMServer
+      yield* writeConfig(dir, providerCfg(llm.url))
+      writeChange(dir, "done-change", "- [x] 1.1 already finished\n")
+      const loop = yield* Loop.Service
+
+      const info = yield* loop.create({ prompt: "", mode: "queue", interval: 0, queueWatch: true })
+      yield* waitFor("loop never entered watching", loop.get(info.id).pipe(Effect.map((l) => l?.watching === true)))
+      yield* loop.cancel(info.id)
+      const final = yield* waitForTerminal(info.id, 3)
+      expect(final.status).toBe("cancelled")
+    }),
+  { config: {} },
+)
+
+it.instance(
+  "without queueWatch a drained queue still completes (the server default is unchanged)",
+  () =>
+    Effect.gen(function* () {
+      const { directory: dir } = yield* TestInstance
+      const llm = yield* TestLLMServer
+      yield* writeConfig(dir, providerCfg(llm.url))
+      writeChange(dir, "done-change", "- [x] 1.1 already finished\n")
+      const loop = yield* Loop.Service
+      const info = yield* loop.create({ prompt: "", mode: "queue", interval: 0 })
+      const final = yield* waitForTerminal(info.id)
+      expect(final.status).toBe("completed")
+      expect(final.watching).toBeUndefined()
+    }),
+  { config: {} },
+)
+
 it.instance(
   "a drained queue completes immediately with a full-accounting report",
   () =>

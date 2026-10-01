@@ -145,6 +145,16 @@ function fixtureChange(tasks: string = OPEN): QueueChange {
   }
 }
 
+describe("buildBrief — stop nudge", () => {
+  test("includes the nudge when the previous turn stopped to ask, and not otherwise", () => {
+    const change = { slug: "c", directory: "/x/openspec/changes/c", tasks: [] } as never
+    const withNudge = buildBrief({ change, gate: "implement", idlePeers: [], stopNudge: "Do not stop to ask." })
+    const without = buildBrief({ change, gate: "implement", idlePeers: [] })
+    expect(withNudge).toContain("Do not stop to ask.")
+    expect(without).not.toContain("Do not stop to ask.")
+  })
+})
+
 describe("buildBrief", () => {
   test("carries the change documents, gate instruction and next task", () => {
     const root = fixtureTree({ demo: { tasks: "- [ ] 3.2 wire the flux capacitor\n" } })
