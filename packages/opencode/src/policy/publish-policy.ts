@@ -60,10 +60,11 @@ export const NeverList: readonly string[] = [
 // catch a dangerous form also catches innocent commands, and a standing grant is
 // where a false positive becomes permanent rather than merely annoying.
 //
-// `-f` is caught by requiring the git-push context rather than by matching `-f`
-// on its own, which would deny a large fraction of all commands. The known cost is
-// `git push --follow-tags`, which this refuses as a false positive; failing closed
-// on a rarely-used flag is the cheaper side of that trade.
+// `-f` is matched as a space-delimited token. Matching the two characters anywhere
+// was a false positive I shipped and then caught: `*git push*-f*` refuses
+// `git push origin loop/dev-fix`, and would refuse `bug-fix` and anything else whose
+// branch name contains those two characters. The space delimiter is what keeps a
+// legitimate branch pushable; `--force` is covered separately by `*--force*`.
 //
 // There is deliberately no `+refs` entry. A `+refspec` push is already refused
   // because the granted allow is anchored to `git push <remote> <branch>` and a
@@ -85,7 +86,7 @@ const ForceRewritePatterns: readonly string[] = [
   // and the like), and it is NOT independently testable for pushes — so do not
   // remove the `-f` entry on the reasoning that `--force` covers it.
   "*--force*",
-  "*git push*-f*",
+  "* -f *",
   "*reset*hard*",
   "*push*--delete*",
   // Refspec and option smuggling. `*` in a granted branch pattern compiles to `.*`,
@@ -133,7 +134,13 @@ export interface LoadDeps {
 }
 
 export type Loaded =
-  | { readonly status: "granted"; readonly policy: Policy; readonly source: string }
+  | {
+      readonly status: "granted"
+      readonly policy: Policy
+      /** Carried so callers can derive the closing denies; see `defaultBranchDenies`. */
+      readonly defaultBranch: string
+      readonly source: string
+    }
   | {
       readonly status: "denied"
       readonly reason: Reason
@@ -309,7 +316,7 @@ export const load = Effect.fn("PublishPolicy.load")(function* (input: { director
   if (policy.scan === "public-content" && policy.visibility !== "public")
     return deny(Reason.scanNeedsPublic, "the scan is claimed for a repo the policy calls private")
 
-  return { status: "granted", policy, source } satisfies Loaded
+  return { status: "granted", policy, defaultBranch: defaultBranch.success, source } satisfies Loaded
 })
 
 /** True when a command matches the never-list or a force-rewrite shape. */
@@ -381,6 +388,30 @@ export function deriveRules(policy: Policy): PermissionV1.Ruleset {
   return [...local, ...pushes]
 }
 
+/**
+ * Denies derived from the repository's default branch.
+ *
+ * The never-list cannot carry these, because it is a code constant and the
+ * default branch is a fact about the repository — `dev` here, `main` elsewhere.
+ * `Wildcard.match` also has no word-boundary operator, so the shapes are matched
+ * by their delimiters instead: a space before the name (the pattern is written
+ * with a trailing space so `Wildcard` does not turn it into an optional group),
+ * which is why `git push origin loop/device` is NOT caught while a bare `dev`
+ * token is.
+ *
+ * `HEAD`, `@` and `.` are included because each names "whatever branch the session
+ * is currently on", and the session may be on the default branch.
+ */
+export function defaultBranchDenies(defaultBranch: string): readonly string[] {
+  return [
+    `* ${defaultBranch} *`,
+    `*refs/heads/${defaultBranch}*`,
+    "* HEAD *",
+    "* @ *",
+    "* . *",
+  ]
+}
+
 /** The never-list as deny rules, for a caller that needs to append them. */
 export function denyRules(): PermissionV1.Ruleset {
   return NeverList.map((pattern) => ({ permission: "bash" as const, pattern, action: "deny" as const }))
@@ -392,14 +423,27 @@ export function forceDenyRules(): PermissionV1.Ruleset {
 }
 
 /**
- * The full ruleset for a granted policy: denies, then allows, then force denies.
+ * The full ruleset for a granted policy: denies, then allows, then the closing
+ * denies.
  *
  * The ordering is load-bearing and is asserted by tests that mutate each layer —
  * see the note on `deriveRules`.
+ *
+ * `defaultBranch` is optional so a caller that does not know it still gets a
+ * working ruleset, but it SHOULD be passed: without it the closing denies cannot
+ * name the repository's own default branch, and a bare second refspec can then
+ * write it. `Loaded` carries it, so the value is available wherever a grant is.
  */
-export function sessionRules(policy: Policy): PermissionV1.Ruleset {
-  return [...denyRules(), ...deriveRules(policy), ...forceDenyRules()]
+export function sessionRules(policy: Policy, defaultBranch?: string): PermissionV1.Ruleset {
+  return [
+    ...denyRules(),
+    ...deriveRules(policy),
+    ...forceDenyRules(),
+    ...(defaultBranch ? defaultBranchDenies(defaultBranch).map(toDeny) : []),
+  ]
 }
+
+const toDeny = (pattern: string): PermissionV1.Rule => ({ permission: "bash", pattern, action: "deny" })
 
 /**
  * The standing-authorization section injected into a session's prompt.

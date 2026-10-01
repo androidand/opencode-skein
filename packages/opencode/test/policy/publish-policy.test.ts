@@ -505,3 +505,59 @@ describe("layer 3 under a broad grant", () => {
     expect(action("git push origin dev")).toBe("allow")
   })
 })
+
+describe("a bare refspec cannot write the default branch", () => {
+  // Reported by Claude, and I had this backwards: I claimed a bare second refspec
+  // could not reach the default branch without becoming a colon refspec. Verified
+  // against real git — `git push origin loop/x dev` moved the remote's dev — so the
+  // claim was wrong and the hole was real.
+  const granted = PublishPolicy.sessionRules(POLICY, "dev")
+  const action = (command: string) => Permission.evaluate("bash", command, granted).action
+
+  test("the three shapes that write the default branch are denied", () => {
+    for (const command of [
+      "git push origin loop/x dev",
+      "git push origin dev",
+      "git push origin dev loop/x",
+      "git push origin loop/x refs/heads/dev",
+      "git push origin loop/x HEAD",
+      "git push origin HEAD",
+      "git push origin loop/x @",
+      "git push origin loop/x .",
+    ])
+      expect({ command, action: action(command) }).toEqual({ command, action: "deny" })
+  })
+
+  test("the control: those commands are allowed without the derived denies", () => {
+    // If these stopped being allowed the denials above would be passing for the
+    // wrong reason.
+    const withoutDerived = PublishPolicy.sessionRules(POLICY)
+    for (const command of ["git push origin loop/x dev", "git push origin loop/x HEAD"])
+      expect({ command, action: Permission.evaluate("bash", command, withoutDerived).action }).toEqual({
+        command,
+        action: "allow",
+      })
+  })
+
+  test("legitimate pushes are untouched by the derived denies", () => {
+    for (const command of [
+      "git push origin loop/x",
+      "git push origin loop/y",
+      "git push origin loop/deep/nested",
+      // A branch merely CONTAINING the default branch name as a substring, with no
+      // delimiter, must not be caught: the pattern matches on the space delimiter
+      // precisely so this stays pushable.
+      "git push origin loop/device",
+      "git push origin loop/dev-fix",
+    ])
+      expect({ command, action: action(command) }).toEqual({ command, action: "allow" })
+  })
+
+  test("the derived denies follow the repository's actual default branch", () => {
+    // On a repo whose default branch is main, `main` is the protected word and `dev`
+    // is not — the reason these cannot live in the never-list constant.
+    const onMain = PublishPolicy.sessionRules(POLICY, "main")
+    expect(Permission.evaluate("bash", "git push origin loop/x main", onMain).action).toBe("deny")
+    expect(Permission.evaluate("bash", "git push origin loop/x dev", onMain).action).toBe("allow")
+  })
+})
