@@ -1,4 +1,4 @@
-export * as PublishPolicy from "./publish"
+export * as PublishPolicy from "./publish-policy"
 
 import path from "path"
 import { Clock, Effect, Result, Schema } from "effect"
@@ -39,12 +39,11 @@ export const NeverList: readonly string[] = [
   "*cargo*publish*",
   "*deploy*",
   "*fleet-deploy*",
-  // Narrowed from QueueDenyRules' `*publish.ts*`, which also denied `git add` on
-  // any file with that name — a false positive in a standing grant is permanent.
-  // This matches invoking the script, not naming it. Task 2.2 decides whether
-  // QueueDenyRules gets the same narrowing.
-  "*run*publish.ts*",
-  "*publish.ts*run*",
+  // Kept byte-identical to QueueDenyRules. It looked too broad because it also
+  // denied `git add` on this module's own file; the fix was to name the module
+  // publish-policy.ts, not to weaken the rule. A standing deny the fork can
+  // quietly narrow is not a ceiling.
+  "*publish.ts*",
   "*script/release*",
   "*ssh*",
   "*scp*",
@@ -56,10 +55,27 @@ export const NeverList: readonly string[] = [
   "*git*config*",
 ]
 
-// Refused whatever the policy says. Deliberately narrow: a pattern loose enough
-// to catch a dangerous form also catches innocent commands, and a standing grant
-// is where a false positive becomes permanent rather than annoying.
-const ForceRewritePatterns: readonly string[] = ["*--force*", "*reset*hard*", "*push*--delete*"]
+// Refused whatever the policy says, and layered after the allows — see the
+// ordering note on `deriveRules`. Deliberately narrow: a pattern loose enough to
+// catch a dangerous form also catches innocent commands, and a standing grant is
+// where a false positive becomes permanent rather than merely annoying.
+//
+// `-f` is caught by requiring the git-push context rather than by matching `-f`
+// on its own, which would deny a large fraction of all commands. The known cost is
+// `git push --follow-tags`, which this refuses as a false positive; failing closed
+// on a rarely-used flag is the cheaper side of that trade.
+//
+// There is deliberately no `+refs` entry. A `+refspec` push is already refused
+// because the granted allow is anchored to `git push <remote> <branch>` and a
+// `+refs/heads/...` argument does not match it, so an entry for it would be a
+// check no test could distinguish from the anchoring. The anchoring is what is
+// tested; if that ever widens, this is the gap that reopens.
+const ForceRewritePatterns: readonly string[] = [
+  "*--force*",
+  "*git push*-f*",
+  "*reset*hard*",
+  "*push*--delete*",
+]
 
 const Branches = Schema.Array(Schema.String)
 
@@ -278,75 +294,87 @@ export function denied(command: string): boolean {
 }
 
 // Command shapes a grant may turn from "ask" into "allow" in a model-reachable
-// shell. Deliberately not a list of what the grant permits, but a list of what it
-// might plausibly permit; the two filters below decide.
+// shell. Listed as candidates on purpose — naming what is withheld is what makes
+// the exclusion checkable, rather than relying on absence going unnoticed.
 const CandidateShapes: readonly string[] = [
   "git add*",
   "git commit*",
   "git checkout -b*",
   "git switch -c*",
   "git stash list",
-  "git push*",
+  "git merge*",
   "gh pr merge*",
-  "git tag*",
 ]
 
-// Shapes that stay out of a model shell no matter what the policy says: D4 keeps
-// push and merge driver-executed so no model-reachable shell ever holds
-// credentials. Listed here as candidates on purpose — naming what is withheld is
-// what makes the exclusion checkable, rather than relying on their absence from
-// the list above going unnoticed.
-const DriverOnly: readonly string[] = ["*push*", "*merge*", "*tag*"]
+// Withheld whatever the policy says. Merge is not withheld for credentials — the
+// operator's shells already hold an SSH key, and a granted session keeps it — but
+// because a merge needs evidence (gates green, a recorded review verdict for the
+// exact head SHA, CI), and evidence is produced by a driver, not by a shell
+// pattern.
+const DriverOnly: readonly string[] = ["*merge*"]
 
 /**
  * Derives the allow rules a valid policy contributes.
  *
- * Three invariants, two of them enforced rather than left to a comment:
+ * THREE layers, and the order is the whole mechanism. `Permission.evaluate`
+ * resolves with `findLast`, so the last matching rule decides:
  *
- * 1. **A deny always wins.** `Permission.evaluate` resolves with `findLast`, so
- *    the LAST matching rule decides. These allows are therefore meant to be
- *    layered BEFORE the never-list denies; a caller that appends them after would
- *    invert the whole ceiling. `sessionRules` returns them already ordered.
- * 2. **Driver-executed shapes are never emitted.** Filtered by name, not by
- *    hoping the never-list happens to refuse them.
- * 3. **No allow covers something the never-list denies**, so the ceiling does not
- *    depend on every call site ordering the rulesets correctly.
+ *   1. the never-list denies, including `*git*push*`
+ *   2. these allows, which re-permit exactly the granted shapes
+ *   3. the force-rewrite denies, which therefore still win
  *
- * Filters 2 and 3 overlap on today's lists — every `DriverOnly` shape is already
- * denied by `*git*push*` and friends — so filter 3 is defence in depth that
- * currently removes nothing. Only filter 2 is carrying weight today, and the
- * tests say so rather than implying both are load-bearing.
+ * Layer 2 must come after layer 1: a blanket `*git*push*` deny placed last would
+ * make a push grant unreachable, which is the pre-existing situation this change
+ * exists to fix. Layer 3 must come last of all, so `git push --force` loses even
+ * though it also matches a granted push shape. That is the cost of expressing an
+ * exception by ordering rather than by an exception mechanism — and it is why
+ * layer 3 exists as its own list rather than being folded into the never-list.
  *
- * Note the limit of what a pattern can express: these allows gate command
- * *shapes*, not the branch the session is on. "Never commit to the default
- * branch" belongs to the commit gate, because no shell pattern can see which
- * branch is checked out.
+ * The allows are deliberately anchored to `git push <remote> <branch>` with no
+ * room for flags, so `git -c core.hooksPath=/tmp/evil push origin loop/x` does not
+ * match and falls through to the deny. Fail-closed on the shapes we did not
+ * enumerate.
+ *
+ * Note the limit of what a pattern can express: these gate command *shapes*, not
+ * the branch the session is on. "Never commit to the default branch" belongs to
+ * the commit gate, because no shell pattern can see which branch is checked out.
  */
-export function deriveRules(_policy: Policy): PermissionV1.Ruleset {
-  return CandidateShapes.filter(
+export function deriveRules(policy: Policy): PermissionV1.Ruleset {
+  const local = CandidateShapes.filter(
     (shape) => !DriverOnly.some((driver) => Wildcard.match(shape, driver)) && !denied(shape),
-  ).map((pattern) => ({
-    permission: "bash",
-    pattern,
-    action: "allow",
-  }))
+  ).map((pattern) => ({ permission: "bash", pattern, action: "allow" as const }))
+
+  // One allow per granted remote/branch pair rather than one broad shape, so the
+  // grant is exactly what the policy says and not a superset of it.
+  const pushes = policy.push.remotes.flatMap((remote) =>
+    policy.push.branches.map((branch) => ({
+      permission: "bash" as const,
+      pattern: `git push ${remote} ${branch}`,
+      action: "allow" as const,
+    })),
+  )
+
+  return [...local, ...pushes]
 }
 
 /** The never-list as deny rules, for a caller that needs to append them. */
 export function denyRules(): PermissionV1.Ruleset {
-  return [...NeverList, ...ForceRewritePatterns].map((pattern) => ({
-    permission: "bash",
-    pattern,
-    action: "deny",
-  }))
+  return NeverList.map((pattern) => ({ permission: "bash" as const, pattern, action: "deny" as const }))
+}
+
+/** The force-rewrite denies, which must be layered after any allow. */
+export function forceDenyRules(): PermissionV1.Ruleset {
+  return ForceRewritePatterns.map((pattern) => ({ permission: "bash" as const, pattern, action: "deny" as const }))
 }
 
 /**
- * The full ruleset for a granted policy: allows first, never-list denies last,
- * so `findLast` lands on a deny whenever both match.
+ * The full ruleset for a granted policy: denies, then allows, then force denies.
+ *
+ * The ordering is load-bearing and is asserted by tests that mutate each layer —
+ * see the note on `deriveRules`.
  */
 export function sessionRules(policy: Policy): PermissionV1.Ruleset {
-  return [...deriveRules(policy), ...denyRules()]
+  return [...denyRules(), ...deriveRules(policy), ...forceDenyRules()]
 }
 
 /**
@@ -455,33 +483,35 @@ const cache = new Map<string, { mtime: number; checkedAt: number; policy: Policy
  * Separate from `current` only so the cache can be driven with injected
  * dependencies; there is one implementation, not a test-only twin.
  */
-export const cachedLoad = Effect.fnUntraced(function* (input: { directory: string; deps: LoadDeps }) {
+export const cachedLoad = Effect.fnUntraced(function* (input: { directory: string; deps: LoadDeps; now: number }) {
   const file = path.join(input.directory, ...POLICY_FILE)
   const stamp = yield* Effect.promise(() =>
     Bun.file(file).exists().then((exists) => (exists ? Bun.file(file).lastModified : 0)),
   )
   if (stamp === 0) return undefined
-  const now = yield* Clock.currentTimeMillis
   const hit = cache.get(input.directory)
-  if (hit && hit.mtime === stamp && now - hit.checkedAt < TTLms) return hit.policy
+  if (hit && hit.mtime === stamp && input.now - hit.checkedAt < TTLms) return hit.policy
   const loaded = yield* load({ directory: input.directory, deps: input.deps })
   const policy = loaded.status === "granted" ? loaded.policy : undefined
-  cache.set(input.directory, { mtime: stamp, checkedAt: now, policy })
+  cache.set(input.directory, { mtime: stamp, checkedAt: input.now, policy })
   return policy
 })
 
 /**
  * The policy for the prompt path: cached on mtime AND age.
  *
+ * `now` is a parameter rather than read from the Clock service on purpose: this is
+ * called from the request path, and taking Clock from the environment there would
+ * widen that function's context for every caller. Passing it also makes the TTL
+ * exactly controllable in tests instead of approximated by a test clock.
+ *
  * A failed re-load stores the denial rather than leaving the previous grant in
  * place. That is a cost measure, not the safety mechanism: the stale entry's own
- * `checkedAt` is already past the TTL, so it would be re-loaded anyway. Storing
- * the denial just avoids re-shelling-out on every request while the forge is
- * down. The safety comes from the age check refusing to serve anything unverified
- * — not from this write, which a mutation removing it does not catch.
+ * `checkedAt` is already past the TTL, so it would be re-loaded anyway. Safety
+ * comes from refusing to serve anything unverified.
  */
 export const current = Effect.fnUntraced(function* (directory: string) {
-  return yield* cachedLoad({ directory, deps: systemDeps({ directory }) })
+  return yield* cachedLoad({ directory, deps: systemDeps({ directory }), now: Date.now() })
 })
 
 /**

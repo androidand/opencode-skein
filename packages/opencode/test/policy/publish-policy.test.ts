@@ -5,7 +5,7 @@ import { mkdir, mkdtemp } from "fs/promises"
 import { tmpdir } from "os"
 import { Process } from "@/util/process"
 import { Permission } from "@/permission"
-import { PublishPolicy } from "@/policy/publish"
+import { PublishPolicy } from "@/policy/publish-policy"
 
 // Every test here asserts a denial, so each one is also a claim that the grant
 // is not being handed out by accident. The suite is only worth anything if
@@ -289,7 +289,7 @@ describe("never-list", () => {
     // never-list has to be checked against the commands an agent actually runs.
     for (const command of [
       "git status --porcelain",
-      "git add packages/opencode/src/policy/publish.ts",
+      "git add packages/opencode/src/policy/publish-policy.ts",
       "git commit -m 'feat(policy): add publish policy'",
       "git log --oneline -10",
       "git diff HEAD",
@@ -312,95 +312,104 @@ const POLICY: PublishPolicy.Policy = {
 }
 
 describe("derived rules", () => {
-  test("turns the granted commit shapes from ask into allow", () => {
-    // The point of the grant: a session no longer has to ask about work its user
-    // already authorized.
-    for (const command of ["git add src/x.ts", "git commit -m 'feat: x'", "git checkout -b loop/x"]) {
-      expect({ command, action: Permission.evaluate("bash", command, PublishPolicy.sessionRules(POLICY)).action }).toEqual(
-        { command, action: "allow" },
-      )
-    }
-  })
+  const action = (command: string) => Permission.evaluate("bash", command, PublishPolicy.sessionRules(POLICY)).action
 
-  test("a deny beats an allow because the never-list is layered last", () => {
-    // `Permission.evaluate` resolves with findLast, so ordering is the entire
-    // mechanism. Each command below matches BOTH an allow shape and a
-    // never-list entry, which is the only situation in which the order changes
-    // the answer — a command only the deny matches cannot tell you anything
-    // about layering. `git commit -m "docs: run publish.ts"` is the realistic
-    // case: an ordinary commit whose message happens to contain the words.
+  test("a granted session may commit, push and branch locally", () => {
+    // The grant's point: a session does not ask about work its user authorized.
     for (const command of [
-      "git commit -m 'docs: run publish.ts'",
-      "git add script/release/notes.md",
-      "git commit -m 'chore: touch credential docs'",
+      "git add src/x.ts",
+      "git commit -m 'feat: x'",
+      "git checkout -b loop/x",
+      "git push origin loop/x",
     ])
-      expect({ command, action: Permission.evaluate("bash", command, PublishPolicy.sessionRules(POLICY)).action }).toEqual(
-        { command, action: "deny" },
-      )
+      expect({ command, action: action(command) }).toEqual({ command, action: "allow" })
   })
 
-  test("the same commands are allowed when the layers are reversed", () => {
-    // The control for the test above. If this stops producing "allow" then the
-    // deny verdicts were never coming from the ordering, and the test above was
-    // proving nothing.
-    const reversed = [...PublishPolicy.denyRules(), ...PublishPolicy.deriveRules(POLICY)]
-    for (const command of ["git commit -m 'docs: run publish.ts'"])
-      expect({ command, action: Permission.evaluate("bash", command, reversed).action }).toEqual({
-        command,
-        action: "allow",
-      })
+  test("a push to a branch outside the grant is denied", () => {
+    // The allow is anchored per remote and per branch pattern, so an ungranted
+    // branch falls through to the blanket push deny.
+    for (const command of ["git push origin dev", "git push origin feat/x", "git push fork loop/x"])
+      expect({ command, action: action(command) }).toEqual({ command, action: "deny" })
   })
 
-  test("no emitted allow is driver-executed or never-list denied", () => {
-    // The property, stated once. `deriveRules` enforces it twice — by name via
-    // DriverOnly, and by asking the never-list — and on today's lists those two
-    // filters overlap, so neither can be isolated by mutating it alone. Asserting
-    // the property is what actually holds; the redundancy is deliberate.
-    const emitted = PublishPolicy.deriveRules(POLICY).map((rule) => rule.pattern)
-    for (const pattern of emitted) {
-      expect({ pattern, driverOnly: /push|merge|tag/.test(pattern), denied: PublishPolicy.denied(pattern) }).toEqual({
-        pattern,
-        driverOnly: false,
-        denied: false,
-      })
-    }
+  test("force variants of a granted push are denied", () => {
+    // The reason the force denies are a separate, last layer. Each of these also
+    // matches the granted push allow, so only the ordering refuses them.
+    for (const command of [
+      "git push origin loop/x --force",
+      "git push origin loop/x -f",
+      "git push origin loop/x --force-with-lease",
+      "git push origin loop/x --delete",
+      "git push origin +refs/heads/loop/x",
+      "git push origin refs/heads/loop/x --force",
+    ])
+      expect({ command, action: action(command) }).toEqual({ command, action: "deny" })
   })
 
-  test("the emitted allows are exactly the local commit shapes", () => {
-    // Pins the other direction too: a filter that removed everything would also
-    // satisfy the property above, and a grant that permits nothing is useless.
+  test("a +refspec push matches no allow at all", () => {
+    // Rather than a deny entry that would be indistinguishable from the anchoring,
+    // this pins the anchoring itself: no emitted allow covers a `+refs` argument,
+    // which is why it falls through to the never-list.
+    const allows = PublishPolicy.deriveRules(POLICY).map((r) => r.pattern)
+    expect(allows.some((p) => PublishPolicy.denied("git push origin +refs/heads/loop/x") && p === "git push origin +refs/heads/loop/x")).toBe(false)
+    expect(action("git push origin +refs/heads/loop/x")).toBe("deny")
+  })
+
+  test("the non-push never-list still denies under a grant", () => {
+    for (const command of ["git tag v1", "npm publish", "ssh host git push", "git remote set-url origin x", "git config user.name x"])
+      expect({ command, action: action(command) }).toEqual({ command, action: "deny" })
+  })
+
+  test("flag interposition cannot reach a granted push", () => {
+    // The allow is anchored to `git push <remote> <branch>` with no room for
+    // flags, so `git -c …` and an env prefix miss it and hit the deny. Fail-closed
+    // on the shapes we did not enumerate.
+    for (const command of [
+      "git -c core.hooksPath=/tmp/evil push origin loop/x",
+      "FOO=1 git push origin loop/x",
+      "/usr/bin/git push origin loop/x",
+    ])
+      expect({ command, action: action(command) }).toEqual({ command, action: "deny" })
+  })
+
+  test("merge is never allowed in a model shell, whatever the policy says", () => {
+    // Withheld for evidence, not credentials: a merge needs gates, a recorded
+    // review verdict for the exact head SHA, and CI.
+    const wide: PublishPolicy.Policy = { ...POLICY, merge: { ...POLICY.merge, into: ["*"] } }
+    expect(PublishPolicy.deriveRules(wide).map((r) => r.pattern).join(" ")).not.toContain("merge")
+    // `gh pr merge` is on the never-list, so it is denied outright. A local
+    // `git merge` is not, so it stays at the default "ask" — the point is that no
+    // allow is emitted for it, which is what would turn an ask into a silent merge.
+    expect(Permission.evaluate("bash", "gh pr merge 12 --squash", PublishPolicy.sessionRules(wide)).action).toBe("deny")
+    expect(Permission.evaluate("bash", "git merge dev", PublishPolicy.sessionRules(wide)).action).toBe("ask")
+  })
+
+  test("the layer order is what makes force lose", () => {
+    // The control for the tests above. With the force denies moved before the
+    // allows, a forced granted push is permitted — so those denials are coming
+    // from the ordering and not from the allow failing to match.
+    const reordered = [
+      ...PublishPolicy.denyRules(),
+      ...PublishPolicy.forceDenyRules(),
+      ...PublishPolicy.deriveRules(POLICY),
+    ]
+    expect(Permission.evaluate("bash", "git push origin loop/x --force", reordered).action).toBe("allow")
+  })
+
+  test("the emitted allows are exactly the granted shapes", () => {
     expect(PublishPolicy.deriveRules(POLICY).map((rule) => rule.pattern)).toEqual([
       "git add*",
       "git commit*",
       "git checkout -b*",
       "git switch -c*",
       "git stash list",
+      "git push origin loop/*",
     ])
   })
 
-  test("force-push variants stay denied", () => {
-    // `--force`, the `-f` short form, the lease variant and the `+ref` form all
-    // reach a push, which the never-list refuses outright. `-f` cannot be caught
-    // by a bare `*-f*` pattern — that would deny nearly every command — so this
-    // holds because the push itself is refused, not because a flag is matched.
-    for (const command of [
-      "git push --force origin dev",
-      "git push -f origin dev",
-      "git push --force-with-lease origin dev",
-      "git push origin +refs/heads/dev",
-      "git -c core.hooksPath=/tmp/x push --force origin dev",
-      "FOO=1 git push -f",
-      "git push --force-if-includes origin dev",
-    ])
-      expect({ command, action: Permission.evaluate("bash", command, PublishPolicy.sessionRules(POLICY)).action }).toEqual(
-        { command, action: "deny" },
-      )
-  })
-
-  test("force-rewrite shapes are denied on their own, not only via push", () => {
-    // `reset --hard` discards work and never mentions a push.
-    expect(PublishPolicy.denied("git reset --hard HEAD~1")).toBe(true)
-    expect(PublishPolicy.denied("git push origin --delete dev")).toBe(true)
+  test("a grant with no push branches emits no push allow", () => {
+    const commitOnly: PublishPolicy.Policy = { ...POLICY, push: { remotes: [], branches: [] } }
+    expect(PublishPolicy.deriveRules(commitOnly).map((r) => r.pattern)).not.toContain("git push origin loop/*")
   })
 })
 

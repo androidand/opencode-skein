@@ -1,10 +1,9 @@
 import { describe, expect, test } from "bun:test"
-import { Clock, Effect } from "effect"
-import * as TestClock from "effect/testing/TestClock"
+import { Effect } from "effect"
 import { mkdtemp, mkdir, utimes, writeFile } from "fs/promises"
 import { tmpdir } from "os"
 import path from "path"
-import { PublishPolicy } from "@/policy/publish"
+import { PublishPolicy } from "@/policy/publish-policy"
 
 // These cases exist because the mtime-only cache was wrong: the loader's verdict
 // depends on the forge's visibility and the remote's URL, neither of which
@@ -15,6 +14,13 @@ import { PublishPolicy } from "@/policy/publish"
 // They drive `cachedLoad` itself with injected dependencies and an explicit
 // clock, so the TTL boundary is exercised exactly rather than approximated by
 // sleeping, and the test exercises the same code production runs.
+
+// A hand-advanced clock. The cache takes `now` as a parameter precisely so this is
+// a plain assignment rather than a test-clock layer, so the TTL boundary is
+// exercised exactly rather than approximately.
+const clock = { now: 1_700_000_000_000 }
+const advance = (ms: number) => (clock.now += ms)
+const run = <A, E>(program: Effect.Effect<A, E, never>) => Effect.runPromise(program)
 
 const VALID = `version: 1
 repo: androidand/opencode-skein
@@ -46,9 +52,6 @@ async function repo() {
   return { dir, state, deps }
 }
 
-const withClock = <A, E>(program: Effect.Effect<A, E, never>) =>
-  Effect.runPromise(program.pipe(Effect.provide(TestClock.layer())))
-
 /**
  * Rewrites the policy and pins a definitively newer mtime.
  *
@@ -60,10 +63,10 @@ const withClock = <A, E>(program: Effect.Effect<A, E, never>) =>
 describe("policy cache age", () => {
   test("serves the cached grant while it is fresh", async () => {
     const { dir, deps } = await repo()
-    const result = await withClock(
+    const result = await run(
       Effect.gen(function* () {
-        const first = yield* PublishPolicy.cachedLoad({ directory: dir, deps })
-        const second = yield* PublishPolicy.cachedLoad({ directory: dir, deps })
+        const first = yield* PublishPolicy.cachedLoad({ directory: dir, deps, now: clock.now })
+        const second = yield* PublishPolicy.cachedLoad({ directory: dir, deps, now: clock.now })
         return [first?.visibility ?? null, second?.visibility ?? null]
       }),
     )
@@ -74,12 +77,12 @@ describe("policy cache age", () => {
     // The bug: the policy file is untouched, so an mtime-keyed cache keeps the
     // grant forever. Only the age check re-runs the load, which now refuses.
     const { dir, state, deps } = await repo()
-    const result = await withClock(
+    const result = await run(
       Effect.gen(function* () {
-        const granted = yield* PublishPolicy.cachedLoad({ directory: dir, deps })
+        const granted = yield* PublishPolicy.cachedLoad({ directory: dir, deps, now: clock.now })
         state.visibility = "private"
-        yield* TestClock.adjust("61 seconds")
-        const after = yield* PublishPolicy.cachedLoad({ directory: dir, deps })
+        yield* Effect.sync(() => advance(61_000))
+        const after = yield* PublishPolicy.cachedLoad({ directory: dir, deps, now: clock.now })
         return { granted: granted?.visibility ?? null, after: after?.visibility ?? null }
       }),
     )
@@ -89,15 +92,15 @@ describe("policy cache age", () => {
 test("an unreachable forge denies rather than serving the stale grant", async () => {
     const { dir, deps } = await repo()
     const flaky: PublishPolicy.LoadDeps = { ...deps, visibility: () => Effect.fail(new Error("forge unreachable")) }
-    const result = await withClock(
+    const result = await run(
       Effect.gen(function* () {
-        const granted = yield* PublishPolicy.cachedLoad({ directory: dir, deps })
-        yield* TestClock.adjust("61 seconds")
-        const after = yield* PublishPolicy.cachedLoad({ directory: dir, deps: flaky })
+        const granted = yield* PublishPolicy.cachedLoad({ directory: dir, deps, now: clock.now })
+        yield* Effect.sync(() => advance(61_000))
+        const after = yield* PublishPolicy.cachedLoad({ directory: dir, deps: flaky, now: clock.now })
         // A third call, still inside the forge outage. This is the case that
         // matters: whatever the failed reload left in the cache, nothing here may
         // hand back the grant that was cached before the outage.
-        const third = yield* PublishPolicy.cachedLoad({ directory: dir, deps: flaky })
+        const third = yield* PublishPolicy.cachedLoad({ directory: dir, deps: flaky, now: clock.now })
         return {
           granted: granted?.visibility ?? null,
           after: after?.visibility ?? null,
@@ -116,11 +119,11 @@ test("an unreachable forge denies rather than serving the stale grant", async ()
       ...deps,
       remoteUrl: () => Effect.succeed("git@github.com:someone-else/other.git"),
     }
-    const result = await withClock(
+    const result = await run(
       Effect.gen(function* () {
-        const granted = yield* PublishPolicy.cachedLoad({ directory: dir, deps })
-        yield* TestClock.adjust("61 seconds")
-        const after = yield* PublishPolicy.cachedLoad({ directory: dir, deps: repointed })
+        const granted = yield* PublishPolicy.cachedLoad({ directory: dir, deps, now: clock.now })
+        yield* Effect.sync(() => advance(61_000))
+        const after = yield* PublishPolicy.cachedLoad({ directory: dir, deps: repointed, now: clock.now })
         return { granted: granted?.repo ?? null, after: after?.repo ?? null }
       }),
     )
@@ -131,7 +134,7 @@ test("an unreachable forge denies rather than serving the stale grant", async ()
     // The mtime half of the key still does its job: no TTL is waited out, and the
     // new branches apply immediately.
     const { dir, deps } = await repo()
-    const first = await withClock(PublishPolicy.cachedLoad({ directory: dir, deps }))
+    const first = await run(PublishPolicy.cachedLoad({ directory: dir, deps, now: clock.now }))
     expect(first?.commit.branches).toEqual(["loop/*"])
 
     const file = path.join(dir, ".skein", "publish-policy.yaml")
@@ -139,7 +142,7 @@ test("an unreachable forge denies rather than serving the stale grant", async ()
     await writeFile(file, VALID.replace('branches: ["loop/*"]', 'branches: ["other/*"]'))
     await utimes(file, future / 1000, future / 1000)
 
-    const second = await withClock(PublishPolicy.cachedLoad({ directory: dir, deps }))
+    const second = await run(PublishPolicy.cachedLoad({ directory: dir, deps, now: clock.now }))
     expect(second?.commit.branches).toEqual(["other/*"])
   })
 
@@ -149,10 +152,10 @@ test("an unreachable forge denies rather than serving the stale grant", async ()
     const a = await repo()
     const b = await repo()
     expect(a.dir).not.toBe(b.dir)
-    const result = await withClock(
+    const result = await run(
       Effect.gen(function* () {
-        yield* PublishPolicy.cachedLoad({ directory: a.dir, deps: a.deps })
-        return (yield* PublishPolicy.cachedLoad({ directory: b.dir, deps: b.deps }))?.repo ?? null
+        yield* PublishPolicy.cachedLoad({ directory: a.dir, deps: a.deps, now: clock.now })
+        return (yield* PublishPolicy.cachedLoad({ directory: b.dir, deps: b.deps, now: clock.now }))?.repo ?? null
       }),
     )
     expect(result).toBe("androidand/opencode-skein")

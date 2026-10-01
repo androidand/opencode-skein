@@ -1,7 +1,7 @@
 export * as PublishDrivers from "./drivers"
 
 import { Wildcard } from "@opencode-ai/core/util/wildcard"
-import { PublishPolicy } from "./publish"
+import { PublishPolicy } from "./publish-policy"
 
 // Phase 3 of standing-publish-authority: the decisions the commit and push paths
 // make before doing anything.
@@ -116,6 +116,78 @@ export function pushArgv(input: { remote: string; branch: string }): string[] {
 /** Whether a staging command names paths explicitly. */
 export function stagesExplicitly(command: string): boolean {
   return !ImplicitStagingDenials.some((pattern) => Wildcard.match(command, pattern))
+}
+
+// What the merge driver must be told before it acts. `reviewVerdict` is the
+// recorded decision, and `reviewedSHA` is the commit that decision was made
+// about — kept separate because "a review happened" and "the review covered this
+// exact head" are different claims, and only the second one authorises a merge.
+export interface MergeEvidence {
+  readonly headSHA: string
+  readonly gatesPassed: boolean
+  readonly reviewVerdict?: { readonly verdict: "LGTM" | "NEEDS_WORK"; readonly sha: string }
+  readonly ciPassed: boolean
+  /** Non-empty when `git merge-base` produced unrelated histories. */
+  readonly mergeBase?: string
+}
+
+/**
+ * Whether a merge may proceed, and into which branch.
+ *
+ * Withheld from the model shell because it needs evidence, not because of
+ * credentials: every condition here is a fact about the outside world that only
+ * the driver can establish. A shell pattern cannot see whether CI is green or
+ * whether a verdict covers the head being merged.
+ *
+ * Each condition is checked separately so the refusal says which one failed —
+ * a merge driver that answers "no" without a reason produces a log nobody can
+ * act on.
+ */
+export function mayMerge(input: {
+  policy: PublishPolicy.Policy
+  target: string
+  evidence: MergeEvidence
+}): Refusal {
+  if (!input.policy.merge.into.includes(input.target))
+    return {
+      ok: false,
+      reason: `merge target "${input.target}" is not granted (${input.policy.merge.into.join(", ")})`,
+    }
+  if (!input.evidence.mergeBase)
+    return {
+      ok: false,
+      reason: "unrelated histories: git merge-base returned nothing, so the branch point is unknown — stop and ask a human",
+    }
+  if (input.evidence.reviewVerdict === undefined)
+    return { ok: false, reason: "no recorded review verdict for this merge" }
+  if (input.evidence.reviewVerdict.verdict !== "LGTM")
+    return { ok: false, reason: `the recorded verdict is ${input.evidence.reviewVerdict.verdict}, not LGTM` }
+  // The exact-SHA check is the point of keeping the verdict's own sha: a verdict
+  // for an earlier commit does not cover the head about to be merged.
+  if (input.evidence.reviewVerdict.sha !== input.evidence.headSHA)
+    return {
+      ok: false,
+      reason: `the verdict covers ${input.evidence.reviewVerdict.sha} but the head is ${input.evidence.headSHA}`,
+    }
+  for (const kind of input.policy.merge.requires) {
+    if (kind === "gates" && !input.evidence.gatesPassed)
+      return { ok: false, reason: "the gates have not passed" }
+    if (kind === "ci" && !input.evidence.ciPassed) return { ok: false, reason: "CI has not passed" }
+    if (kind === "review") continue
+  }
+  return { ok: true }
+}
+
+/**
+ * The argv for an allowed merge.
+ *
+ * An array, never a shell string, so no branch name can introduce a second
+ * command. No `--no-verify`, no fast-forward flag: the policy's `method` decides,
+ * and passing a flag the policy did not sanction would be the driver widening its
+ * own grant.
+ */
+export function mergeArgv(input: { target: string; headSHA: string; method: PublishPolicy.Policy["merge"]["method"] }) {
+  return ["merge", "--no-edit", input.method, input.target, input.headSHA]
 }
 
 /**
