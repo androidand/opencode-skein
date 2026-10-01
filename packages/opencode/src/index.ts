@@ -19,6 +19,7 @@ import { GithubCommand } from "./cli/cmd/github"
 import { ExportCommand } from "./cli/cmd/export"
 import { ImportCommand } from "./cli/cmd/import"
 import { AttachCommand } from "./cli/cmd/attach"
+import { LeadCommand } from "./cli/cmd/lead"
 import { TuiThreadCommand } from "./cli/cmd/tui"
 import { AcpCommand } from "./cli/cmd/acp"
 import { EOL } from "os"
@@ -85,6 +86,7 @@ const cli = yargs(args)
   .command(McpCommand)
   .command(TuiThreadCommand)
   .command(AttachCommand)
+  .command(LeadCommand)
   .command(RunCommand)
   .command(GenerateCommand)
   .command(DebugCommand)

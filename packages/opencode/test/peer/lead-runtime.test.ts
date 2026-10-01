@@ -53,7 +53,7 @@ describe("leadVerdictFor", () => {
   })
 
   test("revoking (deleting) the file takes effect on the next message — nothing is cached", () => {
-    let verdict
+    let verdict: ReturnType<typeof leadVerdictFor> | undefined
     withGrant({}, (path) => {
       expect(leadVerdictFor(lead, true, NOW, path).granted).toBe(true)
       rmSync(path)
