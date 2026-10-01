@@ -336,8 +336,9 @@ export const SendPeerMessageTool = Tool.define(
                 `You already sent this exact message to ${peer.sessionID} ("${peer.title}") moments ago, and it was ` +
                 "accepted. It has not been sent again. An answer never arrives as the result of this call — if the " +
                 "peer replies, it reaches you later as a new message that starts a new turn. Do not resend and do " +
-                "not poll. Continue with other work now, and if you need an answer before you can continue, say so " +
-                "to your own user instead of asking the peer again.",
+                "not poll. Continue with other work now. If you still need the answer later, send ONE request to the " +
+                "lead and record the blocker in .skein/blocker.md; go to your own user only for a blocker that needs a " +
+                "human (credentials, an unclear goal, anything irreversible).",
             }
           }
 
