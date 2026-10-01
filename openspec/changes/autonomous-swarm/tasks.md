@@ -106,11 +106,12 @@ sequencing, live verification and the skein-repo amendments.
 - Open: homelab PR #21 (docs), review of the merge driver and idle-watch, #102 review record, the
   in-process `send_peer_message` lead path, Windows/Linux confirmation dialog live checks.
 
-- Measured 2026-10-02 (blocker for any multi-agent run): 32 opencode sessions on one 12-core machine,
-  each at 40-54% of a core and about 1.1 GB resident (peak 1.5 GB), including idle ones that have run for
-  a day. Aggregate ~540% CPU, so test suites time out at 5 s from contention alone and every result
-  taken at load 45+ is unusable. The binary is stripped, so the hot path is unknown; profile with the
-  OTLP collector before blaming any feature. This is the strongest argument for `project-server`
-  (one process hosting many sessions instead of one per terminal) and it makes "idle sessions cost
-  nothing" an acceptance criterion there, not an afterthought.
-
+- Measured 2026-10-02 (blocker for any multi-agent run): 32 opencode processes on one 12-core machine,
+  each at 40-54% of a core and about 1.1 GB resident (peak 1.5 GB); aggregate ~540% CPU, so test suites
+  time out at 5 s from contention alone and every result taken at load 45+ is unusable. CORRECTION: an
+  earlier version of this note said the idle sessions burn CPU. The session roster shows 15 of 19 peers
+  `busy`, including ones started a day ago, so most of this is sessions doing work (likely long-running
+  loops), not an idle leak. Unresolved: whether any of those loops are doing useful work, and what an
+  idle session costs. The binary is stripped, so profile with the OTLP collector before blaming a feature.
+  Either way ~1.1 GB per session is the argument for `project-server`, and a CPU budget per agent should
+  be an acceptance criterion there.
