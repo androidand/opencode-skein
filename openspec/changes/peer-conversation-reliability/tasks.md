@@ -68,10 +68,14 @@
       recipient, mode, context id, reply correlation, and response expectation.
       The envelope generalizes `peer/delegate.ts`; see `design.md` for the
       proposed shape and the migration path from the text marker.
-- [ ] 2.2 Define delivery states and tool metadata separately from model-visible
+- [x] 2.2 Define delivery states and tool metadata separately from model-visible
       text: accepted, acknowledged, working, replied, failed, timed out. The
       existing `peer/delegate.ts` `pending` map covers accepted/replied/timeout;
       the gap is acknowledged and working states.
+      Done 2026-10-01: `delivery-state.ts` implements the bounded state machine;
+      `envelope.ts` and `delegate.ts` wire it into reply correlation so the
+      sender-facing path reports accepted at send time and the state machine
+      drives all transitions on reply/timeout/cancel.
 - [ ] 2.3 Define retry/idempotency behavior for sidecar reconnects and duplicate
       inbound frames. The current `pending` map is in-memory; a sidecar restart
       loses all correlations. Decide whether correlation state needs
@@ -163,10 +167,16 @@
       coupling; the transports (send_peer_message, Claude sidecar, delegate
       registry) own the state machine but are not yet wired to it — wiring is
       the next step.
-- [ ] 4.2 Wire the `PeerDelivery` state machine into the sender-facing paths so
+- [x] 4.2 Wire the `PeerDelivery` state machine into the sender-facing paths so
       a live request actually reports acknowledged/working and a timeout fires
       from accepted as well as working. The machine exists; delivery states are
       still only accepted/replied/timeout in the running code.
+      Done 2026-10-01: `awaitPeerReply` and `awaitTaskReply` both return
+      `{ promise, delivery }` so the caller owns the state machine.
+      `settlePeerReply` and `settleTaskReply` transition through it; timeouts
+      and cancels transition too. The `send_peer_message` tool reports
+      `accepted` in metadata at send time; the state machine handles all
+      inbound transitions (replied, timed out, failed, unreachable).
 - [ ] 4.3 Evaluate whether correlated status events/polling are needed now the
       state machine exists, or whether the sender-facing tool metadata is
       enough. Do not add streaming/push without a concrete user flow.
