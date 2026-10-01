@@ -118,17 +118,39 @@ export function stagesExplicitly(command: string): boolean {
   return !ImplicitStagingDenials.some((pattern) => Wildcard.match(command, pattern))
 }
 
-// What the merge driver must be told before it acts. `reviewVerdict` is the
-// recorded decision, and `reviewedSHA` is the commit that decision was made
-// about — kept separate because "a review happened" and "the review covered this
-// exact head" are different claims, and only the second one authorises a merge.
+// What the merge driver must be told before it acts. Every piece of evidence
+// carries the commit it is about, because "the gates passed", "CI passed" and "a
+// review happened" are all claims about SOME commit, and only a claim about the
+// exact head being merged authorises anything. A bare boolean cannot say which
+// commit it covers: gates that passed on an earlier head would read as passing now.
 export interface MergeEvidence {
   readonly headSHA: string
-  readonly gatesPassed: boolean
+  readonly gates?: { readonly passed: boolean; readonly sha: string }
+  readonly ci?: { readonly passed: boolean; readonly sha: string }
   readonly reviewVerdict?: { readonly verdict: "LGTM" | "NEEDS_WORK"; readonly sha: string }
-  readonly ciPassed: boolean
-  /** Non-empty when `git merge-base` produced unrelated histories. */
+  /** The merge base of target and head, as the caller computed it. The executor recomputes it. */
   readonly mergeBase?: string
+}
+
+/** A full object id. Abbreviations are refused: two commits can share a prefix, and a verdict for one must not cover the other. */
+const FULL_SHA = /^[0-9a-f]{40}$/
+
+export function isFullSHA(value: string): boolean {
+  return FULL_SHA.test(value)
+}
+
+/**
+ * A branch or remote name safe to put in an argument list. A leading `-` would be
+ * read by git as an option (`-s ours` records a merge while discarding the
+ * branch's changes), and the forbidden characters are the ones git itself refuses
+ * in ref names plus whitespace, which would split one argument into two.
+ */
+export function isSafeRefName(value: string): boolean {
+  if (value.length === 0 || value.length > 255) return false
+  if (value.startsWith("-") || value.startsWith("/") || value.endsWith("/") || value.endsWith(".lock") || value.endsWith("."))
+    return false
+  if (value.includes("..") || value.includes("//") || value.includes("@{")) return false
+  return /^[A-Za-z0-9._/-]+$/.test(value)
 }
 
 /**
@@ -141,18 +163,24 @@ export interface MergeEvidence {
  *
  * Each condition is checked separately so the refusal says which one failed —
  * a merge driver that answers "no" without a reason produces a log nobody can
- * act on.
+ * act on. `actor` is who is asking; the policy's `merge.by` lists who may.
  */
 export function mayMerge(input: {
   policy: PublishPolicy.Policy
   target: string
+  actor: string
   evidence: MergeEvidence
 }): Refusal {
+  if (!input.policy.merge.by.includes(input.actor))
+    return { ok: false, reason: `"${input.actor}" may not merge (${input.policy.merge.by.join(", ")})` }
+  if (!isSafeRefName(input.target)) return { ok: false, reason: `"${input.target}" is not a safe branch name` }
   if (!input.policy.merge.into.includes(input.target))
     return {
       ok: false,
       reason: `merge target "${input.target}" is not granted (${input.policy.merge.into.join(", ")})`,
     }
+  if (!isFullSHA(input.evidence.headSHA))
+    return { ok: false, reason: `head "${input.evidence.headSHA}" is not a full 40-character commit id` }
   if (!input.evidence.mergeBase)
     return {
       ok: false,
@@ -170,24 +198,15 @@ export function mayMerge(input: {
       reason: `the verdict covers ${input.evidence.reviewVerdict.sha} but the head is ${input.evidence.headSHA}`,
     }
   for (const kind of input.policy.merge.requires) {
-    if (kind === "gates" && !input.evidence.gatesPassed)
-      return { ok: false, reason: "the gates have not passed" }
-    if (kind === "ci" && !input.evidence.ciPassed) return { ok: false, reason: "CI has not passed" }
-    if (kind === "review") continue
+    if (kind === "review") continue // checked above, unconditionally: a merge never goes without a verdict
+    const item = kind === "gates" ? input.evidence.gates : input.evidence.ci
+    const label = kind === "gates" ? "the gates" : "CI"
+    if (item === undefined) return { ok: false, reason: `${label}: no recorded result` }
+    if (item.sha !== input.evidence.headSHA)
+      return { ok: false, reason: `${label} ran on ${item.sha} but the head is ${input.evidence.headSHA}` }
+    if (!item.passed) return { ok: false, reason: `${label} did not pass` }
   }
   return { ok: true }
-}
-
-/**
- * The argv for an allowed merge.
- *
- * An array, never a shell string, so no branch name can introduce a second
- * command. No `--no-verify`, no fast-forward flag: the policy's `method` decides,
- * and passing a flag the policy did not sanction would be the driver widening its
- * own grant.
- */
-export function mergeArgv(input: { target: string; headSHA: string; method: PublishPolicy.Policy["merge"]["method"] }) {
-  return ["merge", "--no-edit", input.method, input.target, input.headSHA]
 }
 
 /**

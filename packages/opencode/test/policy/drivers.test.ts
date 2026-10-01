@@ -145,101 +145,71 @@ describe("explicit staging", () => {
   })
 })
 describe("merge gate", () => {
+  const HEAD = "a".repeat(40)
+  const BASE = "b".repeat(40)
+  const OLD = "c".repeat(40)
   const ok = {
-    headSHA: "abc123",
-    gatesPassed: true,
-    ciPassed: true,
-    reviewVerdict: { verdict: "LGTM" as const, sha: "abc123" },
-    mergeBase: "base000",
+    headSHA: HEAD,
+    gates: { passed: true, sha: HEAD },
+    ci: { passed: true, sha: HEAD },
+    reviewVerdict: { verdict: "LGTM" as const, sha: HEAD },
+    mergeBase: BASE,
   }
+  const may = (over: Partial<Parameters<typeof PublishDrivers.mayMerge>[0]> = {}) =>
+    PublishDrivers.mayMerge({ policy: POLICY, target: "dev", actor: "integrator", evidence: ok, ...over })
+  const refusal = (r: ReturnType<typeof may>) => (r.ok ? "" : r.reason)
 
   test("permits a merge with evidence covering the exact head", () => {
-    expect(PublishDrivers.mayMerge({ policy: POLICY, target: "dev", evidence: ok })).toEqual({ ok: true })
+    expect(may()).toEqual({ ok: true })
+  })
+
+  test("refuses an actor the policy does not list", () => {
+    expect(refusal(may({ actor: "model" }))).toContain("may not merge")
   })
 
   test("refuses a target the policy does not grant", () => {
-    const result = PublishDrivers.mayMerge({ policy: POLICY, target: "main", evidence: ok })
-    expect(result.ok).toBe(false)
-    if (result.ok) throw new Error("unreachable")
-    expect(result.reason).toContain("main")
+    expect(refusal(may({ target: "main" }))).toContain("not granted")
+  })
+
+  test("refuses a target that git would read as an option, even when the policy lists it", () => {
+    const policy = { ...POLICY, merge: { ...POLICY.merge, into: ["-s"] } }
+    expect(refusal(may({ policy, target: "-s" }))).toContain("not a safe branch name")
+  })
+
+  test("refuses a head that is not a full commit id", () => {
+    const evidence = { ...ok, headSHA: "abc123", reviewVerdict: { verdict: "LGTM" as const, sha: "abc123" }, gates: { passed: true, sha: "abc123" }, ci: { passed: true, sha: "abc123" } }
+    expect(refusal(may({ evidence }))).toContain("full 40-character")
   })
 
   test("refuses unrelated histories", () => {
-    const result = PublishDrivers.mayMerge({ policy: POLICY, target: "dev", evidence: { ...ok, mergeBase: undefined } })
-    expect(result.ok).toBe(false)
-    if (result.ok) throw new Error("unreachable")
-    expect(result.reason).toContain("unrelated histories")
-    expect(result.reason).toContain("human")
+    expect(refusal(may({ evidence: { ...ok, mergeBase: undefined } }))).toContain("unrelated histories")
   })
 
-  test("refuses when no verdict is recorded", () => {
-    const result = PublishDrivers.mayMerge({
-      policy: POLICY,
-      target: "dev",
-      evidence: { ...ok, reviewVerdict: undefined },
-    })
-    expect(result.ok).toBe(false)
-    if (result.ok) throw new Error("unreachable")
-    expect(result.reason).toContain("no recorded review verdict")
+  test("refuses when no verdict is recorded, and for a NEEDS_WORK verdict", () => {
+    expect(refusal(may({ evidence: { ...ok, reviewVerdict: undefined } }))).toContain("no recorded review verdict")
+    expect(refusal(may({ evidence: { ...ok, reviewVerdict: { verdict: "NEEDS_WORK", sha: HEAD } } }))).toContain("not LGTM")
   })
 
-  test("refuses a NEEDS_WORK verdict", () => {
-    const result = PublishDrivers.mayMerge({
-      policy: POLICY,
-      target: "dev",
-      evidence: { ...ok, reviewVerdict: { verdict: "NEEDS_WORK", sha: "abc123" } },
-    })
-    expect(result.ok).toBe(false)
-    if (result.ok) throw new Error("unreachable")
-    expect(result.reason).toContain("NEEDS_WORK")
+  test("refuses a verdict for an earlier commit", () => {
+    expect(refusal(may({ evidence: { ...ok, reviewVerdict: { verdict: "LGTM", sha: OLD } } }))).toContain("verdict covers")
   })
 
-  test("refuses a verdict that does not cover the head being merged", () => {
-    // The exact-SHA check: a verdict for an earlier commit is not a verdict for
-    // this one, however recent it was.
-    const result = PublishDrivers.mayMerge({
-      policy: POLICY,
-      target: "dev",
-      evidence: { ...ok, reviewVerdict: { verdict: "LGTM", sha: "older999" } },
-    })
-    expect(result.ok).toBe(false)
-    if (result.ok) throw new Error("unreachable")
-    expect(result.reason).toContain("older999")
-    expect(result.reason).toContain("abc123")
+  test("a required evidence kind that is missing, failed, or about another commit refuses", () => {
+    // This file's POLICY does not require CI, so use one that requires everything.
+    const all: PublishPolicy.Policy = { ...POLICY, merge: { ...POLICY.merge, requires: ["gates", "review", "ci"] } }
+    expect(refusal(may({ policy: all, evidence: { ...ok, gates: undefined } }))).toContain("no recorded result")
+    expect(refusal(may({ policy: all, evidence: { ...ok, ci: undefined } }))).toContain("no recorded result")
+    expect(refusal(may({ policy: all, evidence: { ...ok, gates: { passed: false, sha: HEAD } } }))).toContain("did not pass")
+    expect(refusal(may({ policy: all, evidence: { ...ok, ci: { passed: false, sha: HEAD } } }))).toContain("did not pass")
+    expect(refusal(may({ policy: all, evidence: { ...ok, gates: { passed: true, sha: OLD } } }))).toContain("ran on")
+    expect(refusal(may({ policy: all, evidence: { ...ok, ci: { passed: true, sha: OLD } } }))).toContain("ran on")
   })
 
-  test("refuses when a required evidence kind is missing", () => {
-    // This policy requires gates and review, not ci.
-    const result = PublishDrivers.mayMerge({ policy: POLICY, target: "dev", evidence: { ...ok, gatesPassed: false } })
-    expect(result.ok).toBe(false)
-    if (result.ok) throw new Error("unreachable")
-    expect(result.reason).toContain("gates")
-    const needsCI: PublishPolicy.Policy = { ...POLICY, merge: { ...POLICY.merge, requires: ["gates", "review", "ci"] } }
-    expect(PublishDrivers.mayMerge({ policy: needsCI, target: "dev", evidence: { ...ok, ciPassed: false } }).ok).toBe(false)
-  })
-
-  test("checks only the evidence kinds the policy requires", () => {
-    // CI is red, but this policy does not list `ci` among its requirements, so the
-    // merge is not refused for it. Checking more than the policy asks would be the
-    // driver inventing its own rules.
+  test("checks only the evidence kinds the policy requires, but never merges without a verdict", () => {
     const noCI: PublishPolicy.Policy = { ...POLICY, merge: { ...POLICY.merge, requires: ["gates", "review"] } }
-    expect(PublishDrivers.mayMerge({ policy: noCI, target: "dev", evidence: { ...ok, ciPassed: false } })).toEqual({
-      ok: true,
-    })
-  })
-
-  test("argv carries the policy's method and no unsanctioned flag", () => {
-    expect(PublishDrivers.mergeArgv({ target: "dev", headSHA: "abc123", method: "squash" })).toEqual([
-      "merge",
-      "--no-edit",
-      "squash",
-      "dev",
-      "abc123",
-    ])
-    // No --no-verify and no fast-forward flag: the driver may not widen its grant.
-    const argv = PublishDrivers.mergeArgv({ target: "dev", headSHA: "abc123", method: "squash" }).join(" ")
-    expect(argv).not.toContain("--no-verify")
-    expect(argv).not.toContain("--ff")
+    expect(may({ policy: noCI, evidence: { ...ok, ci: { passed: false, sha: OLD } } })).toEqual({ ok: true })
+    const noReview: PublishPolicy.Policy = { ...POLICY, merge: { ...POLICY.merge, requires: ["gates"] } }
+    expect(refusal(may({ policy: noReview, evidence: { ...ok, reviewVerdict: undefined } }))).toContain("no recorded review verdict")
   })
 })
 
