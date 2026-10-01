@@ -81,3 +81,28 @@ sequencing, live verification and the skein-repo amendments.
 
 - [ ] 8.1 `specsync sync -repo androidand/opencode-skein -dry-run` for all eight changes;
       review the rendered bodies for private content (the fork is public); then sync.
+
+## Progress and decisions (2026-10-01 to 2026-10-02)
+
+- Decision: unattended permission asks are SCOPED by default (allow a closed in-project list; refuse
+  external directories, web, plan mode and MCP with a stated reason; `unattended_allow` opens named
+  permissions) and FULL auto is an explicit choice (`experimental.unattended_permissions: "full"`, or
+  `auto_mode: true`). An explicit deny always wins. Branch `feat/unattended-permissions`.
+- Decision: a granted session pushes in its shell (never-list wins on order); merge into the default
+  branch is driver-executed because it needs evidence. The merge driver is enabled but refuses until a
+  review verdict for the exact head exists (#102).
+- Merge driver rewritten (`merge-driver-review`, 6781283fc5): the old one produced a command git rejects
+  and was only tested as strings; now an executor tested against real git. Review evidence covers the
+  head, so it refuses unless the target tip is already contained in the head (published tree == reviewed
+  tree, asserted), and pushes from the real checkout so the repository's pre-push hook runs.
+- Incident 2026-10-02: the personal `~/bin/git` wrapper recursed into itself (fork bomb, ~5,400
+  processes). It now has an inode self-check and a depth cap. Lesson for this epic: any component that
+  wraps an external command needs its own recursion bound, and tests that shell out can be starved by
+  an unrelated runaway; fork failures look like mass test failures.
+- Lesson (peer and reviewer): a test that passes with the guard removed proves nothing. Masking (another
+  check refusing first) is the usual cause; each security check needs a test where only it can refuse.
+- Live finding: idle-watch polls `resolveQueue`, which shells out to git per change; measure before
+  recommending long `--queue` runs.
+- Open: homelab PR #21 (docs), review of the merge driver and idle-watch, #102 review record, the
+  in-process `send_peer_message` lead path, Windows/Linux confirmation dialog live checks.
+
