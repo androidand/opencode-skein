@@ -132,6 +132,30 @@ merge decision can require.
   headless `opencode serve` hosting several sessions, attachable on demand
   (`opencode attach`), keeps "I can talk to any of them" without the windows.
 
+## F8. Architecture: one server per process, all coordination state per process
+
+Verified in code, 2026-10-01:
+
+- Each `opencode` launch runs its own server inside the process (`cli/cmd/tui.ts` spawns a
+  worker per TUI and talks to it by RPC). `opencode serve` is opt-in; nothing discovers a
+  running one. A second launch never joins the first.
+- The server already serves many directories via the `x-opencode-directory` header, and
+  `opencode attach <url> [--session]` and `run --attach` connect clients to it. So the
+  supervisor-with-many-agents shape is mostly present and unused.
+- Shared across processes: the SQLite database and the sidecar registry. Everything else is
+  per process and in memory: the loop registry (`loop.ts`, a `Ref<Map>` with no persistence,
+  so a loop dies with its process), `PeerInbox`, pending reply correlation, the repeat guard,
+  placement reservations, `recentPlacements`.
+- Session status is `InstanceState`, scoped per directory, not per process — a shared server
+  needs an aggregating roster across worktrees.
+- Consequences: `crew-loop` needs a claims table, a one-queue-per-directory refusal and a
+  foreign-turn guard only because sessions live in separate processes; A2A needs sockets and a
+  sidecar per session even for two sessions on the same project; agents die with their TUI.
+
+This is why the plan now has a foundation change (`project-server`) and a coordinator
+(`swarm-coordinator`) that absorbs skein's mechanical ideas, instead of depending on the Go
+skein.
+
 ## F7. Overlap map (do not rebuild)
 
 | need | already planned/shipped | gap this epic fills |

@@ -2,7 +2,7 @@
 
 ## Status
 
-Research and planning, 2026-10-01. Epic over five child changes. Fork-local; every
+Research and planning, 2026-10-01. Epic over seven child changes. Fork-local; every
 specsync command passes `-repo androidand/opencode-skein`. Nothing here changes code yet.
 
 ## Why
@@ -56,9 +56,18 @@ re-engaging, escalating and gating; models do the thinking.
 | `standing-publish-authority` | 4 | opencode-skein (+ rendered for Claude Code) |
 | `review-on-done` | 5 | opencode-skein |
 
-Skein-side work is listed as amendments to the existing, unmerged
-`live-session-conductor` change (skein repo, branch `skein/live-session-conductor`) rather
-than a competing plan — see `design.md` "Skein side" and `tasks.md` Phase 6.
+Two further changes provide the foundation. They exist because of F8 (one server per
+process): `project-server` makes one server per repository the supervisor with agents as
+sessions it owns (TUI, CLI or headless clients), and `swarm-coordinator` absorbs the Go
+skein's mechanical ideas (gates and evidence, stall rules, send-once nudges, claim reaping,
+spawn) as a module inside that server. opencode-skein therefore works on its own; the Go
+skein becomes optional. The earlier idea of amending skein's `live-session-conductor` is
+dropped to an optional interop note (`tasks.md` Phase 6).
+
+| change | role | repo |
+| --- | --- | --- |
+| `project-server` | one supervisor per repo, agents without processes, durable loops | opencode-skein |
+| `swarm-coordinator` | conductor ideas from skein, inside the server | opencode-skein |
 
 ## Sequencing
 
@@ -73,8 +82,9 @@ than a competing plan — see `design.md` "Skein side" and `tasks.md` Phase 6.
 5. The existing `crew-loop` (claims, inbox, board, worktree per claim) is the substrate
    for steady-state operation and is NOT redefined here; these changes plug into it. Its
    Phase 2 (inbox) is a prerequisite for lead directives reaching a busy member.
-6. Skein conductor + headless agent pool (`design.md`) once the live-session side
-   proves the loop.
+6. `project-server` Phases 0–2 (spikes, registry/auto-attach, durable loops) can run in
+   parallel with steps 2–4; they do not block them, because those changes work over
+   sockets today. `swarm-coordinator` lands after `project-server` and `lead-authority`.
 
 ## Non-goals
 

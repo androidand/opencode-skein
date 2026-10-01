@@ -39,6 +39,9 @@ prompt mode has no ground truth.
 6. **Completion notice schema**: `{slug, branch, headSHA, gates, reviewVerdict?}` carried in
    the existing envelope; the lead's brief lists recent completions.
 
+Depends on durable loop records (`project-server` Phase 2) for `idle-watch` to survive a
+restart; until then `idle-watch` is per process.
+
 ## Non-goals
 
 - No change to cancel/error semantics.

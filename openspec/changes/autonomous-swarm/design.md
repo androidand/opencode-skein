@@ -91,25 +91,25 @@ Trigger on done; review the named commit range; reviewer chosen to differ from t
 `.skein/review.json` keyed by the reviewed SHA; merge policy requires an APPROVE for the
 head SHA. Rounds are bounded (3) and then escalate to the lead through the ladder.
 
-## Skein side (amendments to `live-session-conductor`, separate repo)
+## Deployment shape (supersedes the earlier "Skein side" plan)
 
-1. **D4 amended:** `skein_conduct start` succeeds only for a session that holds a valid
-   grant (reads `lead.json`); otherwise it returns the one-line instruction for the user
-   to run `! skein lead set`. The conductor's own claim record remains, but it is derived
-   from the grant, not the other way round.
-2. **Conductor identity:** the grant may name the conductor as delegate with scope
-   `nudge` only, so followers can verify a nudge came from skein acting for the lead.
-3. **Roster = peer registry:** the roster adapter reads the same sidecar registry
-   opencode writes and the Claude session sockets, not claim-file globs (already Slice 1).
-4. **Gate evidence:** `ReviewVerdict` evidence is the `.skein/review.json` record.
-5. **Headless pool (new):** a spawn adapter that starts `opencode serve` per worktree or
-   one server hosting several sessions, registers it in the roster, and leaves
-   `opencode attach` as the human's way to talk to any member. Reuses skein's provider
-   chains for model choice; the old fleet YAML shrinks to *spawn templates* only
-   (role, repo, model chain) — presence comes from discovery, not from the file.
-6. **Companion (opencode-skein):** a slug-bearing delegation from a granted lead starts a
-   queue-mode loop for the slug (verified completion), acknowledges, and sends one
-   completion notice — implemented as part of `loop-done-handoff` + `crew-loop` Phase 2/3.
+```
+one project server per repo  =  the supervisor
+  agents  = sessions + durable loops owned by the server (headless, or with a TUI/CLI attached)
+  coordinator = tick module in the server (gates, rules, nudges, claims, spawn)
+  lead    = any session with a lead grant: an in-server agent or a Claude Code session over A2A
+human attaches to any agent, or talks to the lead only
+```
+
+Absorbed from skein: stage gates with evidence, stall rules, nudge dedupe/backoff/budget,
+claim reaping, spawn, pending decisions. Dropped: the Go runner as default worker, the fleet
+YAML as presence source (kept at most as spawn templates). Optional: A2A interop with a
+running Go skein, which sees opencode-skein sessions as ordinary peers.
+
+The one-supervisor shape also removes workarounds that exist only because sessions live in
+separate processes (claims-by-DB-only, one-queue-per-directory refusal, foreign-turn guard,
+per-process reservations); `crew-loop` keeps its claims table, which stays the durable record,
+but its mutual-exclusion code becomes simpler.
 
 ## Why not make the conductor an LLM
 

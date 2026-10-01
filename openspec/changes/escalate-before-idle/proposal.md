@@ -44,6 +44,9 @@ Causes found in code:
    the lead frame from `lead-authority` already says "reply to the lead; do not ask your
    user first".
 
+Wake sources and the deadline timer are simplest inside a project server (one in-process
+inbox, durable loop records) and degrade to the per-process versions otherwise.
+
 ## Non-goals
 
 - No automatic answer on the human's behalf for `needs: human` items (goal ambiguity,

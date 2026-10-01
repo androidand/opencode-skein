@@ -42,33 +42,32 @@ sequencing, live verification and the skein-repo amendments.
 - [ ] 3.1 Land cross-model review for loop sessions, then the Claude Code Stop hook.
 - [ ] 3.2 Make the merge policy require the recorded verdict for the head SHA.
 
-## Phase 4: Substrate (existing `crew-loop`)
+## Phase 4: Substrate (existing `crew-loop`, new `project-server`)
 
-- [ ] 4.1 Prioritise `crew-loop` Phases 1, 2 and 4.1–4.4 (claims, inbox, worktree per
-      claim, merge-back). Reconcile its charter with the escalation ladder (D3) and its
-      empty-board backoff with `idle-watch` (D4): one implementation each, not two.
+- [ ] 4.1 Run `project-server` Phase 0 spikes first (two worktrees in one server, detach,
+      kill, audit, headless registration). Their answers decide how much of `crew-loop`'s
+      process-isolation machinery is still needed; update `crew-loop` accordingly.
+- [ ] 4.2 Land `project-server` Phases 1–2 behind `experimental.project_server`.
+- [ ] 4.3 Prioritise `crew-loop` claims, inbox and worktree-per-claim/merge-back
+      (Phases 1, 2, 4.1–4.4). Reconcile its charter with the escalation ladder (D3) and its
+      empty-board backoff with `idle-watch` (D4): one implementation each.
 
-## Phase 5: Headless pool
+## Phase 5: Coordinator and headless pool
 
-- [ ] 5.1 Based on spike 0.6, decide: register headless sessions in the peer registry, or
-      give the pool its own presence record read by the roster.
-- [ ] 5.2 Define spawn templates (role, repo, model chain) as the only surviving use of the
-      old fleet YAML. Provider chains stay in skein config.
+- [ ] 5.1 `project-server` Phases 3–5 (agents without processes, in-server A2A, soak).
+- [ ] 5.2 `swarm-coordinator` Phases 1–3.
+- [ ] 5.3 Spawn templates (role, repo, model) as the only surviving use of the old fleet YAML.
 
-## Phase 6: Skein-repo amendments (to `live-session-conductor`, branch
-`skein/live-session-conductor`; separate repo, separate branch, not edited from here)
+## Phase 6: Optional skein interop
 
-- [ ] 6.1 Amend D4 and Slice 5 `lead.go`: lead claim requires a valid grant; add the
-      "ask the user to run `! skein lead set`" response.
-- [ ] 6.2 Add conductor-as-delegate (`nudge` scope) to the grant schema and verifier.
-- [ ] 6.3 Map `ReviewVerdict` gate evidence to `.skein/review.json`.
-- [ ] 6.4 Add the spawn adapter and `skein_conduct` pool options per Phase 5.
-- [ ] 6.5 Create the companion opencode-skein change record (or close it as covered by
-      `loop-done-handoff` + `crew-loop`).
+- [ ] 6.1 Decide whether the Go skein stays: as an A2A peer, or retired. If it stays, the only
+      required change is that it reads the lead grant instead of creating its own lead claim.
+- [ ] 6.2 Record in the skein repo's `live-session-conductor` change that it is superseded
+      (separate repo, separate branch; not done from here).
 
 ## Phase 7: Live verification (one evening, real backlog)
 
-- [ ] 7.1 One lead (Claude Code), two members (opencode), skein MCP only in the lead.
+- [ ] 7.1 One lead (Claude Code), two headless members in one project server.
       The human gives one instruction. Record: every point a member stopped, every
       human-addressed message, every merge, every review verdict, and every place authority
       was refused and whether the refusal was correct.
@@ -80,5 +79,5 @@ sequencing, live verification and the skein-repo amendments.
 
 ## Phase 8: Tracker
 
-- [ ] 8.1 `specsync sync -repo androidand/opencode-skein -dry-run` for all six changes;
+- [ ] 8.1 `specsync sync -repo androidand/opencode-skein -dry-run` for all eight changes;
       review the rendered bodies for private content (the fork is public); then sync.
