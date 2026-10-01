@@ -42,6 +42,33 @@ prompt mode has no ground truth.
 Depends on durable loop records (`project-server` Phase 2) for `idle-watch` to survive a
 restart; until then `idle-watch` is per process.
 
+## Existing invariants every new driver path must respect
+
+Reported by a peer review and verified in `loop.ts` ~1514–1542:
+
+1. **One queue-shaped driver per directory.** `QueueActiveError` at creation and the guard
+   in `runPromptThenMaybeQueue` exist because two queue drivers would fight over one derived
+   cursor and one working tree. Every path this change adds that starts or continues a
+   queue-shaped loop (the done pipeline's "pick next", a lead-delegated slug) MUST pass the
+   same check, implemented once as a shared function, not copied per path. With a project
+   server and crew claims the unit of exclusion becomes the claim (one live claim per
+   change, one worktree per claim) and the directory rule applies per worktree.
+2. **Resurrection requires `eternal`** (L1520).
+3. **Resurrection requires an eligible backlog** (L1523: `resolveQueue(...).eligible`).
+   `idle-watch` is the new behaviour for the empty case and must not bypass 1 or 2 for loops
+   that opted out with `--once` / `--no-eternal`.
+
+A test per entry point asserts the invariant: a second driver-creating path in an occupied
+directory is refused (seen red with the guard removed).
+
+## Dependency order
+
+"Release the claim" and the claim-based exclusion need the `claims` table
+(`crew-loop` Phase 1, branch `crew-loop/claims`, unmerged). Until it lands, the done
+pipeline records the outcome and notifies but has no claim to release, and the directory
+guard remains the only exclusion. Tasks 1.2 and 3.2 are ordered after `crew-loop` 1.1–1.3
+for the claim parts.
+
 ## Non-goals
 
 - No change to cancel/error semantics.

@@ -8,6 +8,14 @@
 - [ ] 0.2 Failing test: a prompt-mode token with unchecked tasks of the attached change is
       currently accepted.
 
+## Phase 0b: Invariants
+
+- [ ] 0.3 Extract the one-queue-per-directory check into one function used by `QueueActiveError`,
+      `runPromptThenMaybeQueue` and every new entry point; keep behaviour identical (existing
+      tests stay green).
+- [ ] 0.4 Entry-point tests: done-pipeline "next" and lead-delegated slug are each refused in an
+      occupied directory, and each test is seen red with the guard removed.
+
 ## Phase 1: State and pipeline
 
 - [ ] 1.1 Add `idle-watch` to the loop `Status` schema and TUI labels; not a stall; backoff
