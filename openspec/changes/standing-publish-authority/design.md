@@ -99,7 +99,7 @@ valid grant to push without a detour. So:
 The merge driver merges straight into the policy's `merge.into` branch (this repo: `dev`) once
 review evidence exists. It cannot run before `review-on-done` (#102) records a verdict, because
 that verdict is a required input; until then the driver is built and tested with fake evidence
-and left disabled. Pushing the merged branch to `origin` still needs the remote's push
+and gated on evidence: until #102 records a verdict for the head SHA it refuses every merge, which is the same safety as a disabled flag without a flag to forget. Pushing the merged branch to `origin` still needs the remote's push
 interlock lifted by the operator.
 
 ## Open questions
