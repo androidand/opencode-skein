@@ -480,4 +480,30 @@ Implications for Phase 1/3:
    the `prompt landed` log line should be the *newly created* message id, not
    an unrelated old one — the current line pointed at the receiver's 16:02
    message while its own new row was missing, and it initially looked like an
-   ID-mismatch bug rather than non-persistence.
+    ID-mismatch bug rather than non-persistence.
+
+## Durable identity for peer trust (2026-10-01, cross-change finding re A.6)
+
+A.6 is the durable-address decision: how a peer's identity is bound so a reply
+can be trusted. The reusable finding from a parallel change (policy work)
+applies here and should settle A.6 before it is written:
+
+An envelope's self-asserted fields (its own `from`, `context`, `in-reply-to`,
+`harness`) cannot be the subject of a permission or trust check. A sender writes
+its own header, so it can claim anything — that is exactly the forged-header
+attack the envelope parser already guards against (`envelope.ts` refuses values
+with forbidden codepoints). Binding trust to "whatever the message claims about
+itself" means the peer-trust guarantee holds only when no one lies, which is
+never. Authority must bind to a **live session identity looked up from the
+transport** — the socket the message actually arrived on, resolved through the
+session registry (`peer/claude/codec.ts` already does the analogous thing for the
+Claude attribution envelope). The address is the transport's claim about the
+sender; the envelope's address is the sender's claim. They must be reconciled,
+never conflated.
+
+Consequence for A.6: the durable identity is the transport-resolved session, not
+a persisted copy of the claimed return address. If A.6 persists whatever the
+message claims, the peer-trust guarantees the change is built to provide stop
+holding — a forged `from` becomes a trusted identity, and a reply can be routed
+to a target the sender chose. Record this as the decision for A.6 rather than
+leaving it to the implementer.
