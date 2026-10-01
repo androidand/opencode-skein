@@ -16,6 +16,7 @@ import { SessionPrompt } from "@/session/prompt"
 import { SessionID } from "@/session/schema"
 import { Session } from "@/session/session"
 import { SessionStatus } from "@/session/status"
+import { Unattended } from "@/session/unattended"
 import { Config } from "@/config/config"
 import { Provider } from "@/provider/provider"
 import { Agent as AgentSvc } from "@/agent/agent"
@@ -518,6 +519,10 @@ export const layer = Layer.effect(
       Effect.gen(function* () {
         const current = (yield* Ref.get(state)).get(id)
         if (!current || isTerminal(current.info.status)) return
+        // The run this session was marked unattended for is over — restore
+        // normal ask-blocking behavior for it. New subagents already stopped
+        // spawning; any still running keep their own mark until they finish.
+        Unattended.unmark(current.info.sessionID)
         yield* patch(id, (record) => ({
           ...record,
           info: { ...record.info, status, finishedAt: Date.now() },
@@ -1635,14 +1640,19 @@ export const layer = Layer.effect(
         // as "error" and log the cause instead.
         // The authority ceiling rides on the session the work runs in — which
         // is the session you are watching, because a run you cannot see is
-        // useless. That ruleset is what denies pushing AND what marks the run
-        // unattended so it never stops to ask.
+        // useless. QueueDenyRules is what denies pushing, in queue mode.
+        // Unattended marking is what makes a permission `ask` auto-allow
+        // instead of hanging forever on a Deferred nobody will ever resolve
+        // (Permission.ask has no timeout) — that applies to every loop mode,
+        // not just queue, since a prompt-mode loop is just as unattended.
         //
         // Applied here, next to the fiber that owns the run's whole lifetime,
-        // and released with `ensuring` so that draining, halting, cancelling
-        // or dying all hand your session back exactly as it was found. Doing
-        // this deeper inside the driver would leave the return paths to be
-        // audited one by one.
+        // and released with `ensuring` (permission) / in `finalize`/`cancel`
+        // (the mark) so that draining, halting, cancelling or dying all hand
+        // your session back exactly as it was found. Doing this deeper
+        // inside the driver would leave the return paths to be audited one
+        // by one.
+        Unattended.mark(sessionID)
         const priorPermission =
           mode === "queue"
             ? ((yield* session.get(sessionID).pipe(Effect.orElseSucceed(() => undefined)))?.permission ?? [])
@@ -1722,6 +1732,7 @@ export const layer = Layer.effect(
         if (!record) return false
         if (record.info.status !== "running" && record.info.status !== "paused") return false
         const gate = record.pauseGate
+        Unattended.unmark(record.info.sessionID)
         yield* patch(id, (current) => ({
           ...current,
           pauseGate: undefined,
