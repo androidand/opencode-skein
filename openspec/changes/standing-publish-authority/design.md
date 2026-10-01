@@ -79,6 +79,19 @@ Add under the publishing paragraph:
 > explicit instruction for the actions it lists, durably. It never covers its never-list.
 > No policy file, an invalid one, or a visibility mismatch means no grant.
 
+## D7. Credential stripping is not gated on the grant
+
+`CredentialEnvKeys` stripping is defence in depth behind the deny list. A grant must not
+remove it, or a granted session would have fewer layers than an ungranted one. So: commit
+is allowed to the model's shell (no credentials needed); push and merge stay driver-executed
+(D4) with credentials present only in the driver's own one-command environment, never in any
+model-reachable shell. Allow rules derived from the policy therefore cover `git commit` and
+local branch operations, not `git push` or `gh pr merge`, for model shells. Plain sessions
+that the operator wants to push by hand use the same driver through `skein policy push`
+(a tool call to the driver), not a credentialed shell.
+Raised by a peer session reviewing the design; the narrowing of a security control is the
+operator's decision, recorded here as the default until they say otherwise.
+
 ## Open questions
 
 - Per-repo file vs. a user-level registry of repos with grants (operator works in ~30 repos).
