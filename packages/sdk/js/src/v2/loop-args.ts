@@ -32,6 +32,8 @@ export interface ParsedLoopArgs {
   sync: boolean
   /** false when --no-push was passed (queue mode: push completed branches) */
   push: boolean
+  /** true when --once was passed (queue mode: finish when the queue drains instead of watching for new work) */
+  once: boolean
   /** false when --no-eternal was passed (prompt mode: continue into backlog work on completion) */
   eternal: boolean
   /** queue mode: standing instruction repeated on every iteration */
@@ -71,6 +73,7 @@ export function parseLoopArgs(input: string): ParsedLoopArgs {
   let sync = false
   let push = true
   let eternal = true
+  let once = false
   let guidance: string | undefined
   let gateCwd: string | undefined
   let testCommand: string | undefined
@@ -97,6 +100,10 @@ export function parseLoopArgs(input: string): ParsedLoopArgs {
     }
     if (token === "--no-push") {
       push = false
+      continue
+    }
+    if (token === "--once") {
+      once = true
       continue
     }
     if (token === "--no-eternal") {
@@ -149,6 +156,7 @@ export function parseLoopArgs(input: string): ParsedLoopArgs {
   return {
     prompt: promptParts.join(" ").trim(),
     push,
+    once,
     eternal,
     guidance,
     interval,

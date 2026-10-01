@@ -1282,6 +1282,7 @@ function isRunControlInput(input: string): boolean {
               queue: parsed.queue && parsed.prompt ? parsed.prompt.split(/\s+/) : undefined,
               queueSync: parsed.queue && parsed.sync ? true : undefined,
               queuePush: parsed.queue && !parsed.push ? false : undefined,
+              queueWatch: parsed.queue && !parsed.once ? true : undefined,
               queueGuidance: parsed.queue ? parsed.guidance : undefined,
               queueOptions:
                 parsed.queue && (parsed.gateCwd || parsed.testCommand || parsed.verifyCommand)

@@ -61,6 +61,10 @@ export const DefaultMaxIterations = 50
 // before the stall guard fires.
 export const DefaultNoProgressLimit = 15
 export const DefaultIntervalSeconds = 2
+
+/** Idle-watch polling: first poll after at least this long, doubling up to the cap. */
+export const WatchMinMs = 250
+export const WatchMaxMs = 30_000
 // Keep at most this many IterationInfo entries in the state payload.
 // After this cap the full count is still tracked via info.iteration.
 // Without a cap the iterations array grows to thousands of entries, making
@@ -150,6 +154,9 @@ export const Info = Schema.Struct({
   currentGate: Schema.optional(Schema.String),
   // End-of-run report for queue mode (design D7).
   report: Schema.optional(Schema.String),
+  // loop-done-handoff: the queue drained but the run was asked to keep watching,
+  // so it is alive and quiet rather than finished. Not a stall and not terminal.
+  watching: Schema.optional(Schema.Boolean),
   startedAt: Schema.Finite,
   lastRunAt: Schema.optional(Schema.Finite),
   finishedAt: Schema.optional(Schema.Finite),
@@ -185,6 +192,11 @@ export const CreateInput = Schema.Struct({
   // enforced is pushed, never the default branch, and the model still cannot
   // push anything itself — the driver runs the one command.
   queuePush: Schema.optional(Schema.Boolean),
+  // Keep watching for new work when the queue drains instead of finishing
+  // (loop-done-handoff). Off at the engine so existing callers keep their
+  // contract; the SDK's defaults turn it on for the CLI and TUI, because "done"
+  // should hand over, not halt the agent.
+  queueWatch: Schema.optional(Schema.Boolean),
   // Gate command overrides. Defaults: `bun test`, `bun run typecheck`, and
   // the default branch detected from origin/HEAD (fallback "main").
   queueOptions: Schema.optional(
@@ -265,6 +277,8 @@ type QueueState = {
   gatesPassed: Set<Gate>
   options?: CreateInput["queueOptions"]
   push?: boolean
+  /** Keep watching for new work after the queue drains. */
+  watch?: boolean
   syncs: { slug: string; ok: boolean; output: string }[]
   pushes: { slug: string; branch: string; ok: boolean; output: string }[]
   outcomes: ChangeOutcome[]
@@ -1145,6 +1159,8 @@ export const layer = Layer.effect(
             }
           })
 
+        // Idle-watch backoff, in ms; reset whenever work is found.
+        let watchMs = 0
         while (true) {
           const record = yield* running()
           if (!record?.queue) return
@@ -1170,13 +1186,44 @@ export const layer = Layer.effect(
               yield* finishQueue(id, "error", "nothing to run — no change under openspec/changes has a tasks.md with open tasks")
               return
             }
+            if (queueState.watch) {
+              // Done is a handoff, not an exit (loop-done-handoff). Say what happened once, stay
+              // alive, and look again — new openspec changes, a released blocker, or a lead's
+              // delegation all arrive as files, so the queue re-resolves from disk each time.
+              if (watchMs === 0) {
+                yield* Effect.logInfo("queue drained — watching for new work", { "loop.id": id })
+                yield* patch(id, (current) => ({
+                  ...current,
+                  info: {
+                    ...current.info,
+                    watching: true,
+                    currentChange: undefined,
+                    currentGate: undefined,
+                    report: buildReport(current.queue!, "queue drained — watching for new work"),
+                  },
+                }))
+                yield* emit(id)
+              }
+              watchMs = watchMs === 0 ? Math.max(WatchMinMs, (record.info.interval ?? 0) * 1000) : Math.min(WatchMaxMs, watchMs * 2)
+              // Sleep in short slices so cancel and pause are felt promptly, not after the backoff.
+              let waited = 0
+              while (waited < watchMs) {
+                const slice = Math.min(250, watchMs - waited)
+                yield* Effect.sleep(`${slice} millis`)
+                waited += slice
+                const current = (yield* Ref.get(state)).get(id)
+                if (!current || current.info.status !== "running") break
+              }
+              continue
+            }
             yield* finishQueue(id, "completed", "queue drained — every change is complete or quarantined")
             return
           }
 
+          watchMs = 0
           yield* patch(id, (current) => ({
             ...current,
-            info: { ...current.info, currentChange: change.slug, currentGate: "implement" },
+            info: { ...current.info, currentChange: change.slug, currentGate: "implement", watching: undefined },
           }))
           yield* emit(id)
 
@@ -1660,6 +1707,7 @@ export const layer = Layer.effect(
                     guidance: input.queueGuidance,
                     sync: input.queueSync ?? false,
                     push: input.queuePush ?? true,
+                    watch: input.queueWatch ?? false,
                     gatesPassed: new Set<Gate>(),
                     options: input.queueOptions,
                     syncs: [],
