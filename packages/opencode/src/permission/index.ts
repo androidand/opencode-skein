@@ -80,11 +80,26 @@ const layer = Layer.effect(
         }
         if (rule.action === "allow") continue
         // Undecided ("ask"). A `/loop`-driven session (or a subagent spawned
-        // under one) has nobody to answer this — auto-allow instead of
-        // blocking forever on a Deferred nothing will ever resolve. An
-        // explicit `deny` above is untouched by this; only the default
-        // "ask" changes.
-        if (Unattended.isUnattended(request.sessionID)) continue
+        // under one) has nobody to answer this, so it must not block forever on
+        // a Deferred nothing will ever resolve. What happens instead is the
+        // session's unattended policy (see session/unattended.ts): allow what
+        // belongs to the project, refuse the rest with a reason the model can act
+        // on, or — in full-auto mode — allow everything. An explicit `deny` above
+        // is untouched by this; only the default "ask" changes.
+        const verdict = Unattended.decide(Unattended.policyOf(request.sessionID), request.permission)
+        if (verdict === "allow") continue
+        if (verdict === "deny") {
+          yield* Effect.logInfo("refused (unattended)", { permission: request.permission, pattern })
+          return yield* new PermissionV1.DeniedError({
+            ruleset: [
+              {
+                permission: request.permission,
+                pattern: "*",
+                action: `deny: "${request.permission}" is not available in an unattended run. Decide without it, or record the need in the change's .skein/blocker.md and move on.`,
+              },
+            ],
+          })
+        }
         needsAsk = true
       }
 

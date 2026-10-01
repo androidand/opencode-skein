@@ -232,6 +232,7 @@
     "packages/app/src/components/settings-v2/models-discover.tsx",
     "packages/app/src/components/settings-v2/models-operations.tsx",
     "packages/opencode/test/peer/lead.test.ts",
+    "packages/opencode/test/session/unattended.test.ts",
     "packages/opencode/test/tool/send-peer-message-ladder.test.ts",
     "packages/tui/src/component/dialog-gallery.tsx",
     "packages/opencode/src/local/model-gallery/manage.ts",

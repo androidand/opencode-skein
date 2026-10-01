@@ -248,7 +248,7 @@ export const TaskTool = Tool.define(
       // it spawns in turn, propagated the same way one level down) auto-
       // allows instead of hanging. Idempotent: harmless to re-mark a resumed
       // session that already carries the mark.
-      if (Unattended.isUnattended(ctx.sessionID)) Unattended.mark(nextSession.id)
+      if (Unattended.isUnattended(ctx.sessionID)) Unattended.mark(nextSession.id, Unattended.policyOf(ctx.sessionID))
 
       // fork: publish the child session id as soon as it exists. The local
       // placement probing below adds `model` to this metadata, but it can take

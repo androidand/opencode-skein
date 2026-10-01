@@ -213,6 +213,14 @@ export const Info = Schema.Struct({
         description:
           "When no local host has a free slot for a subagent, hand the task to an idle peer agent (Claude Code or opencode) over A2A instead of failing (default: true)",
       }),
+      unattended_permissions: Schema.optional(Schema.Literals(["scoped", "full", "off"])).annotate({
+        description:
+          "What a /loop run (and its subagents) does with a permission question nobody can answer. scoped (default): allow what an agent needs inside its own project, refuse the rest with a reason. full: allow every undecided question (full auto; also implied by auto_mode: true). off: leave the question for a human. An explicit deny always wins",
+      }),
+      unattended_allow: Schema.optional(Schema.Array(Schema.String)).annotate({
+        description:
+          "Extra permission names a scoped unattended run may use, e.g. [\"webfetch\", \"websearch\"] for a research agent",
+      }),
       follow_lead: Schema.optional(Schema.Boolean).annotate({
         description:
           "Honour directives from the session the user designated as lead (see the lead grant). Off by default: nothing changes for a session whose user has not asked for a lead",

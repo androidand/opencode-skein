@@ -25,6 +25,7 @@ import { Git } from "@/git"
 import { Image } from "@/image/image"
 import { Question } from "@/question"
 import { Todo } from "@/session/todo"
+import { Unattended } from "../../src/session/unattended"
 import { Loop } from "@/loop/loop"
 import { LLM } from "@/session/llm"
 import { Session } from "@/session/session"
@@ -309,6 +310,46 @@ it.instance(
       yield* loop.cancel(info.id)
       const final = yield* waitForTerminal(info.id, 3)
       expect(final.status).toBe("cancelled")
+    }),
+  { config: {} },
+)
+
+// One instance per config: the config service caches within an instance, so rewriting the
+// file mid-test would not be seen.
+const policyForConfig = (config: Record<string, unknown>) =>
+  Effect.gen(function* () {
+    const { directory: dir } = yield* TestInstance
+    const llm = yield* TestLLMServer
+    yield* writeConfig(dir, { ...providerCfg(llm.url), ...config } as never)
+    writeChange(dir, "done-change", "- [x] 1.1 already finished\n")
+    const loop = yield* Loop.Service
+    // queueWatch keeps the run alive, so its session stays marked long enough to read.
+    const info = yield* loop.create({ prompt: "", mode: "queue", interval: 0, queueWatch: true })
+    yield* waitFor("session never marked", Effect.sync(() => Unattended.policyOf(info.sessionID) !== undefined))
+    const policy = Unattended.policyOf(info.sessionID)
+    yield* loop.cancel(info.id)
+    yield* waitForTerminal(info.id, 5)
+    return policy
+  })
+
+it.instance(
+  "a loop run is marked scoped by default",
+  () => Effect.gen(function* () { expect(yield* policyForConfig({})).toEqual({ mode: "scoped", extraAllow: [] }) }),
+  { config: {} },
+)
+
+it.instance(
+  "auto_mode: true marks a loop run full auto",
+  () => Effect.gen(function* () { expect((yield* policyForConfig({ auto_mode: true }))?.mode).toBe("full") }),
+  { config: {} },
+)
+
+it.instance(
+  "experimental.unattended_permissions and unattended_allow reach the loop's session",
+  () =>
+    Effect.gen(function* () {
+      const policy = yield* policyForConfig({ experimental: { unattended_permissions: "scoped", unattended_allow: ["webfetch"] } })
+      expect(policy).toEqual({ mode: "scoped", extraAllow: ["webfetch"] })
     }),
   { config: {} },
 )

@@ -640,6 +640,92 @@ it.instance(
   { git: true },
 )
 
+const unattendedAsk = (sessionID: SessionID, permission: string) =>
+  ask({
+    sessionID,
+    permission,
+    patterns: ["x"],
+    metadata: {},
+    always: [],
+    ruleset: [{ permission: "*", pattern: "*", action: "ask" }],
+  })
+
+it.instance(
+  "ask - a scoped unattended session is refused what reaches outside the project, with a reason, instead of hanging",
+  () =>
+    Effect.gen(function* () {
+      const sessionID = SessionID.make("session_unattended_scoped")
+      Unattended.mark(sessionID, { mode: "scoped", extraAllow: [] })
+      try {
+        const err = yield* fail(unattendedAsk(sessionID, "webfetch"))
+        expect(err).toBeInstanceOf(PermissionV1.DeniedError)
+        expect(String((err as { message: string }).message)).toContain("not available in an unattended run")
+        expect(yield* unattendedAsk(sessionID, "bash")).toBeUndefined()
+        expect(yield* list()).toHaveLength(0)
+      } finally {
+        Unattended.unmark(sessionID)
+      }
+    }),
+  { git: true },
+)
+
+it.instance(
+  "ask - full auto allows the same request a scoped session is refused",
+  () =>
+    Effect.gen(function* () {
+      const sessionID = SessionID.make("session_unattended_full")
+      Unattended.mark(sessionID, { mode: "full", extraAllow: [] })
+      try {
+        expect(yield* unattendedAsk(sessionID, "webfetch")).toBeUndefined()
+        expect(yield* unattendedAsk(sessionID, "external_directory")).toBeUndefined()
+      } finally {
+        Unattended.unmark(sessionID)
+      }
+    }),
+  { git: true },
+)
+
+it.instance(
+  "ask - extraAllow opens one permission for a scoped session and no other",
+  () =>
+    Effect.gen(function* () {
+      const sessionID = SessionID.make("session_unattended_extra")
+      Unattended.mark(sessionID, { mode: "scoped", extraAllow: ["webfetch"] })
+      try {
+        expect(yield* unattendedAsk(sessionID, "webfetch")).toBeUndefined()
+        expect(yield* fail(unattendedAsk(sessionID, "external_directory"))).toBeInstanceOf(PermissionV1.DeniedError)
+      } finally {
+        Unattended.unmark(sessionID)
+      }
+    }),
+  { git: true },
+)
+
+it.instance(
+  "ask - an explicit deny beats full auto",
+  () =>
+    Effect.gen(function* () {
+      const sessionID = SessionID.make("session_unattended_full_deny")
+      Unattended.mark(sessionID, { mode: "full", extraAllow: [] })
+      try {
+        const err = yield* fail(
+          ask({
+            sessionID,
+            permission: "bash",
+            patterns: ["git push origin main"],
+            metadata: {},
+            always: [],
+            ruleset: [{ permission: "bash", pattern: "*git*push*", action: "deny" }],
+          }),
+        )
+        expect(err).toBeInstanceOf(PermissionV1.DeniedError)
+      } finally {
+        Unattended.unmark(sessionID)
+      }
+    }),
+  { git: true },
+)
+
 it.instance(
   "ask - an explicit deny still applies even when the session is marked unattended",
   () =>

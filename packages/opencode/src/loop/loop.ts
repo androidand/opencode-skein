@@ -1749,7 +1749,12 @@ export const layer = Layer.effect(
         // your session back exactly as it was found. Doing this deeper
         // inside the driver would leave the return paths to be audited one
         // by one.
-        Unattended.mark(sessionID)
+        {
+          // The unattended policy comes from config: `experimental.unattended_permissions`
+          // (scoped by default), and `auto_mode: true` means "full auto" unless that is set.
+          const cfg = yield* config.get().pipe(Effect.orElseSucceed(() => ({}) as never))
+          Unattended.mark(sessionID, Unattended.policyFromConfig(cfg as Parameters<typeof Unattended.policyFromConfig>[0]))
+        }
         const priorPermission =
           mode === "queue"
             ? ((yield* session.get(sessionID).pipe(Effect.orElseSucceed(() => undefined)))?.permission ?? [])
