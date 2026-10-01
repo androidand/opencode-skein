@@ -55,6 +55,7 @@
 
 ## Phase 4: Live
 
+- [ ] 4.0 Verified 2026-10-01 against the live registry: a grant stores `uds:<messagingSocketPath>`, which is byte-identical to the `from` of real inbound messages, and `claudePidOf` extracts the right pid. (Fixture-only tests could not have shown a format mismatch.)
 - [ ] 4.1 Real two-session test: lead assigns, follower acts without asking its user.
 - [ ] 4.2 Negative controls live: third session forges a lead message; grant expiry; `/lead off`.
 - [ ] 4.3 Run `opencode lead set` once on a real Windows machine and a real Linux desktop
