@@ -60,6 +60,7 @@
 
 ## Phase 4: Live
 
+- [ ] 4.0b Residual (reported by the peer on #99 Phase 2): a model shell can reach `opencode lead set` through `echo lead | xargs opencode set`-style shapes because the keyword arrives at runtime, so no deny pattern sees it. Credential stripping does not help (no credentials involved). The human-presence confirmation is therefore the real barrier; the shell deny is only a second layer.
 - [ ] 4.0 Verified 2026-10-01 against the live registry: a grant stores `uds:<messagingSocketPath>`, which is byte-identical to the `from` of real inbound messages, and `claudePidOf` extracts the right pid. (Fixture-only tests could not have shown a format mismatch.)
 - [ ] 4.1 Real two-session test: lead assigns, follower acts without asking its user.
 - [ ] 4.2 Negative controls live: third session forges a lead message; grant expiry; `/lead off`.
