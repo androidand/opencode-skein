@@ -27,6 +27,15 @@ export interface TurnSnapshot {
   toolSignature: string | undefined
 }
 
+/** Synthetic user message sent to the model when a loop is detected. */
+export function nudgeText(kind: "text" | "tool", streak: number): string {
+  const what =
+    kind === "tool"
+      ? `You have made the exact same tool call ${streak} turns in a row and it is not getting you anywhere`
+      : `Your last ${streak} turns produced near-identical output and made no progress`
+  return `${what}. Stop and do not repeat it. Work out why it isn't working (check the error, the working directory, the arguments), then try a different approach and continue with the task.`
+}
+
 export type RepeatResult = { repeated: false } | { repeated: true; kind: "text" | "tool"; similarity?: number }
 
 /**
