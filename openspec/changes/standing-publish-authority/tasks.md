@@ -10,11 +10,21 @@
 
 ## Phase 1: Policy parse
 
-- [ ] 1.1 `policy/publish.ts`: closed schema, load, never-list constant.
-- [ ] 1.2 Observed-red tests for each rejection in D2 (unknown key, scalar-for-mapping,
+- [x] 1.1 `policy/publish.ts` (branch publish-policy-validation, 01f709f428, not pushed; verified 16 pass): closed schema, load, never-list constant.
+- [x] 1.2 Observed-red tests for each rejection in D2 (unknown key, scalar-for-mapping,
       pattern matching the default branch, remote/repo mismatch, visibility mismatch), each
       run against a deliberately bad file and seen to fail first.
-- [ ] 1.3 Visibility check via the forge API, with an unreachable-forge case that fails closed.
+- [x] 1.3 Visibility check via the forge API, with an unreachable-forge case that fails closed.
+
+Findings from Phase 1 (peer session):
+
+- `QueueDenyRules` contains `*publish.ts*`, which denies `git add` on ANY file named publish.ts
+  (hit on this very change). Unattended queue runs are affected. Proposal: narrow it to
+  `*run*publish.ts*` and `*publish.ts*run*` in both rule sets. DECISION FOR THE OPERATOR: it
+  loosens a standing deny, so it is not applied until they say so.
+- `git remote get-url` returns the scp form `git@host:owner/name` by default; a parser that only
+  handles URLs denies every valid policy. Both forms are tested.
+- Mutation checks must assert that the intended line changed, not only that the file differs.
 
 ## Phase 2: Renderings
 
