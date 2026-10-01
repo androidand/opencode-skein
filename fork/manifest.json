@@ -92,6 +92,7 @@
     "packages/opencode/src/session/prompt/instella.txt",
     "packages/opencode/src/side-question/index.ts",
     "packages/opencode/src/cli/cmd/permission.ts",
+    "packages/opencode/src/session/unattended.ts",
     "packages/opencode/src/tool/peers.ts",
     "packages/opencode/src/tool/peers.txt",
     "packages/opencode/src/tool/send-peer-message.ts",
@@ -827,6 +828,16 @@
       "file": "packages/tui/test/theme.test.ts",
       "marker": "test(\"includes local custom themes\", () => {",
       "note": "Fork edit to an upstream file (+7/-0 vs baseline). Marker is a full added line, verified absent from upstream's copy."
+    },
+    {
+      "file": "packages/opencode/src/permission/index.ts",
+      "marker": "Unattended.isUnattended",
+      "note": "A /loop-driven session (or a subagent under one) auto-allows an undecided 'ask' instead of blocking forever on a Deferred nobody can resolve. Explicit deny rules are untouched."
+    },
+    {
+      "file": "packages/opencode/test/permission/next.test.ts",
+      "marker": "Unattended.mark",
+      "note": "Pins the unattended auto-allow behaviour of permission asks."
     }
   ],
   "divergence": {
