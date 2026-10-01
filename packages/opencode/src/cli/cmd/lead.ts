@@ -24,7 +24,15 @@ import { listManagedRegistrations } from "@/peer/claude/sidecar-registry"
 import { claudePidOf, resolveOpencodeSender } from "@/peer/route"
 
 function parentOf(pid: number): number | undefined {
-  const out = spawnSync("ps", ["-o", "ppid=", "-p", String(pid)], { encoding: "utf8" })
+  // `ps` does not exist on Windows; CIM answers the same question there.
+  const out =
+    process.platform === "win32"
+      ? spawnSync(
+          "powershell.exe",
+          ["-NoProfile", "-NonInteractive", "-Command", `(Get-CimInstance Win32_Process -Filter "ProcessId=${pid}").ParentProcessId`],
+          { encoding: "utf8" },
+        )
+      : spawnSync("ps", ["-o", "ppid=", "-p", String(pid)], { encoding: "utf8" })
   const parent = Number(out.stdout.trim())
   return Number.isInteger(parent) && parent > 0 ? parent : undefined
 }

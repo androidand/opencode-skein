@@ -24,6 +24,17 @@
       pty); the dialog is the real barrier. Remaining: default-deny `lead set` for model shells
       in opencode sessions and in queue/auto-mode (`QueueDenyRules`), and a recommended deny
       rule for Claude Code settings (operator applies).
+- [x] 1.3b Cross-platform confirmation: macOS `osascript`, Windows PowerShell `MessageBox`
+      (default No, text via environment), Linux `zenity` then `kdialog` only when
+      `DISPLAY`/`WAYLAND_DISPLAY` exists, then a typed confirmation on `/dev/tty` (`CON` on
+      Windows), else refuse. Windows skips the uid/mode checks on the grant file (meaningless
+      there) and finds the parent process through CIM instead of `ps`. All branches are unit
+      tested with a fake runner and mutation-checked. NOT verified on real Windows or Linux
+      desktops (only macOS is available here): task 4.3 below is the live check. Dialog strength
+      differs: a shell can drive an X11 or Windows dialog without extra rights, so there it
+      stops the ordinary case only. Open: the sidecar and Claude registry paths (`/tmp/cc-socks`,
+      `~/.claude/sessions`) are Unix-shaped, so whether A2A itself runs on Windows is a separate
+      question this change does not answer.
 - [ ] 1.4 TUI `/lead`, `/lead off`, `/follow`.
 
 ## Phase 2: Verification and framing
@@ -46,3 +57,6 @@
 
 - [ ] 4.1 Real two-session test: lead assigns, follower acts without asking its user.
 - [ ] 4.2 Negative controls live: third session forges a lead message; grant expiry; `/lead off`.
+- [ ] 4.3 Run `opencode lead set` once on a real Windows machine and a real Linux desktop
+      (GNOME with zenity, KDE with kdialog) and on a headless Linux box (must refuse); record
+      the result.

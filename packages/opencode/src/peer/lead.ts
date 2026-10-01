@@ -134,6 +134,13 @@ export interface ReadDeps extends ParseDeps {
   now: number
   /** The current user's uid; a file owned by anyone else is not the user's word. */
   uid: number
+  /**
+   * Defaults to this machine's. On Windows there are no uid or mode bits to check, so
+   * those two checks are skipped and the grant relies on the ACLs of the per-user
+   * state directory it lives in — stated here because skipping a check silently is
+   * the failure this module exists to avoid.
+   */
+  platform?: NodeJS.Platform
 }
 
 /**
@@ -147,8 +154,10 @@ export function readGrantFile(path: string, deps: ReadDeps): GrantResult {
   } catch {
     return fail("no grant")
   }
-  if (stat.uid !== deps.uid) return fail("grant file is not owned by the current user")
-  if ((stat.mode & 0o077) !== 0) return fail("grant file is accessible to group or others")
+  if ((deps.platform ?? process.platform) !== "win32") {
+    if (stat.uid !== deps.uid) return fail("grant file is not owned by the current user")
+    if ((stat.mode & 0o077) !== 0) return fail("grant file is accessible to group or others")
+  }
   let decoded: unknown
   try {
     decoded = JSON.parse(readFileSync(path, "utf8"))

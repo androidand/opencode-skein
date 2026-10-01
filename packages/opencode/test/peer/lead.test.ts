@@ -177,6 +177,15 @@ describe("readGrantFile — the file is the authority, so the file is checked", 
     })
   })
 
+  test("on Windows the uid and mode checks are skipped (they mean nothing there) but the content checks still run", () => {
+    withFile(JSON.stringify(grant()), 0o666, (path) => {
+      expect(readGrantFile(path, { ...deps, uid: deps.uid + 1, platform: "win32" }).ok).toBe(true)
+    })
+    withFile(JSON.stringify(grant({ lead: "scalar" })), 0o666, (path) => {
+      expect(readGrantFile(path, { ...deps, platform: "win32" }).ok).toBe(false)
+    })
+  })
+
   test("rejects malformed JSON instead of throwing", () => {
     withFile("{not json", 0o600, (path) => {
       expect(readGrantFile(path, deps).ok).toBe(false)
