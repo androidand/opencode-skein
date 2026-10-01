@@ -232,7 +232,12 @@
     "packages/app/src/components/settings-v2/models-hosts.tsx",
     "packages/app/src/components/settings-v2/models-installed.tsx",
     "packages/opencode/test/tool/send-peer-message-text.test.ts",
-    "packages/opencode/test/tool/task-delegate.test.ts"
+    "packages/opencode/test/tool/task-delegate.test.ts",
+    "packages/opencode/src/policy/drivers.ts",
+    "packages/opencode/src/policy/publish.ts",
+    "packages/opencode/test/policy/cache.test.ts",
+    "packages/opencode/test/policy/drivers.test.ts",
+    "packages/opencode/test/policy/publish.test.ts"
   ],
   "_ownedRemoved_2026-09-05": {
     "note": "packages/opencode/src/session/stream-stalled.ts, packages/opencode/src/session/tool-activity.ts, and packages/opencode/test/session/tool-activity.test.ts were deleted by a90c49880b — confirmed intentional, not a merge regression: a full, reasoned commit message explains that the stream-inactivity watchdog these files implemented only ever fired on false positives (host-paced hybrid loads, foreground subagents, compaction's single big call, cold-load chunks — each already special-cased before this commit finished the trend) and never once caught a genuinely wedged socket, while its false positives were abandoning working turns fleet-wide. Same commit also removed the fork patches this manifest tracked in llm.ts (marker @/local/skein-loading — the SkeinLoading cold-load liveness tick that fed only this watchdog), message-v2.ts (marker StreamStalledError — the error-mapping case for the watchdog's failure type; message-v2.ts no longer diverges from upstream at all and was fully removed from `patched`), and tools.ts (marker \"fork: the stream watchdog must not count\" — the per-tool-call liveness ticks). llm.ts and tools.ts each still diverge from upstream for unrelated, still-live fork reasons and were re-registered in `patched` with fresh markers (see those entries) rather than dropped — only the watchdog-specific tracking was retired.",
@@ -258,84 +263,24 @@
   },
   "patched": [
     {
-      "file": "packages/opencode/src/index.ts",
-      "marker": "ForkCommands",
-      "note": "Registers all fork CLI commands via a single .command(ForkCommands). The upstream command block must stay byte-identical to upstream."
+      "file": "packages/app/src/components/settings-v2/models.tsx",
+      "marker": "SettingsModelsDiscoverV2",
+      "note": "model-gallery-ui: V2 Model Settings gains Installed/Discover/Operations sections."
     },
     {
-      "file": "packages/opencode/src/installation/index.ts",
-      "marker": "ForkDistribution",
-      "note": "In-app updater points at the fork (releaseRepo/installUrl/npm/brew), never upstream, so an update prompt cannot clobber our binary."
+      "file": "packages/app/src/components/settings-v2/settings-v2.css",
+      "marker": "settings-models-discover",
+      "note": "model-gallery-ui: styles for the Discover/Operations sections."
     },
     {
-      "file": "packages/opencode/src/control-plane/workspace-context.ts",
-      "marker": "create<WorkspaceContext>",
-      "note": "Migrated off @/util/local-context onto the fork's new named ContextManager (packages/opencode/src/context); upstream still uses LocalContext.create."
+      "file": "packages/app/src/context/language.tsx",
+      "marker": "settings.models.discover",
+      "note": "model-gallery-ui: V2 Model Settings gains Installed/Discover/Operations sections."
     },
     {
-      "file": "packages/opencode/src/project/instance-context.ts",
-      "marker": "create<InstanceContext>",
-      "note": "Migrated off @/util/local-context onto the fork's new named ContextManager (packages/opencode/src/context); upstream still uses LocalContext.create."
-    },
-    {
-      "file": "packages/opencode/src/provider/provider.ts",
-      "marker": "mergeDiscoveredModel",
-      "note": "mergeDiscoveredModel + openAICompatibleDiscoveryEnabled; keep ModelV2.ID (not ProviderV2.ModelID)."
-    },
-    {
-      "file": "packages/tui/src/component/dialog-provider.tsx",
-      "marker": "LOCAL_PROVIDER_OPTION_VALUE",
-      "note": "Multi-select discovered local providers; graceful mDNS failure."
-    },
-    {
-      "file": "packages/tui/src/feature-plugins/sidebar/context.tsx",
-      "marker": "freeMb",
-      "note": "Unified context bar, % inline, breakdown below; Context label; cost for cloud providers."
-    },
-    {
-      "file": "packages/tui/src/config/keybind.ts",
-      "marker": "dialog.local",
-      "note": "dialog.local.toggle + dialog.local.connect keybinds."
-    },
-    {
-      "file": "packages/tui/src/context/theme.tsx",
-      "marker": "ThemeState.set",
-      "note": "createEffect writing ThemeState.set(store.active) — the writer half of the local-backend themed-loading-screen feature (reader is provider.ts ThemeState.get). theme-state.ts now lives in packages/core/src/local so both the TUI (writer) and the opencode provider (reader) can share the singleton across the package boundary."
-    },
-    {
-      "file": "packages/opencode/src/effect/app-runtime.ts",
-      "marker": "LocalProviderSync",
-      "note": "Fork services joined to upstream's LayerNode graph: BeadsSync, AutoMode, LocalProviderSync, Loop, SideQuestion, ClaudeSidecarLifecycle. Loop/SideQuestion own HTTP routes and publish events, so they must be in the graph."
-    },
-    {
-      "file": "packages/opencode/src/event-manifest.ts",
-      "marker": "SideQuestion.Event.Response",
-      "note": "Appends fork-owned event definitions (loop.updated, side-question.response) to the shared schema manifest. Their schemas live in packages/opencode and cannot be declared in packages/schema, and without this they are absent from the generated Event union so no client can subscribe."
-    },
-    {
-      "file": "packages/opencode/src/session/compaction.ts",
-      "marker": "self-healing compaction",
-      "note": "Compaction that itself overflows retries with only the most recent user turn, then falls back to a minimal summary, instead of returning \"stop\" and stranding the session. Silently lost in the 0d927ba03f merge and only noticed because a fork-only test still asserted it."
-    },
-    {
-      "file": "packages/opencode/src/session/tools.ts",
-      "marker": "QueueAuthority",
-      "note": "Fork edit to an upstream file (+110/-82 vs upstream/dev as of 2026-09-05): the loop-spec-queue authority ceiling (deny-rules-before-auto-mode-skip ordering, credential-less shell for push-denied sessions). Re-registered here with a fresh marker after a90c49880b retired the previous marker (`fork: the stream watchdog must not count`) along with the watchdog's tool-liveness ticks — tools.ts still diverges substantially from upstream for this unrelated, load-bearing reason and must stay tracked."
-    },
-    {
-      "file": "packages/core/src/git.ts",
-      "marker": "LC_ALL",
-      "note": "Pins LC_ALL=C on git spawns. This code matches git's human-readable output by text (forceRequired), and git localises it — on a non-English machine those checks silently read false."
-    },
-    {
-      "file": "packages/opencode/test/fixture/fixture.ts",
-      "marker": "disposeDirectory",
-      "note": "Disposes each test's instance when the test ends. InstanceStore otherwise holds every instance the suite creates — each with its own :memory: SQLite and slice of the app graph — until the process exits, which measured as the bulk of the suite's memory (provider dir: 3004 -> 2577 MB)."
-    },
-    {
-      "file": "packages/core/src/npm.ts",
-      "marker": "basePackage",
-      "note": "Splits a package specifier from its export subpath. `@ai-sdk/amazon-bedrock/mantle` is not an installable npm spec — npa cannot parse it, so npm treats it as a local folder and arborist reads <cwd>/@ai-sdk/... Install the base package, resolve the full specifier for the entrypoint."
+      "file": "packages/app/src/i18n/en.ts",
+      "marker": "settings.models.discover",
+      "note": "model-gallery-ui: V2 Model Settings gains Installed/Discover/Operations sections."
     },
     {
       "file": "packages/core/src/config.ts",
@@ -348,14 +293,24 @@
       "note": "Fork edit to an upstream file (+11/-1 vs baseline). Marker is a string the fork's edit introduces and upstream does not contain, so a merge that reverts the edit fails fork:verify."
     },
     {
+      "file": "packages/core/src/database/sqlite.bun.ts",
+      "marker": "fork: this DB file is shared by every co",
+      "note": "Fork edit to an upstream file (+9/-0 vs baseline). Marker is a string the fork's edit introduces and upstream does not contain, so a merge that reverts the edit fails fork:verify."
+    },
+    {
+      "file": "packages/core/src/git.ts",
+      "marker": "LC_ALL",
+      "note": "Pins LC_ALL=C on git spawns. This code matches git's human-readable output by text (forceRequired), and git localises it — on a non-English machine those checks silently read false."
+    },
+    {
       "file": "packages/core/src/installation/version.ts",
       "marker": "InstallationReleaseChannels",
       "note": "Fork edit to an upstream file. Adds InstallationIsRelease (channel is latest/beta/prod) alongside the existing InstallationLocal, shared by database.ts's session-db path and upgrade.ts's self-upgrade eligibility check so any non-release build — not just literally channel \"local\" — is treated as never having been published. Marker is a string the fork's edit introduces and upstream does not contain, so a merge that reverts the edit fails fork:verify."
     },
     {
-      "file": "packages/core/src/database/sqlite.bun.ts",
-      "marker": "fork: this DB file is shared by every co",
-      "note": "Fork edit to an upstream file (+9/-0 vs baseline). Marker is a string the fork's edit introduces and upstream does not contain, so a merge that reverts the edit fails fork:verify."
+      "file": "packages/core/src/npm.ts",
+      "marker": "basePackage",
+      "note": "Splits a package specifier from its export subpath. `@ai-sdk/amazon-bedrock/mantle` is not an installable npm spec — npa cannot parse it, so npm treats it as a local folder and arborist reads <cwd>/@ai-sdk/... Install the base package, resolve the full specifier for the entrypoint."
     },
     {
       "file": "packages/core/src/v1/config/agent.ts",
@@ -378,14 +333,34 @@
       "note": "Fork edit to an upstream file (+4/-0 vs baseline). Marker is a string the fork's edit introduces and upstream does not contain, so a merge that reverts the edit fails fork:verify."
     },
     {
+      "file": "packages/opencode/AUTOMATION_FEATURES.md",
+      "marker": "no-progress-limit",
+      "note": "Documents the loop default that cli/cmd/loop.ts and the TUI send explicitly. Kept in step with loop.ts and loop-args.ts by test/loop/loop-defaults.test.ts, not by hand."
+    },
+    {
       "file": "packages/opencode/src/agent/agent.ts",
       "marker": "authorizes",
       "note": "Fork edit to an upstream file (+6/-0 vs baseline). Marker is a string the fork's edit introduces and upstream does not contain, so a merge that reverts the edit fails fork:verify."
     },
     {
+      "file": "packages/opencode/src/cli/cmd/agent.ts",
+      "marker": "if (!maybeCtx) return yield* Effect.die(new Error(\"InstanceRef not pro",
+      "note": "Fork edit to an upstream file (+1/-1 vs baseline). Marker is a full added line, verified absent from upstream's copy."
+    },
+    {
+      "file": "packages/opencode/src/cli/cmd/debug/index.ts",
+      "marker": "ClaudeSidecarEntryCommand",
+      "note": "Fork edit: registers the hidden claude-sidecar-entry debug subcommand sidecar-manager.ts spawns instead of a standalone script (which doesn't exist in a compiled single-file binary). See openspec/changes/claude-peer-messaging."
+    },
+    {
       "file": "packages/opencode/src/cli/cmd/github.ts",
       "marker": "SessionPart",
       "note": "Fork edit to an upstream file (+1629/-18 vs baseline). Marker is a string the fork's edit introduces and upstream does not contain, so a merge that reverts the edit fails fork:verify."
+    },
+    {
+      "file": "packages/opencode/src/cli/cmd/import.ts",
+      "marker": "if (!ctx) return yield* Effect.die(new Error(\"InstanceRef not provided",
+      "note": "Fork edit to an upstream file (+1/-1 vs baseline). Marker is a full added line, verified absent from upstream's copy."
     },
     {
       "file": "packages/opencode/src/cli/cmd/mcp.ts",
@@ -403,9 +378,24 @@
       "note": "Fork edit to an upstream file (+7/-0 vs baseline). Marker is a string the fork's edit introduces and upstream does not contain, so a merge that reverts the edit fails fork:verify."
     },
     {
+      "file": "packages/opencode/src/cli/cmd/run/demo.ts",
+      "marker": "import type { ToolPart } from \"@opencode-ai/sdk/v2\"",
+      "note": "Fork edit to an upstream file (+24/-18 vs baseline). Marker is a full added line, verified absent from upstream's copy."
+    },
+    {
+      "file": "packages/opencode/src/cli/cmd/run/session-data.ts",
+      "marker": "import type { Part, PermissionRequest, QuestionRequest, ToolPart } fro",
+      "note": "Fork edit to an upstream file (+2/-2 vs baseline). Marker is a full added line, verified absent from upstream's copy."
+    },
+    {
       "file": "packages/opencode/src/cli/cmd/run/stream.transport.ts",
       "marker": "sideQuestion",
       "note": "Fork edit to an upstream file (+87/-48 vs baseline). Marker is a string the fork's edit introduces and upstream does not contain, so a merge that reverts the edit fails fork:verify."
+    },
+    {
+      "file": "packages/opencode/src/cli/cmd/run/subagent-data.ts",
+      "marker": "import type { Message, Part, PermissionRequest, QuestionRequest, ToolP",
+      "note": "Fork edit to an upstream file (+3/-3 vs baseline). Marker is a full added line, verified absent from upstream's copy."
     },
     {
       "file": "packages/opencode/src/cli/cmd/tui.ts",
@@ -428,6 +418,21 @@
       "note": "Fork edit to an upstream file (+69/-9 vs baseline). Marker is a string the fork's edit introduces and upstream does not contain, so a merge that reverts the edit fails fork:verify."
     },
     {
+      "file": "packages/opencode/src/control-plane/workspace-context.ts",
+      "marker": "create<WorkspaceContext>",
+      "note": "Migrated off @/util/local-context onto the fork's new named ContextManager (packages/opencode/src/context); upstream still uses LocalContext.create."
+    },
+    {
+      "file": "packages/opencode/src/effect/app-runtime.ts",
+      "marker": "LocalProviderSync",
+      "note": "Fork services joined to upstream's LayerNode graph: BeadsSync, AutoMode, LocalProviderSync, Loop, SideQuestion, ClaudeSidecarLifecycle. Loop/SideQuestion own HTTP routes and publish events, so they must be in the graph."
+    },
+    {
+      "file": "packages/opencode/src/effect/instance-state.ts",
+      "marker": "if (!ctx) return yield* Effect.die(new Error(\"InstanceRef not provided",
+      "note": "Fork edit to an upstream file (+1/-1 vs baseline). Marker is a full added line, verified absent from upstream's copy."
+    },
+    {
       "file": "packages/opencode/src/effect/runner.ts",
       "marker": "Cancellation",
       "note": "Fork edit to an upstream file (+99/-42 vs baseline). Marker is a string the fork's edit introduces and upstream does not contain, so a merge that reverts the edit fails fork:verify."
@@ -438,9 +443,34 @@
       "note": "Fork edit to an upstream file (+1/-0 vs baseline). Marker is a string the fork's edit introduces and upstream does not contain, so a merge that reverts the edit fails fork:verify."
     },
     {
+      "file": "packages/opencode/src/effect/runtime-flags.ts",
+      "marker": "OPENCODE_DISABLE_CLAUDE_CODE_PEER_MESSAGING",
+      "note": "Fork edit: adds disableClaudeCodePeerSource + disableClaudeCodePeerMessaging (both opt-out, on by default) for the Claude Code peer-source/messaging feature. Marker is a string this edit introduces that upstream does not contain."
+    },
+    {
+      "file": "packages/opencode/src/event-manifest.ts",
+      "marker": "SideQuestion.Event.Response",
+      "note": "Appends fork-owned event definitions (loop.updated, side-question.response) to the shared schema manifest. Their schemas live in packages/opencode and cannot be declared in packages/schema, and without this they are absent from the generated Event union so no client can subscribe."
+    },
+    {
+      "file": "packages/opencode/src/id/id.ts",
+      "marker": "loop: \"loop\",",
+      "note": "Fork edit to an upstream file (+1/-0 vs baseline). Marker is a full added line, verified absent from upstream's copy."
+    },
+    {
       "file": "packages/opencode/src/ide/index.ts",
       "marker": "TaggedErrorClass",
       "note": "Fork edit to an upstream file (+11/-4 vs baseline). Marker is a string the fork's edit introduces and upstream does not contain, so a merge that reverts the edit fails fork:verify."
+    },
+    {
+      "file": "packages/opencode/src/index.ts",
+      "marker": "ForkCommands",
+      "note": "Registers all fork CLI commands via a single .command(ForkCommands). The upstream command block must stay byte-identical to upstream."
+    },
+    {
+      "file": "packages/opencode/src/installation/index.ts",
+      "marker": "ForkDistribution",
+      "note": "In-app updater points at the fork (releaseRepo/installUrl/npm/brew), never upstream, so an update prompt cannot clobber our binary."
     },
     {
       "file": "packages/opencode/src/mcp/catalog.ts",
@@ -451,6 +481,26 @@
       "file": "packages/opencode/src/mcp/index.ts",
       "marker": "fork: capability discovery failing is a",
       "note": "Fork edit to an upstream file (+306/-137 vs baseline). Marker is a string the fork's edit introduces and upstream does not contain, so a merge that reverts the edit fails fork:verify."
+    },
+    {
+      "file": "packages/opencode/src/mcp/oauth-provider.ts",
+      "marker": "OAuthClientProvider,",
+      "note": "Fork edit to an upstream file (+2/-2 vs baseline). Marker is a full added line, verified absent from upstream's copy."
+    },
+    {
+      "file": "packages/opencode/src/project/instance-context.ts",
+      "marker": "create<InstanceContext>",
+      "note": "Migrated off @/util/local-context onto the fork's new named ContextManager (packages/opencode/src/context); upstream still uses LocalContext.create."
+    },
+    {
+      "file": "packages/opencode/src/provider/provider.ts",
+      "marker": "mergeDiscoveredModel",
+      "note": "mergeDiscoveredModel + openAICompatibleDiscoveryEnabled; keep ModelV2.ID (not ProviderV2.ModelID)."
+    },
+    {
+      "file": "packages/opencode/src/provider/transform.ts",
+      "marker": "if (model.limit.output > 0) return Math.min(model.limit.output, output",
+      "note": "Fork edit to an upstream file (+3/-1 vs baseline). Marker is a full added line, verified absent from upstream's copy."
     },
     {
       "file": "packages/opencode/src/server/routes/instance/httpapi/api.ts",
@@ -466,6 +516,11 @@
       "file": "packages/opencode/src/server/routes/instance/httpapi/groups/session.ts",
       "marker": "SideQuestionPayload",
       "note": "Fork edit to an upstream file (+25/-0 vs baseline). Marker is a string the fork's edit introduces and upstream does not contain, so a merge that reverts the edit fails fork:verify."
+    },
+    {
+      "file": "packages/opencode/src/server/routes/instance/httpapi/handlers/event.ts",
+      "marker": "SUBSCRIBER_QUEUE_CAPACITY",
+      "note": "Fork edit: bounds the per-subscriber SSE event queue (was Queue.unbounded — upstream #45215) via core's EventV2.allBounded; a stalled client fails and resyncs instead of retaining every event forever."
     },
     {
       "file": "packages/opencode/src/server/routes/instance/httpapi/handlers/global.ts",
@@ -488,6 +543,21 @@
       "note": "Fork edit to an upstream file (+14/-0 vs baseline). Marker is a string the fork's edit introduces and upstream does not contain, so a merge that reverts the edit fails fork:verify."
     },
     {
+      "file": "packages/opencode/src/server/routes/instance/httpapi/server.ts",
+      "marker": "ClaudeSidecarLifecycle",
+      "note": "Fork edit: joins ClaudeSidecarLifecycle.node to THIS file's own separate LayerNode graph (the actual root the HTTP server boots from — distinct from effect/app-runtime.ts's AppLayer, which app-runtime.ts's own consumers use). Both graphs need the node or session-lifecycle events published during real HTTP-served requests never reach it. See openspec/changes/claude-peer-messaging, Phase 3."
+    },
+    {
+      "file": "packages/opencode/src/session/compaction.ts",
+      "marker": "self-healing compaction",
+      "note": "Compaction that itself overflows retries with only the most recent user turn, then falls back to a minimal summary, instead of returning \"stop\" and stranding the session. Silently lost in the 0d927ba03f merge and only noticed because a fork-only test still asserted it."
+    },
+    {
+      "file": "packages/opencode/src/session/llm/request.ts",
+      "marker": "PublishPolicy.composeSystem",
+      "note": "Injects the standing publish authorization into the system prompt, and only when a valid policy exists. Without a grant the prompt is byte-for-byte what it was before."
+    },
+    {
       "file": "packages/opencode/src/session/overflow.ts",
       "marker": "inputLimit",
       "note": "Fork edit to an upstream file (+6/-4 vs baseline). Marker is a string the fork's edit introduces and upstream does not contain, so a merge that reverts the edit fails fork:verify."
@@ -498,9 +568,19 @@
       "note": "Fork edit to an upstream file (+287/-121 vs baseline). Marker is a string the fork's edit introduces and upstream does not contain, so a merge that reverts the edit fails fork:verify."
     },
     {
+      "file": "packages/opencode/src/session/session.ts",
+      "marker": "A shallow copy is the snapshot that matters",
+      "note": "Fork edit: updatePart publishes a shallow copy of the part instead of structuredClone (upstream #35107 direction) — same snapshot semantics for the in-place-mutated text field, without copying part bytes per publish."
+    },
+    {
       "file": "packages/opencode/src/session/summary.ts",
       "marker": "fork: processor.ts calls summarize() on",
       "note": "Fork edit to an upstream file (+55/-22 vs baseline). Marker is a string the fork's edit introduces and upstream does not contain, so a merge that reverts the edit fails fork:verify."
+    },
+    {
+      "file": "packages/opencode/src/session/tools.ts",
+      "marker": "QueueAuthority",
+      "note": "Fork edit to an upstream file (+110/-82 vs upstream/dev as of 2026-09-05): the loop-spec-queue authority ceiling (deny-rules-before-auto-mode-skip ordering, credential-less shell for push-denied sessions). Re-registered here with a fresh marker after a90c49880b retired the previous marker (`fork: the stream watchdog must not count`) along with the watchdog's tool-liveness ticks — tools.ts still diverges substantially from upstream for this unrelated, load-bearing reason and must stay tracked."
     },
     {
       "file": "packages/opencode/src/tool/code-mode.ts",
@@ -523,6 +603,11 @@
       "note": "Fork edit to an upstream file (+216/-17 vs baseline). Marker is a string the fork's edit introduces and upstream does not contain, so a merge that reverts the edit fails fork:verify."
     },
     {
+      "file": "packages/opencode/test/cli/run/stream.transport.test.ts",
+      "marker": "} as unknown as SdkEvent",
+      "note": "Fork edit to an upstream file (+4/-4 vs baseline). Marker is a full added line, verified absent from upstream's copy."
+    },
+    {
       "file": "packages/opencode/test/config/config.test.ts",
       "marker": "staleProvider",
       "note": "Fork edit to an upstream file (+92/-0 vs baseline). Marker is a string the fork's edit introduces and upstream does not contain, so a merge that reverts the edit fails fork:verify."
@@ -541,6 +626,16 @@
       "file": "packages/opencode/test/fake/provider.ts",
       "marker": "setModelContextLimit",
       "note": "Fork edit to an upstream file (+1/-0 vs baseline). Marker is a string the fork's edit introduces and upstream does not contain, so a merge that reverts the edit fails fork:verify."
+    },
+    {
+      "file": "packages/opencode/test/fixture/fixture.ts",
+      "marker": "disposeDirectory",
+      "note": "Disposes each test's instance when the test ends. InstanceStore otherwise holds every instance the suite creates — each with its own :memory: SQLite and slice of the app graph — until the process exits, which measured as the bulk of the suite's memory (provider dir: 3004 -> 2577 MB)."
+    },
+    {
+      "file": "packages/opencode/test/fixture/mcp-session-recovery.ts",
+      "marker": "import { Client, StreamableHTTPClientTransport, LATEST_PROTOCOL_VERSIO",
+      "note": "Fork edit to an upstream file (+1/-3 vs baseline). Marker is a full added line, verified absent from upstream's copy."
     },
     {
       "file": "packages/opencode/test/installation/installation.test.ts",
@@ -588,6 +683,11 @@
       "note": "Fork edit to an upstream file (+581/-1 vs baseline). Marker is a string the fork's edit introduces and upstream does not contain, so a merge that reverts the edit fails fork:verify."
     },
     {
+      "file": "packages/opencode/test/server/httpapi-exercise/index.ts",
+      "marker": "http.protected.get(\"/local/capacity\", \"local.capacity\").json(200, arra",
+      "note": "Fork edit to an upstream file (+12/-0 vs baseline). Marker is a full added line, verified absent from upstream's copy."
+    },
+    {
       "file": "packages/opencode/test/session/compaction.test.ts",
       "marker": "aggressive",
       "note": "Fork edit to an upstream file (+42/-4 vs baseline). Marker is a string the fork's edit introduces and upstream does not contain, so a merge that reverts the edit fails fork:verify."
@@ -601,116 +701,6 @@
       "file": "packages/opencode/test/session/prompt.test.ts",
       "marker": "fork: a prompt submitted mid-run is deli",
       "note": "Fork edit to an upstream file (+67/-1 vs baseline). Marker is a string the fork's edit introduces and upstream does not contain, so a merge that reverts the edit fails fork:verify."
-    },
-    {
-      "file": "packages/tui/src/app.tsx",
-      "marker": "fork: surface the server's actual error",
-      "note": "Fork edit to an upstream file (+127/-77 vs baseline). Marker is a string the fork's edit introduces and upstream does not contain, so a merge that reverts the edit fails fork:verify."
-    },
-    {
-      "file": "packages/tui/src/component/dialog-model.tsx",
-      "marker": "DialogModelCtx",
-      "note": "Fork edit to an upstream file (+104/-4 vs baseline). Marker is a string the fork's edit introduces and upstream does not contain, so a merge that reverts the edit fails fork:verify."
-    },
-    {
-      "file": "packages/tui/src/component/prompt/index.tsx",
-      "marker": "interactions",
-      "note": "Fork edit to an upstream file (+285/-15 vs baseline). Marker is a string the fork's edit introduces and upstream does not contain, so a merge that reverts the edit fails fork:verify."
-    },
-    {
-      "file": "packages/tui/src/context/sync.tsx",
-      "marker": "refreshProviders",
-      "note": "Fork edit to an upstream file (+14/-0 vs baseline). Marker is a string the fork's edit introduces and upstream does not contain, so a merge that reverts the edit fails fork:verify."
-    },
-    {
-      "file": "packages/tui/src/routes/session/index.tsx",
-      "marker": "fork: the footer advertises this keybind",
-      "note": "Fork edit to an upstream file (+88/-10 vs baseline). Marker is a string the fork's edit introduces and upstream does not contain, so a merge that reverts the edit fails fork:verify."
-    },
-    {
-      "file": "packages/tui/src/routes/session/permission.tsx",
-      "marker": "independent",
-      "note": "Fork edit to an upstream file (+11/-1 vs baseline). Marker is a string the fork's edit introduces and upstream does not contain, so a merge that reverts the edit fails fork:verify."
-    },
-    {
-      "file": "packages/tui/src/theme/index.ts",
-      "marker": "knightRider",
-      "note": "Fork edit to an upstream file (+6/-0 vs baseline). Marker is a string the fork's edit introduces and upstream does not contain, so a merge that reverts the edit fails fork:verify."
-    },
-    {
-      "file": "packages/tui/src/ui/dialog-select.tsx",
-      "marker": "displacing",
-      "note": "Fork edit to an upstream file (+17/-1 vs baseline). Marker is a string the fork's edit introduces and upstream does not contain, so a merge that reverts the edit fails fork:verify."
-    },
-    {
-      "file": "packages/tui/src/ui/dialog-confirm.tsx",
-      "marker": "Defaults to the safe side",
-      "note": "Fork edit to an upstream file. Defaults DialogConfirm's focus to \"cancel\" instead of \"confirm\" so a stray or fast-follow Enter press can't confirm a consequential action (e.g. a model install) with zero deliberate input. Marker is a string the fork's edit introduces and upstream does not contain, so a merge that reverts the edit fails fork:verify."
-    },
-    {
-      "file": "packages/tui/test/cli/cmd/tui/provider-options.test.ts",
-      "marker": "fork: LAN discovery for llama-skein host",
-      "note": "Fork edit to an upstream file (+18/-1 vs baseline). Marker is a string the fork's edit introduces and upstream does not contain, so a merge that reverts the edit fails fork:verify."
-    },
-    {
-      "file": "packages/opencode/src/cli/cmd/agent.ts",
-      "marker": "if (!maybeCtx) return yield* Effect.die(new Error(\"InstanceRef not pro",
-      "note": "Fork edit to an upstream file (+1/-1 vs baseline). Marker is a full added line, verified absent from upstream's copy."
-    },
-    {
-      "file": "packages/opencode/src/cli/cmd/import.ts",
-      "marker": "if (!ctx) return yield* Effect.die(new Error(\"InstanceRef not provided",
-      "note": "Fork edit to an upstream file (+1/-1 vs baseline). Marker is a full added line, verified absent from upstream's copy."
-    },
-    {
-      "file": "packages/opencode/src/cli/cmd/run/demo.ts",
-      "marker": "import type { ToolPart } from \"@opencode-ai/sdk/v2\"",
-      "note": "Fork edit to an upstream file (+24/-18 vs baseline). Marker is a full added line, verified absent from upstream's copy."
-    },
-    {
-      "file": "packages/opencode/src/cli/cmd/run/session-data.ts",
-      "marker": "import type { Part, PermissionRequest, QuestionRequest, ToolPart } fro",
-      "note": "Fork edit to an upstream file (+2/-2 vs baseline). Marker is a full added line, verified absent from upstream's copy."
-    },
-    {
-      "file": "packages/opencode/src/cli/cmd/run/subagent-data.ts",
-      "marker": "import type { Message, Part, PermissionRequest, QuestionRequest, ToolP",
-      "note": "Fork edit to an upstream file (+3/-3 vs baseline). Marker is a full added line, verified absent from upstream's copy."
-    },
-    {
-      "file": "packages/opencode/src/effect/instance-state.ts",
-      "marker": "if (!ctx) return yield* Effect.die(new Error(\"InstanceRef not provided",
-      "note": "Fork edit to an upstream file (+1/-1 vs baseline). Marker is a full added line, verified absent from upstream's copy."
-    },
-    {
-      "file": "packages/opencode/src/id/id.ts",
-      "marker": "loop: \"loop\",",
-      "note": "Fork edit to an upstream file (+1/-0 vs baseline). Marker is a full added line, verified absent from upstream's copy."
-    },
-    {
-      "file": "packages/opencode/src/mcp/oauth-provider.ts",
-      "marker": "OAuthClientProvider,",
-      "note": "Fork edit to an upstream file (+2/-2 vs baseline). Marker is a full added line, verified absent from upstream's copy."
-    },
-    {
-      "file": "packages/opencode/src/provider/transform.ts",
-      "marker": "if (model.limit.output > 0) return Math.min(model.limit.output, output",
-      "note": "Fork edit to an upstream file (+3/-1 vs baseline). Marker is a full added line, verified absent from upstream's copy."
-    },
-    {
-      "file": "packages/opencode/test/cli/run/stream.transport.test.ts",
-      "marker": "} as unknown as SdkEvent",
-      "note": "Fork edit to an upstream file (+4/-4 vs baseline). Marker is a full added line, verified absent from upstream's copy."
-    },
-    {
-      "file": "packages/opencode/test/fixture/mcp-session-recovery.ts",
-      "marker": "import { Client, StreamableHTTPClientTransport, LATEST_PROTOCOL_VERSIO",
-      "note": "Fork edit to an upstream file (+1/-3 vs baseline). Marker is a full added line, verified absent from upstream's copy."
-    },
-    {
-      "file": "packages/opencode/test/server/httpapi-exercise/index.ts",
-      "marker": "http.protected.get(\"/local/capacity\", \"local.capacity\").json(200, arra",
-      "note": "Fork edit to an upstream file (+12/-0 vs baseline). Marker is a full added line, verified absent from upstream's copy."
     },
     {
       "file": "packages/opencode/test/tool/__snapshots__/parameters.test.ts.snap",
@@ -733,44 +723,74 @@
       "note": "Fork edit to an upstream file (+1/-1 vs baseline). Marker is a full added line, verified absent from upstream's copy."
     },
     {
-      "file": "packages/tui/test/cli/cmd/tui/sync-fixture.tsx",
-      "marker": "// Recorded rather than acted on: a bootstrap that decides to exit sho",
-      "note": "Fork edit to an upstream file (+17/-12 vs baseline). Marker is a full added line, verified absent from upstream's copy."
+      "file": "packages/opencode/test/tool/task.test.ts",
+      "marker": "execute creates a child when task_id is not a valid session id",
+      "note": "Fork edit to an upstream file (+41/-0 vs baseline). Marker is a string the fork's edit introduces and upstream does not contain, so a merge that reverts the edit fails fork:verify."
     },
     {
-      "file": "packages/tui/test/theme.test.ts",
-      "marker": "test(\"includes local custom themes\", () => {",
-      "note": "Fork edit to an upstream file (+7/-0 vs baseline). Marker is a full added line, verified absent from upstream's copy."
+      "file": "packages/sdk/js/src/v2/loop-args.ts",
+      "marker": "noProgressLimit",
+      "note": "SDK copy of the loop defaults. The server cannot import the SDK, so loop-defaults.test.ts parses both files and asserts they agree."
     },
     {
-      "file": "packages/opencode/src/effect/runtime-flags.ts",
-      "marker": "OPENCODE_DISABLE_CLAUDE_CODE_PEER_MESSAGING",
-      "note": "Fork edit: adds disableClaudeCodePeerSource + disableClaudeCodePeerMessaging (both opt-out, on by default) for the Claude Code peer-source/messaging feature. Marker is a string this edit introduces that upstream does not contain."
+      "file": "packages/tui/src/app.tsx",
+      "marker": "fork: surface the server's actual error",
+      "note": "Fork edit to an upstream file (+127/-77 vs baseline). Marker is a string the fork's edit introduces and upstream does not contain, so a merge that reverts the edit fails fork:verify."
     },
     {
-      "file": "packages/opencode/src/server/routes/instance/httpapi/server.ts",
-      "marker": "ClaudeSidecarLifecycle",
-      "note": "Fork edit: joins ClaudeSidecarLifecycle.node to THIS file's own separate LayerNode graph (the actual root the HTTP server boots from — distinct from effect/app-runtime.ts's AppLayer, which app-runtime.ts's own consumers use). Both graphs need the node or session-lifecycle events published during real HTTP-served requests never reach it. See openspec/changes/claude-peer-messaging, Phase 3."
+      "file": "packages/tui/src/component/dialog-model.tsx",
+      "marker": "DialogModelCtx",
+      "note": "Fork edit to an upstream file (+104/-4 vs baseline). Marker is a string the fork's edit introduces and upstream does not contain, so a merge that reverts the edit fails fork:verify."
+    },
+    {
+      "file": "packages/tui/src/component/dialog-provider.tsx",
+      "marker": "LOCAL_PROVIDER_OPTION_VALUE",
+      "note": "Multi-select discovered local providers; graceful mDNS failure."
+    },
+    {
+      "file": "packages/tui/src/component/prompt/index.tsx",
+      "marker": "interactions",
+      "note": "Fork edit to an upstream file (+285/-15 vs baseline). Marker is a string the fork's edit introduces and upstream does not contain, so a merge that reverts the edit fails fork:verify."
+    },
+    {
+      "file": "packages/tui/src/config/index.tsx",
+      "marker": "transcript_window",
+      "note": "Fork edit: adds the optional `transcript_window` TUI config key (TranscriptWindow schema + TranscriptWindowDefault) consumed by the session route's transcript windowing."
+    },
+    {
+      "file": "packages/tui/src/config/keybind.ts",
+      "marker": "dialog.local",
+      "note": "dialog.local.toggle + dialog.local.connect keybinds."
+    },
+    {
+      "file": "packages/tui/src/context/sync.tsx",
+      "marker": "refreshProviders",
+      "note": "Fork edit to an upstream file (+14/-0 vs baseline). Marker is a string the fork's edit introduces and upstream does not contain, so a merge that reverts the edit fails fork:verify."
+    },
+    {
+      "file": "packages/tui/src/context/theme.tsx",
+      "marker": "ThemeState.set",
+      "note": "createEffect writing ThemeState.set(store.active) — the writer half of the local-backend themed-loading-screen feature (reader is provider.ts ThemeState.get). theme-state.ts now lives in packages/core/src/local so both the TUI (writer) and the opencode provider (reader) can share the singleton across the package boundary."
+    },
+    {
+      "file": "packages/tui/src/feature-plugins/home/tips-view.tsx",
+      "marker": "permissionMode",
+      "note": "Fork edit to an upstream file (+4/-0 vs baseline). Marker is a string the fork's edit introduces and upstream does not contain, so a merge that reverts the edit fails fork:verify."
+    },
+    {
+      "file": "packages/tui/src/feature-plugins/sidebar/context.tsx",
+      "marker": "freeMb",
+      "note": "Unified context bar, % inline, breakdown below; Context label; cost for cloud providers."
+    },
+    {
+      "file": "packages/tui/src/routes/session/index.tsx",
+      "marker": "fork: the footer advertises this keybind",
+      "note": "Fork edit to an upstream file (+88/-10 vs baseline). Marker is a string the fork's edit introduces and upstream does not contain, so a merge that reverts the edit fails fork:verify."
     },
     {
       "file": "packages/tui/src/routes/session/index.tsx",
       "marker": "function Peers(props: ToolProps)",
       "note": "Fork edit: adds a dedicated terminal renderer for the `peers` tool (opencode-skein + Claude Code peers as a bordered agent list, not the model's own paraphrase) instead of falling through to GenericTool. See openspec/changes/claude-code-peer-source."
-    },
-    {
-      "file": "packages/opencode/src/cli/cmd/debug/index.ts",
-      "marker": "ClaudeSidecarEntryCommand",
-      "note": "Fork edit: registers the hidden claude-sidecar-entry debug subcommand sidecar-manager.ts spawns instead of a standalone script (which doesn't exist in a compiled single-file binary). See openspec/changes/claude-peer-messaging."
-    },
-    {
-      "file": "packages/opencode/src/server/routes/instance/httpapi/handlers/event.ts",
-      "marker": "SUBSCRIBER_QUEUE_CAPACITY",
-      "note": "Fork edit: bounds the per-subscriber SSE event queue (was Queue.unbounded — upstream #45215) via core's EventV2.allBounded; a stalled client fails and resyncs instead of retaining every event forever."
-    },
-    {
-      "file": "packages/opencode/src/session/session.ts",
-      "marker": "A shallow copy is the snapshot that matters",
-      "note": "Fork edit: updatePart publishes a shallow copy of the part instead of structuredClone (upstream #35107 direction) — same snapshot semantics for the in-place-mutated text field, without copying part bytes per publish."
     },
     {
       "file": "packages/tui/src/routes/session/index.tsx",
@@ -783,39 +803,39 @@
       "note": "Fork edit: transcript windowing — messages older than the most recent `transcript_window` (TUI config, default 40, 0 disables) render as a one-line CollapsedMessage until clicked, so a long session no longer keeps every part's markdown/syntax/code renderer mounted for its whole life (long-running-session OOM)."
     },
     {
-      "file": "packages/tui/src/config/index.tsx",
-      "marker": "transcript_window",
-      "note": "Fork edit: adds the optional `transcript_window` TUI config key (TranscriptWindow schema + TranscriptWindowDefault) consumed by the session route's transcript windowing."
+      "file": "packages/tui/src/routes/session/permission.tsx",
+      "marker": "independent",
+      "note": "Fork edit to an upstream file (+11/-1 vs baseline). Marker is a string the fork's edit introduces and upstream does not contain, so a merge that reverts the edit fails fork:verify."
     },
     {
-      "file": "packages/tui/src/feature-plugins/home/tips-view.tsx",
-      "marker": "permissionMode",
-      "note": "Fork edit to an upstream file (+4/-0 vs baseline). Marker is a string the fork's edit introduces and upstream does not contain, so a merge that reverts the edit fails fork:verify."
+      "file": "packages/tui/src/theme/index.ts",
+      "marker": "knightRider",
+      "note": "Fork edit to an upstream file (+6/-0 vs baseline). Marker is a string the fork's edit introduces and upstream does not contain, so a merge that reverts the edit fails fork:verify."
     },
     {
-      "file": "packages/opencode/test/tool/task.test.ts",
-      "marker": "execute creates a child when task_id is not a valid session id",
-      "note": "Fork edit to an upstream file (+41/-0 vs baseline). Marker is a string the fork's edit introduces and upstream does not contain, so a merge that reverts the edit fails fork:verify."
+      "file": "packages/tui/src/ui/dialog-confirm.tsx",
+      "marker": "Defaults to the safe side",
+      "note": "Fork edit to an upstream file. Defaults DialogConfirm's focus to \"cancel\" instead of \"confirm\" so a stray or fast-follow Enter press can't confirm a consequential action (e.g. a model install) with zero deliberate input. Marker is a string the fork's edit introduces and upstream does not contain, so a merge that reverts the edit fails fork:verify."
     },
     {
-      "file": "packages/app/src/components/settings-v2/models.tsx",
-      "marker": "SettingsModelsDiscoverV2",
-      "note": "model-gallery-ui: V2 Model Settings gains Installed/Discover/Operations sections."
+      "file": "packages/tui/src/ui/dialog-select.tsx",
+      "marker": "displacing",
+      "note": "Fork edit to an upstream file (+17/-1 vs baseline). Marker is a string the fork's edit introduces and upstream does not contain, so a merge that reverts the edit fails fork:verify."
     },
     {
-      "file": "packages/app/src/context/language.tsx",
-      "marker": "settings.models.discover",
-      "note": "model-gallery-ui: V2 Model Settings gains Installed/Discover/Operations sections."
+      "file": "packages/tui/test/cli/cmd/tui/provider-options.test.ts",
+      "marker": "fork: LAN discovery for llama-skein host",
+      "note": "Fork edit to an upstream file (+18/-1 vs baseline). Marker is a string the fork's edit introduces and upstream does not contain, so a merge that reverts the edit fails fork:verify."
     },
     {
-      "file": "packages/app/src/i18n/en.ts",
-      "marker": "settings.models.discover",
-      "note": "model-gallery-ui: V2 Model Settings gains Installed/Discover/Operations sections."
+      "file": "packages/tui/test/cli/cmd/tui/sync-fixture.tsx",
+      "marker": "// Recorded rather than acted on: a bootstrap that decides to exit sho",
+      "note": "Fork edit to an upstream file (+17/-12 vs baseline). Marker is a full added line, verified absent from upstream's copy."
     },
     {
-      "file": "packages/app/src/components/settings-v2/settings-v2.css",
-      "marker": "settings-models-discover",
-      "note": "model-gallery-ui: styles for the Discover/Operations sections."
+      "file": "packages/tui/test/theme.test.ts",
+      "marker": "test(\"includes local custom themes\", () => {",
+      "note": "Fork edit to an upstream file (+7/-0 vs baseline). Marker is a full added line, verified absent from upstream's copy."
     }
   ],
   "divergence": {
