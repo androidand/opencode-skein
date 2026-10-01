@@ -66,15 +66,39 @@ export const NeverList: readonly string[] = [
 // on a rarely-used flag is the cheaper side of that trade.
 //
 // There is deliberately no `+refs` entry. A `+refspec` push is already refused
-// because the granted allow is anchored to `git push <remote> <branch>` and a
-// `+refs/heads/...` argument does not match it, so an entry for it would be a
-// check no test could distinguish from the anchoring. The anchoring is what is
-// tested; if that ever widens, this is the gap that reopens.
+  // because the granted allow is anchored to `git push <remote> <branch>` and a
+  // `+refs/heads/...` argument does not match it, so an entry for it would be a
+  // check no test could distinguish from the anchoring. The anchoring is what is
+  // tested; if that ever widens, this is the gap that reopens.
+//
+// KNOWN GAP: a second BARE refspec — `git push origin loop/x dev` — is still
+  // allowed. It contains no colon, no `+` and no long option, so none of the
+// containment patterns can see it, and argument counting is not expressible in
+// this matcher (see the note above). It cannot write to `dev` without also being a
+// colon refspec, so it can only overwrite the remote branch it names if that branch
+// already exists and fast-forward is impossible — a lesser failure than the
+// refspec hole, but a real one, and only a driver that parses the refspec can close
+// it. `pushDestinationRef` in ./drivers is that check for the driver path.
 const ForceRewritePatterns: readonly string[] = [
+  // For git pushes this is redundant with the `-f` entry below, because `--force`
+  // contains `-f`. It is kept for force semantics outside a push (`helm --force`
+  // and the like), and it is NOT independently testable for pushes — so do not
+  // remove the `-f` entry on the reasoning that `--force` covers it.
   "*--force*",
   "*git push*-f*",
   "*reset*hard*",
   "*push*--delete*",
+  // Refspec and option smuggling. `*` in a granted branch pattern compiles to `.*`,
+  // which matches spaces and colons, so `git push origin loop/*` also matches
+  // `git push origin loop/x:dev` — that pushes loop/x onto the remote's `dev`, the
+  // default branch, with no flag and no refspec separator visible to a reader.
+  // These three are containment patterns rather than argument counts on purpose:
+  // a count expressed as trailing `*` cannot work here, because `Wildcard.match`
+  // rewrites a pattern ending in ` .*` into an OPTIONAL group, so `git push * * *`
+  // matches the legitimate `git push origin loop/x`.
+  "git push*:*",
+  "git push*--*",
+  "git push*+*",
 ]
 
 const Branches = Schema.Array(Schema.String)

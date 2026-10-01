@@ -191,9 +191,52 @@ export function mergeArgv(input: { target: string; headSHA: string; method: Publ
 }
 
 /**
+ * Whether a push refspec's DESTINATION is inside the grant.
+ *
+ * The shell allow cannot do this job. `*` in a granted branch pattern compiles to
+ * `.*`, which matches colons and spaces, so `git push origin loop/x:dev` matches an
+ * allow for `git push origin loop/*` — the push lands on the remote's `dev` while
+ * the pattern appears to name only a loop branch. Parsing the refspec is the only
+ * way to ask the question that matters: not "does this command look like the grant"
+ * but "which ref on the remote does this write".
+ *
+ * A refspec is `src[:dst]`. With no colon, git pushes to the branch of the same
+ * name, so the destination is the source. Anything with a leading `+` is a forced
+ * update and is refused here as well as by the shell pattern.
+ */
+export function pushDestinationRef(input: { refspec: string; granted: readonly string[] }): Refusal {
+  const forced = input.refspec.startsWith("+")
+  const spec = forced ? input.refspec.slice(1) : input.refspec
+  const destination = spec.includes(":") ? spec.slice(spec.indexOf(":") + 1) : spec
+  if (!destination)
+    return { ok: false, reason: `refspec "${input.refspec}" names no destination ref` }
+  if (forced) return { ok: false, reason: `refspec "${input.refspec}" forces an update` }
+  const branch = destination.startsWith("refs/heads/") ? destination.slice("refs/heads/".length) : destination
+  // Anything addressed under refs/ that is not refs/heads/ is a tag or an arbitrary
+  // ref, which no push grant covers.
+  if (destination.startsWith("refs/") && !destination.startsWith("refs/heads/"))
+    return { ok: false, reason: `destination "${destination}" is not a branch under refs/heads` }
+  if (!input.granted.some((pattern) => Wildcard.match(branch, pattern)))
+    return {
+      ok: false,
+      reason: `destination branch "${branch}" matches none of the granted push patterns (${input.granted.join(", ")})`,
+    }
+  return { ok: true }
+}
+
+/**
  * Known residual: `git add .` and a bare `git add` with no path stage the whole
  * tree, and no wildcard can separate them from an explicit `git add ./src/x.ts`.
  * The commit gate's dirty-tree check and the review diff both surface the
  * consequence, but neither prevents it. Recorded rather than papered over.
  */
 export const implicitStagingResidual = "git add . / bare git add cannot be distinguished from an explicit path by pattern"
+
+/**
+ * Known residual: a second bare refspec in a model shell (`git push origin loop/x
+ * dev`) is not refused by the shell patterns, because it carries no colon, no `+`
+ * and no long option. It cannot reach the default branch without becoming a colon
+ * refspec, which is refused. `pushDestinationRef` closes it on the driver path.
+ */
+export const bareRefspecResidual =
+  "a second bare refspec in a model shell is not expressible as a pattern; use pushDestinationRef on the driver path"

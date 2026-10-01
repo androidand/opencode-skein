@@ -431,3 +431,77 @@ describe("prompt section", () => {
     expect(PublishPolicy.promptSection(POLICY)).toContain("do not run it yourself")
   })
 })
+describe("granted push is not a licence to write anywhere", () => {
+  // The hole: `*` compiles to `.*`, which matches colons and spaces, so the allow
+  // for `git push origin loop/*` also matched commands that write to the default
+  // branch. Reported by Claude, verified here before fixing.
+  const escape = [
+    "git push origin loop/x:dev",
+    "git push origin loop/x:refs/heads/dev",
+    "git push origin loop/x --mirror",
+    "git push origin loop/x --all",
+    "git push origin loop/x --tags",
+    "git push origin loop/x --no-verify",
+    "git push origin +refs/heads/dev",
+    "git push origin loop/x -f",
+  ]
+
+  for (const command of escape) {
+    test(`denies: ${command}`, () => {
+      expect({ command, action: Permission.evaluate("bash", command, PublishPolicy.sessionRules(POLICY)).action }).toEqual(
+        { command, action: "deny" },
+      )
+    })
+  }
+
+  test("the control: layer 3 is what refuses the ones the allow matched", () => {
+    // Some of the escape commands never matched the allow in the first place —
+    // `git push origin +refs/heads/dev` names no loop branch — so they were already
+    // denied and layer 3 changed nothing for them. Asserting "allowed without layer
+    // 3" for those would be asserting something false. This checks the exact
+    // property that matters: every command the allow DID match is denied once layer
+    // 3 is present, and would not have been without it.
+    const withoutLayer3 = [...PublishPolicy.denyRules(), ...PublishPolicy.deriveRules(POLICY)]
+    const withLayer3 = PublishPolicy.sessionRules(POLICY)
+    const escapedTheAllow = escape.filter((c) => Permission.evaluate("bash", c, withoutLayer3).action === "allow")
+    expect(escapedTheAllow.length).toBeGreaterThan(0)
+    for (const command of escapedTheAllow)
+      expect({ command, withLayer3: Permission.evaluate("bash", command, withLayer3).action }).toEqual({
+        command,
+        withLayer3: "deny",
+      })
+  })
+
+  test("legitimate granted pushes are still allowed", () => {
+    for (const command of ["git push origin loop/x", "git push origin loop/y", "git push origin loop/deep/nested"])
+      expect({ command, action: Permission.evaluate("bash", command, PublishPolicy.sessionRules(POLICY)).action }).toEqual(
+        { command, action: "allow" },
+      )
+  })
+})
+
+describe("layer 3 under a broad grant", () => {
+  // Under a narrow `loop/*` grant two of the layer-3 entries look redundant: a
+  // `--force-with-lease` push is already caught by the `-f` pattern, and a
+  // `+refs/heads/...` push never matches a `loop/*` allow at all. A private repo
+  // with a broad grant is the configuration where they are the only thing standing
+  // between the grant and a forced update, so that is where they are tested.
+  const broad: PublishPolicy.Policy = { ...POLICY, push: { remotes: ["origin"], branches: ["*"] } }
+  const action = (command: string) => Permission.evaluate("bash", command, PublishPolicy.sessionRules(broad)).action
+
+  test("a forced push is denied even when the branch matches a broad grant", () => {
+    expect(action("git push origin dev --force")).toBe("deny")
+    expect(action("git push origin dev --force-with-lease")).toBe("deny")
+  })
+
+  test("a +refspec push is denied even when the branch matches a broad grant", () => {
+    expect(action("git push origin +refs/heads/dev")).toBe("deny")
+    expect(action("git push origin loop/x:dev")).toBe("deny")
+  })
+
+  test("a broad grant still permits an ordinary push", () => {
+    // The control: the point is to refuse forced and refspec writes, not to make a
+    // broad grant unusable.
+    expect(action("git push origin dev")).toBe("allow")
+  })
+})

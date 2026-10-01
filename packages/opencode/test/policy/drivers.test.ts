@@ -242,3 +242,35 @@ describe("merge gate", () => {
     expect(argv).not.toContain("--ff")
   })
 })
+
+describe("push destination ref", () => {
+  const granted = ["loop/*"]
+
+  test("accepts a bare branch inside the grant", () => {
+    expect(PublishDrivers.pushDestinationRef({ refspec: "loop/x", granted })).toEqual({ ok: true })
+    expect(PublishDrivers.pushDestinationRef({ refspec: "refs/heads/loop/x", granted })).toEqual({ ok: true })
+  })
+
+  test("refuses a destination outside the grant", () => {
+    // The case the shell pattern cannot see: the command mentions only loop/x.
+    for (const refspec of ["loop/x:dev", "loop/x:refs/heads/dev", "main", "loop/x:feat/y"])
+      expect({ refspec, result: PublishDrivers.pushDestinationRef({ refspec, granted }) }).toEqual({
+        refspec,
+        result: { ok: false, reason: expect.stringContaining("granted push patterns") },
+      })
+  })
+
+  test("refuses a forced refspec", () => {
+    for (const refspec of ["+refs/heads/loop/x", "+loop/x"])
+      expect(PublishDrivers.pushDestinationRef({ refspec, granted }).ok).toBe(false)
+  })
+
+  test("refuses a destination that is not a branch", () => {
+    for (const refspec of ["loop/x:refs/tags/v1", "refs/tags/v1"])
+      expect(PublishDrivers.pushDestinationRef({ refspec, granted }).ok).toBe(false)
+  })
+
+  test("refuses a refspec naming no destination", () => {
+    expect(PublishDrivers.pushDestinationRef({ refspec: "loop/x:", granted }).ok).toBe(false)
+  })
+})
