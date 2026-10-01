@@ -14,6 +14,7 @@ import {
   type QueueChange,
 } from "@/loop/spec-queue/queue"
 import { buildBrief } from "@/loop/spec-queue/brief"
+import { queueFingerprint } from "@/loop/spec-queue/queue"
 import {
   evaluateImplement,
   evaluateTest,
@@ -516,5 +517,49 @@ describe("retryQuarantined", () => {
     expect(after.eligible.map((c) => c.slug)).toEqual(["auto"])
     expect(after.quarantined).toEqual(["human"])
     expect(existsSync(join(root, "openspec", "changes", "auto", ".skein"))).toBe(false)
+  })
+})
+
+describe("queueFingerprint", () => {
+  const make = () => fs.mkdtempSync(path.join(os.tmpdir(), "qfp-"))
+  const write = (root: string, slug: string, file: string, content: string) => {
+    const dir = path.join(root, "openspec", "changes", slug, path.dirname(file))
+    fs.mkdirSync(dir, { recursive: true })
+    fs.writeFileSync(path.join(root, "openspec", "changes", slug, file), content)
+  }
+
+  test("is stable when nothing changed, so an idle agent does not re-resolve the queue", () => {
+    const root = make()
+    write(root, "a", "tasks.md", "- [ ] 1.1 x\n")
+    expect(queueFingerprint(root)).toBe(queueFingerprint(root))
+  })
+
+  test("moves when a task is checked, a change appears, or a blocker is written or cleared", () => {
+    const root = make()
+    write(root, "a", "tasks.md", "- [ ] 1.1 x\n")
+    const first = queueFingerprint(root)
+    write(root, "a", "tasks.md", "- [x] 1.1 x and more\n")
+    const checked = queueFingerprint(root)
+    expect(checked).not.toBe(first)
+    write(root, "b", "tasks.md", "- [ ] 1.1 y\n")
+    const added = queueFingerprint(root)
+    expect(added).not.toBe(checked)
+    write(root, "a", ".skein/blocker.md", "stuck")
+    const blocked = queueFingerprint(root)
+    expect(blocked).not.toBe(added)
+    fs.rmSync(path.join(root, "openspec", "changes", "a", ".skein", "blocker.md"))
+    expect(queueFingerprint(root)).not.toBe(blocked)
+  })
+
+  test("ignores archive and other excluded directories", () => {
+    const root = make()
+    write(root, "a", "tasks.md", "- [ ] 1.1 x\n")
+    const before = queueFingerprint(root)
+    write(root, "archive", "tasks.md", "- [ ] old\n")
+    expect(queueFingerprint(root)).toBe(before)
+  })
+
+  test("a directory with no openspec tree has its own stable answer", () => {
+    expect(queueFingerprint(make())).toBe("no-openspec")
   })
 })
