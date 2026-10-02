@@ -1,4 +1,5 @@
 import { MessageV2 } from "../../src/session/message-v2"
+import { SessionV1 } from "@opencode-ai/core/v1/session"
 import { SessionProjector } from "@opencode-ai/core/session/projector"
 import { LayerNode } from "@opencode-ai/core/effect/layer-node"
 import { AppNodeBuilder } from "@opencode-ai/core/effect/app-node-builder"
@@ -449,7 +450,11 @@ it.instance(
       const messages = yield* session.messages({ sessionID: info.sessionID, limit: 20 })
       const synthetic = messages.filter((m) => m.parts.some((p) => "synthetic" in p && p.synthetic))
       expect(synthetic.length).toBeGreaterThanOrEqual(2)
-      const texts = synthetic.flatMap((m) => m.parts.filter((p) => p.type === "text" && "synthetic" in p && p.synthetic).map((p) => p.text))
+      const texts = synthetic.flatMap((m) =>
+        m.parts
+          .filter((p): p is SessionV1.TextPart => p.type === "text" && "synthetic" in p && p.synthetic === true)
+          .map((p) => p.text),
+      )
       expect(texts).toContain("[peer notify] I took alpha-change, you take beta-change")
       expect(texts).toContain("[peer request] Can you review my PR?")
 
