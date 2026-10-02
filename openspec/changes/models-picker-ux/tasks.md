@@ -14,7 +14,8 @@
 
 ## 2. Fit-based recommendation
 
-- [ ] 2.1 Add a client call for the target provider's fit report (`/api/fit`), returning fit level, model size, VRAM total, max safe context, and estimated tok/s. Cache per provider for the dialog's lifetime; never block dialog open on it. Verify: the dialog opens at current speed with the endpoint unreachable.
+- [x] 2.1 Add a client call for the target provider's fit report (`/api/fit`), returning fit level, model size, VRAM total, max safe context, and estimated tok/s. Cache per provider for the dialog's lifetime; never block dialog open on it. Verify: the dialog opens at current speed with the endpoint unreachable.
+      Done 2026-10-02: `fetchFitReportForProvider` in `dialog-model.tsx:32-46` calls `client.getFitReport()`, caches per provider ID in the `fitReports` signal, and swallows errors so an unreachable endpoint returns `undefined` without blocking. Called fire-and-forget in `onMount` (line 90). Tests in `packages/tui/test/ui/dialog-model-fit.test.ts`: (1) unreachable host returns `undefined` and leaves cache empty; (2) successful response populates cache keyed by provider id. Typecheck clean.
 - [ ] 2.2 Annotate rows with fit level and visibly mark models that cannot fit. Verify: against a provider with known VRAM, a too-large model is marked and a fitting one is not.
 - [ ] 2.3 Mark one recommended model per provider. Define and document the rule (largest model whose fit level is acceptable at the configured context). Verify: the rule is stated in the change notes and the marked model matches it.
 - [ ] 2.4 Degrade cleanly: with no or stale fit data, render the unannotated list and keep selection working. Verify: with the endpoint stubbed to fail, the picker is fully usable.
