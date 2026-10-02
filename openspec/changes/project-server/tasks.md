@@ -11,7 +11,7 @@
       `Ref`; expect: everything). This is the baseline D4 must beat.
 - [x] 0.4 (only per-directory InstanceState needs aggregating — findings.md) Audit the D6 list: for each map, state its scope (process / instance / session) and
       whether two worktrees in one server would collide or fail to see each other.
-- [x] 0.5 (yes after first status; one 204 MB sidecar process each — findings.md) Do headless sessions register sidecars and appear in `peers` for Claude Code peers?
+- [x] 0.5 (yes, at creation; one ~172 MB sidecar process each — findings.md) Do headless sessions register sidecars and appear in `peers` for Claude Code peers?
 - [~] 0.6 (partial: single-run numbers in findings.md; the 4-hour run is not done) Memory over a 4-hour, 3-agent run in one server vs three TUIs. Baseline for the
       overhead argument.
 
@@ -41,7 +41,7 @@
 
 ## Phase 4: In-server A2A and aggregation
 
-- [ ] 4.0 (from the 0.5/0.6 findings) Host the per-session unix sockets inside the server, or in one multiplexing sidecar, instead of one 200 MB child process per registered session; register a session at creation, not at first status.
+- [ ] 4.0 (from the 0.5/0.6 findings) Host the per-session unix sockets inside the server, or in one multiplexing sidecar, instead of one 200 MB child process per registered session; (sessions already register at creation.)
 
 - [ ] 4.1 `Roster` service across instances (D6) with tests over two worktrees.
 - [ ] 4.2 In-server delivery path in `send_peer_message` and `peers`; sender identity
