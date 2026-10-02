@@ -13,6 +13,8 @@ const BLOCKED_STOPS: Array<[string, "asking-user" | "waiting-on-peer"]> = [
   ["I'll wait for peer X to resolve Y.", "waiting-on-peer"],
   ["Blocked on the other session's change to the schema.", "waiting-on-peer"],
   ["I'm stuck on a peer's review before I can proceed.", "waiting-on-peer"],
+  ["Should I commit this change before pushing?", "asking-user"],
+  ["Should I merge this to main?", "asking-user"],
   ["This won't be answered until the lead decides.", "waiting-on-peer"],
 ]
 
@@ -38,6 +40,7 @@ const LEGITIMATE_STOPS: Array<[string, "done" | "other"]> = [
   ["Let me review the diff before committing.", "other"],
   ["I need to think about this more.", "other"],
   ["Working on the schema changes now.", "other"],
+  ["The build should pass before I continue — all tasks done.", "done"],
 ]
 
 describe("classifyStop — legitimate stops are not blocked", () => {
