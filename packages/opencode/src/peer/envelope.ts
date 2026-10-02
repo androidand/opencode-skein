@@ -48,10 +48,10 @@ export interface PeerEnvelope {
   /** How long the sender will wait before treating a request as timed out. Requests only. */
   deadlineMinutes?: number
   /**
-   * The delegated-task id, when this exchange is one. `peer/delegate.ts` still
-   * correlates its pool-overflow tasks with the older `[peer-task-result <id>]`
-   * marker; carrying the id here lets both be matched during migration without
-   * this module having to know that marker's grammar.
+   * The delegated-task id, when this exchange is one. `peer/delegate.ts`
+   * correlates pool-overflow tasks by this field on a `[peer reply]` header, so
+   * the id no longer rides in a separate `[peer-task-result <id>]` marker: the
+   * two reply paths now share the one structured header.
    */
   taskID?: string
 }
@@ -257,10 +257,9 @@ export function parsePeerEnvelope(text: string): ParsedPeerMessage | undefined {
 
 /**
  * The message without its header, for readers that match on the body's own
- * shape. `peer/delegate.ts` correlates pool-overflow tasks with a
- * `[peer-task-result <id>]` marker anchored at the START of the text; once
- * messages carry a header that anchor no longer matches, delegation silently
- * stops settling and every delegated task times out instead. Anything matching
+ * shape. A task reply no longer carries its correlation in the body: `peer/
+ * delegate.ts` matches the task id in the reply's header instead, so this is
+ * only used by readers that match on the body's own shape. Anything matching
  * on message text must go through this.
  */
 export function peerBody(text: string): string {
@@ -274,12 +273,11 @@ export function expectsReply(envelope: PeerEnvelope): boolean {
 
 // ── reply correlation ────────────────────────────────────────────────────────
 //
-// `settleTaskReply` in peer/delegate.ts correlates pool-overflow tasks with
-// the older `[peer-task-result <id>]` marker. This is the envelope counterpart:
-// when a reply arrives carrying `[peer reply id=<mid> in-reply-to=<orig>]`,
-// match it against a pending request so the sender can await a synchronous
-// answer. The marker remains the fallback during migration; this path only
-// fires when the peer includes the structured envelope in its reply text.
+// Task replies and request replies both settle through envelopes now. `peer/
+// delegate.ts` matches a task reply by the `task` field of its `[peer reply]`
+// header; this is the counterpart — when a reply arrives carrying
+// `[peer reply id=<mid> in-reply-to=<orig>]`, match it against a pending request
+// so the sender can await a synchronous answer.
 //
 // Both registries are in-memory and process-scoped. A sidecar restart loses
 // all correlations — see tasks 2.3/2.4 for the durability discussion.

@@ -4,17 +4,15 @@
 // handed to an idle peer — a Claude Code session or an opencode session that
 // runs on capacity the caller's saturated host does not share. The peer runs
 // it as a normal prompt in its own session and answers by messaging the
-// delegating session back with a marker line; the reply is intercepted at the
-// two inbound entry points (Claude sidecar, `send_peer_message`) and settled
-// here instead of being injected as a prompt.
+// delegating session back with a structured peer envelope whose header carries
+// the task id (`[peer reply task=<id>]`); the reply is intercepted at the two
+// inbound entry points (Claude sidecar, `send_peer_message`) and settled here
+// instead of being injected as a prompt.
 //
 // Pure formatting/parsing plus an in-memory registry; no transport.
 
 import { InvalidTransition, PeerDelivery } from "./delivery-state"
-
-export const TASK_RESULT_MARKER = "[peer-task-result"
-
-const REPLY_RE = /^\s*\[peer-task-result\s+([A-Za-z0-9_-]+)\]\s*\n?([\s\S]*)$/
+import { parsePeerEnvelope } from "./envelope"
 
 export interface PeerCandidate {
   owner: "opencode-skein" | "claude-code"
@@ -64,9 +62,9 @@ export function buildTaskEnvelope(input: TaskEnvelopeInput): string {
   return [
     `[peer-task ${input.taskID}] ${input.description}`,
     `Delegated by another agent session because it has no free local capacity. Work in ${input.cwd}.`,
-    `When done, reply with ${input.replyTool} to "${input.replyTo}" and start the message with the exact line:`,
-    `${TASK_RESULT_MARKER} ${input.taskID}]`,
-    `followed by your result. Reply within ${minutes} min or the task is reassigned. Normal tool permissions apply.`,
+    `When done, reply with ${input.replyTool} to "${input.replyTo}" using a structured peer envelope whose header starts with:`,
+    `[peer reply task=${input.taskID}]`,
+    `then your result. Reply within ${minutes} min or the task is reassigned. Normal tool permissions apply.`,
     "",
     input.prompt,
   ].join("\n")
@@ -90,7 +88,8 @@ const pending = new Map<string, TaskEntry>()
 
 /**
  * Register a pending task by its `taskID` and return a `{ promise, delivery }`
- * pair. The promise resolves when a reply carrying the task marker arrives.
+ * pair. The promise resolves when a reply carrying a `[peer reply task=<taskID>]`
+ * structured envelope arrives.
  * The `delivery` object owns the bounded state machine.
  */
 export function awaitTaskReply(taskID: string, timeoutMs: number): {
@@ -129,15 +128,23 @@ export function awaitTaskReply(taskID: string, timeoutMs: number): {
 /**
  * True when the text was a reply to a task still being waited on.
  *
+ * The task id rides in the reply's structured envelope header (`[peer reply
+ * task=<id>]`), so correlation matches the header rather than a marker anchored
+ * at the start of the body. That is the point of the migration: a reply whose
+ * id is matched out of the header settles whether or not anything else precedes
+ * it, and a plain message without the header is left to fall through to prompt
+ * injection rather than being mistaken for a task answer.
+ *
  * When the task has already terminalised (timed out, failed, or already
  * replied), the reply is recorded as superseded and the state machine refuses
  * the flip — the return value is `false` so the caller treats it as "no
  * pending task was settled" rather than throwing.
  */
 export function settleTaskReply(text: string): boolean {
-  const reply = parseTaskReply(text)
-  if (!reply) return false
-  const entry = pending.get(reply.taskID)
+  const parsed = parsePeerEnvelope(text)
+  const taskID = parsed?.envelope.mode === "reply" ? parsed.envelope.taskID : undefined
+  if (!taskID) return false
+  const entry = pending.get(taskID)
   if (!entry) return false
   try {
     entry.delivery.transition("replied")
@@ -145,7 +152,7 @@ export function settleTaskReply(text: string): boolean {
     // A terminal state refuses the flip; the reply is superseded.
     return false
   }
-  entry.settle({ ok: true, text: reply.text })
+  entry.settle({ ok: true, text: parsed?.body ?? "" })
   return true
 }
 

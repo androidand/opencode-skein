@@ -3,12 +3,11 @@ import {
   awaitTaskReply,
   buildTaskEnvelope,
   cancelTaskReply,
-  parseTaskReply,
   pickPeer,
   settleTaskReply,
   type PeerCandidate,
 } from "../../src/peer/delegate"
-import { formatPeerEnvelope, peerBody } from "../../src/peer/envelope"
+import { formatPeerEnvelope } from "../../src/peer/envelope"
 
 const claude: PeerCandidate = { owner: "claude-code", id: "4242", name: "example-corp-5e", status: "idle" }
 const cloudPeer: PeerCandidate = {
@@ -46,37 +45,42 @@ describe("task envelope round trip", () => {
     replyTool: "SendMessage",
     deadlineMs: 600_000,
   })
-  test("names the task, the reply address and the marker", () => {
+  test("names the task, the reply address and the reply envelope header", () => {
     expect(envelope).toContain("[peer-task ses_task1]")
     expect(envelope).toContain('"opencode:A2A feature"')
-    expect(envelope).toContain("[peer-task-result ses_task1]")
+    expect(envelope).toContain("[peer reply task=ses_task1]")
     expect(envelope).toContain("Look at src/x.ts")
   })
-  test("parseTaskReply reads the marker and strips it", () => {
-    expect(parseTaskReply("[peer-task-result ses_task1]\nAll good.")).toEqual({ taskID: "ses_task1", text: "All good." })
-    expect(parseTaskReply("  [peer-task-result ses_task1] inline")).toEqual({ taskID: "ses_task1", text: "inline" })
+  test("a reply header carries the task id", () => {
+    const reply = formatPeerEnvelope({ mode: "reply", messageID: "m1", taskID: "ses_task1" }, "All good.")
+    expect(reply).toContain("[peer reply id=m1 task=ses_task1]")
+    expect(reply.endsWith("All good.")).toBe(true)
   })
-  test("plain messages are not replies", () => {
-    expect(parseTaskReply("hi there")).toBeUndefined()
-    expect(parseTaskReply("see [peer-task-result x] later")).toBeUndefined()
+  test("a plain message is not a reply", () => {
+    expect(settleTaskReply("hi there")).toBe(false)
   })
 })
 
 describe("reply registry", () => {
   test("a matching reply settles the wait", async () => {
     const { promise: waiting } = awaitTaskReply("t1", 5_000)
-    expect(settleTaskReply("[peer-task-result t1]\ndone")).toBe(true)
+    const reply = formatPeerEnvelope({ mode: "reply", messageID: "m1", taskID: "t1" }, "done")
+    expect(settleTaskReply(reply)).toBe(true)
     expect(await waiting).toEqual({ ok: true, text: "done" })
   })
   test("a reply nobody waits for is not consumed", () => {
-    expect(settleTaskReply("[peer-task-result nobody]\nx")).toBe(false)
+    const reply = formatPeerEnvelope({ mode: "reply", messageID: "m1", taskID: "nobody" }, "x")
+    expect(settleTaskReply(reply)).toBe(false)
   })
-  test("a header in front of the marker still settles, because the header is stripped first", async () => {
+  test("a reply with its own header settles without depending on anything before it", async () => {
     const { promise: waiting } = awaitTaskReply("t4", 5_000)
-    const wrapped = formatPeerEnvelope({ mode: "reply", messageID: "m1", taskID: "t4" }, "[peer-task-result t4]\ndone")
-    expect(/^\s*\[peer-task-result /.test(peerBody(wrapped))).toBe(true)
-    expect(settleTaskReply(peerBody(wrapped))).toBe(true)
+    const reply = formatPeerEnvelope({ mode: "reply", messageID: "m1", taskID: "t4" }, "done")
+    expect(settleTaskReply(reply)).toBe(true)
     expect(await waiting).toEqual({ ok: true, text: "done" })
+  })
+  test("a reply with no structured header is not consumed", () => {
+    // The marker path is retired; a bare `[peer-task-result ...]` line is just text.
+    expect(settleTaskReply("[peer-task-result t1]\ndone")).toBe(false)
   })
   test("times out", async () => {
     expect(await (awaitTaskReply("t2", 5)).promise).toEqual({ ok: false, reason: "timeout" })
@@ -85,6 +89,7 @@ describe("reply registry", () => {
     const { promise: waiting } = awaitTaskReply("t3", 5_000)
     cancelTaskReply("t3")
     expect(await waiting).toEqual({ ok: false, reason: "cancelled" })
-    expect(settleTaskReply("[peer-task-result t3]\nlate")).toBe(false)
+    const late = formatPeerEnvelope({ mode: "reply", messageID: "m1", taskID: "t3" }, "late")
+    expect(settleTaskReply(late)).toBe(false)
   })
 })

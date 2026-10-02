@@ -14,7 +14,7 @@ import { SessionID } from "@/session/schema"
 import { SessionPrompt } from "@/session/prompt"
 import { formatPeerMessage } from "@/session/peers"
 import { settleTaskReply } from "@/peer/delegate"
-import { peerBody, settlePeerReply } from "@/peer/envelope"
+import { settlePeerReply } from "@/peer/envelope"
 import { PeerInbox } from "@/peer/inbox"
 import { RecentIDs } from "@/peer/recent-ids"
 import { claudePidOf, resolveOpencodeSender } from "@/peer/route"
@@ -66,12 +66,10 @@ const layer = Layer.effect(
       // A frame `msg_id` is a real correlation id: the same id twice is one
       // message retried or replayed, and the session must see it once.
       if (inbound.msgID && !recent.admit(`${inbound.sessionID}:${inbound.msgID}`)) return
-      // Through peerBody, not the raw text: delegate.ts anchors its
-      // `[peer-task-result <id>]` marker at the START of the message, so once
-      // messages carry a correlation header the anchor stops matching and
-      // every delegated task times out instead of settling. A no-op today,
-      // because a message without a header comes back unchanged.
-      if (settleTaskReply(peerBody(inbound.text))) return
+      // The task id rides in the reply's structured envelope header, so the
+      // correlation reads the header, not a marker anchored at the start of the
+      // body. Pass the raw text so the header (and its task id) is not stripped.
+      if (settleTaskReply(inbound.text)) return
       // Structured envelope replies carry `in-reply-to` so a sender can await
       // a synchronous answer. Match against pending requests before injecting
       // the message as a prompt. Falls through to prompt injection when there

@@ -4,7 +4,7 @@ import { Permission } from "@/permission"
 import { sendClaudeMessage } from "@/peer/claude/client"
 import { resolveClaudeTarget } from "@/peer/claude/resolve"
 import { settleTaskReply } from "@/peer/delegate"
-import { formatPeerEnvelope, newMessageID, peerBody, type PeerMode } from "@/peer/envelope"
+import { formatPeerEnvelope, newMessageID, type PeerMode } from "@/peer/envelope"
 import { PeerInbox } from "@/peer/inbox"
 import { RepeatGuard } from "@/peer/repeat-guard"
 import {
@@ -312,11 +312,10 @@ export const SendPeerMessageTool = Tool.define(
             }
           }
 
-           // settleTaskReply matches the older `[peer-task-result <id>]` marker
-           // anchored at the START of the text; once a request carries a header
-           // that anchor no longer matches and every delegated task would time
-            // out silently, so strip the header first. See peerBody's contract.
-            if (settleTaskReply(peerBody(message))) {
+           // The task id rides in the reply's structured envelope header, so
+           // the correlation reads the header rather than a marker at the start
+           // of the body. Pass the raw message so the header is not stripped.
+            if (settleTaskReply(message)) {
               return {
                 title: `Task result delivered to ${peer.title}`,
                 metadata: { sessionID: peer.sessionID, accepted: true },
