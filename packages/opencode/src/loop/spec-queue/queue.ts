@@ -111,7 +111,7 @@ function readTasks(root: string, slug: string): TaskItem[] | undefined {
  * and ordered by `compareOrder` (priority, then creation date, then slug).
  * Directories without a `tasks.md` are not changes and are ignored.
  */
-export function resolveQueue(root: string, only?: readonly string[]): ResolvedQueue {
+export function resolveQueue(root: string, only?: readonly string[], claimedSlugs?: ReadonlySet<string>): ResolvedQueue {
   const changesDir = path.join(root, "openspec", "changes")
   const result: ResolvedQueue = { eligible: [], quarantined: [], complete: [], hasOpenspec: false }
   if (!fs.existsSync(changesDir)) return result
@@ -136,6 +136,7 @@ export function resolveQueue(root: string, only?: readonly string[]): ResolvedQu
       result.complete.push(slug)
       continue
     }
+    if (claimedSlugs?.has(slug)) continue
     result.eligible.push({ slug, directory, tasks, order: readOrder(directory, slug) })
   }
   // An explicit `only` list is itself the priority statement, so only the

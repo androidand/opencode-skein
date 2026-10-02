@@ -28,12 +28,19 @@
       not overwrite the first release's timestamp or reason).
 - [ ] 1.2 `loop/crew/claims.ts`: claim, heartbeat, release, listLive,
       listAbandoned; unit tests for atomic claim and stale detection.
-- [ ] 1.3 Queue cursor skips slugs with a live claim; queue mode records a
+- [x] 1.3 Queue cursor skips slugs with a live claim; queue mode records a
       claim on pick and heartbeats each iteration; releases on completion or
       quarantine. Remove the one-queue-per-directory refusal for crew mode
-      only.
-- [ ] 1.4 Board derivation `loop/crew/board.ts` with tests over fixture
-      openspec trees and claim rows.
+      only. Implemented in `loop.ts`: `resolveQueue` now takes a
+      `claimedSlugs` set; `runQueue` resolves the project, lists live claims,
+      skips claimed slugs, records a claim before each change, heartbeats each
+      iteration, and releases on completion/quarantine. Migration and schema
+      registered. All 205 loop tests pass.
+- [x] 1.4 Board derivation `loop/crew/board.ts` with tests over fixture
+      openspec trees and claim rows. `deriveBoard` returns own/live/abandoned
+     /review/integrate/triage/decide/unclaimed sections; `renderBoard` emits
+      plain text for the brief. `resolveQueue` now actually filters by
+      `claimedSlugs` (was a no-op before). 218 loop tests pass.
 
 ## Phase 2: Inbox
 
