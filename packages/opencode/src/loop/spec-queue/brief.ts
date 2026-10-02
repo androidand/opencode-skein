@@ -44,6 +44,11 @@ export interface BriefInput {
    * derived from the checkboxes on disk and must stay that way.
    */
   guidance?: string
+  /**
+   * Set when the previous turn ended by asking the user or waiting on a peer
+   * (loop/stop-reason.ts): tells the model to decide and continue instead of stopping again.
+   */
+  stopNudge?: string
 }
 
 function readIfExists(file: string): string | undefined {
@@ -99,6 +104,8 @@ export function buildBrief(input: BriefInput): string {
       GATE_INSTRUCTIONS[input.gate],
     ].join("\n"),
   )
+
+  if (input.stopNudge) parts.push(input.stopNudge)
 
   if (input.failure) {
     parts.push(

@@ -41,6 +41,38 @@ export interface ChangeOrder {
 
 export const DefaultPriority = 100
 
+/**
+ * A cheap fingerprint of everything that decides what the queue contains, read from the
+ * working tree only — no git. Idle-watch compares it between polls so it re-resolves the
+ * queue (which shells out to git once per change) only when something changed, and on a slow
+ * timer for branch-only changes. `tasks.md` and `.skein/blocker.md` of every candidate, plus
+ * which candidates exist. Deliberately a string: equality is all anyone needs.
+ */
+export function queueFingerprint(root: string): string {
+  const changesDir = path.join(root, "openspec", "changes")
+  let entries: fs.Dirent[]
+  try {
+    entries = fs.readdirSync(changesDir, { withFileTypes: true })
+  } catch {
+    return "no-openspec"
+  }
+  const parts: string[] = []
+  for (const entry of entries) {
+    if (!entry.isDirectory() || EXCLUDED.has(entry.name)) continue
+    const dir = path.join(changesDir, entry.name)
+    const stamp = (file: string) => {
+      try {
+        const s = fs.statSync(file)
+        return `${s.mtimeMs}:${s.size}`
+      } catch {
+        return "-"
+      }
+    }
+    parts.push(`${entry.name}|${stamp(path.join(dir, "tasks.md"))}|${stamp(path.join(dir, ".skein", "blocker.md"))}|${stamp(path.join(dir, ".openspec.yaml"))}`)
+  }
+  return parts.sort().join("\n")
+}
+
 export interface ResolvedQueue {
   /** eligible changes with at least one unchecked task, in queue order */
   eligible: QueueChange[]
@@ -190,6 +222,36 @@ export function unquarantine(change: QueueChange): void {
   if (fs.existsSync(file)) fs.rmSync(file, { force: true })
   // Leave .skein itself if anything else lives there.
   if (fs.existsSync(dir) && fs.readdirSync(dir).length === 0) fs.rmdirSync(dir)
+}
+
+/**
+ * Clears quarantines the queue itself wrote (marked "by loop-spec-queue") so a
+ * freshly started run gets to retry them. A blocker means "this run gave up
+ * after three failures", not "this change can never work": left permanent it
+ * silently empties every later run — every change stale-blocked, /backlog
+ * "completes" instantly with nothing attempted. Hand-written blockers (no
+ * marker) are a human's decision and are left alone. Within the run the
+ * ordinary quarantine still applies: a change that fails again is re-blocked
+ * with a fresh timestamp and skipped for the rest of it.
+ * Returns the slugs that were cleared.
+ */
+export function retryQuarantined(root: string, only?: readonly string[]): string[] {
+  const cleared: string[] = []
+  const queue = resolveQueue(root, only)
+  for (const slug of queue.quarantined) {
+    const directory = path.join(root, "openspec", "changes", slug)
+    const file = path.join(directory, ".skein", "blocker.md")
+    let text: string
+    try {
+      text = fs.readFileSync(file, "utf8")
+    } catch {
+      continue
+    }
+    if (!text.includes("(by loop-spec-queue)")) continue
+    unquarantine({ slug, directory } as QueueChange)
+    cleared.push(slug)
+  }
+  return cleared
 }
 
 /**

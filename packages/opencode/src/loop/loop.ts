@@ -16,6 +16,7 @@ import { SessionPrompt } from "@/session/prompt"
 import { SessionID } from "@/session/schema"
 import { Session } from "@/session/session"
 import { SessionStatus } from "@/session/status"
+import { Unattended } from "@/session/unattended"
 import { Config } from "@/config/config"
 import { Provider } from "@/provider/provider"
 import { Agent as AgentSvc } from "@/agent/agent"
@@ -41,11 +42,13 @@ import {
   cursor,
   nearbyOpenspecRepos,
   quarantine,
+  queueFingerprint,
   resolveQueue,
+  retryQuarantined,
   unquarantine,
   type QueueChange,
 } from "./spec-queue/queue"
-import { QueueDenyRules, withoutCredentials } from "./spec-queue/authority"
+import { QueueAuthority, QueueDenyRules, withoutCredentials } from "./spec-queue/authority"
 import { AgentGates, readVerdict, resolvePersonas, type PersonaBindings } from "./spec-queue/personas"
 
 import { contractPart, DEFAULT_COMPLETION_TOKEN, matchesCompletion, promptDisablesCompletion } from "./completion"
@@ -59,6 +62,10 @@ export const DefaultMaxIterations = 50
 // before the stall guard fires.
 export const DefaultNoProgressLimit = 15
 export const DefaultIntervalSeconds = 2
+
+/** Idle-watch polling: first poll after at least this long, doubling up to the cap. */
+export const WatchMinMs = 250
+export const WatchMaxMs = 30_000
 // Keep at most this many IterationInfo entries in the state payload.
 // After this cap the full count is still tracked via info.iteration.
 // Without a cap the iterations array grows to thousands of entries, making
@@ -148,6 +155,9 @@ export const Info = Schema.Struct({
   currentGate: Schema.optional(Schema.String),
   // End-of-run report for queue mode (design D7).
   report: Schema.optional(Schema.String),
+  // loop-done-handoff: the queue drained but the run was asked to keep watching,
+  // so it is alive and quiet rather than finished. Not a stall and not terminal.
+  watching: Schema.optional(Schema.Boolean),
   startedAt: Schema.Finite,
   lastRunAt: Schema.optional(Schema.Finite),
   finishedAt: Schema.optional(Schema.Finite),
@@ -183,6 +193,11 @@ export const CreateInput = Schema.Struct({
   // enforced is pushed, never the default branch, and the model still cannot
   // push anything itself — the driver runs the one command.
   queuePush: Schema.optional(Schema.Boolean),
+  // Keep watching for new work when the queue drains instead of finishing
+  // (loop-done-handoff). Off at the engine so existing callers keep their
+  // contract; the SDK's defaults turn it on for the CLI and TUI, because "done"
+  // should hand over, not halt the agent.
+  queueWatch: Schema.optional(Schema.Boolean),
   // Gate command overrides. Defaults: `bun test`, `bun run typecheck`, and
   // the default branch detected from origin/HEAD (fallback "main").
   queueOptions: Schema.optional(
@@ -234,6 +249,7 @@ export { similarity } from "./similarity"
 import { similarity } from "./similarity"
 export { continuationPrompt, type PreviousOutcome } from "./continuation"
 import { continuationPrompt, type PreviousOutcome } from "./continuation"
+import { classifyStop, ladderNudge } from "./stop-reason"
 
 function promptHead(prompt: string) {
   const trimmed = prompt.trim()
@@ -263,6 +279,8 @@ type QueueState = {
   gatesPassed: Set<Gate>
   options?: CreateInput["queueOptions"]
   push?: boolean
+  /** Keep watching for new work after the queue drains. */
+  watch?: boolean
   syncs: { slug: string; ok: boolean; output: string }[]
   pushes: { slug: string; branch: string; ok: boolean; output: string }[]
   outcomes: ChangeOutcome[]
@@ -518,9 +536,13 @@ export const layer = Layer.effect(
       Effect.gen(function* () {
         const current = (yield* Ref.get(state)).get(id)
         if (!current || isTerminal(current.info.status)) return
+        // The run this session was marked unattended for is over — restore
+        // normal ask-blocking behavior for it. New subagents already stopped
+        // spawning; any still running keep their own mark until they finish.
+        Unattended.unmark(current.info.sessionID)
         yield* patch(id, (record) => ({
           ...record,
-          info: { ...record.info, status, finishedAt: Date.now() },
+          info: { ...record.info, status, finishedAt: Date.now(), watching: undefined },
         }))
         yield* emit(id)
       })
@@ -658,6 +680,7 @@ export const layer = Layer.effect(
               toolCalls: result.toolCalls,
               outputLength: result.outputLength,
               wasNearIdentical: nearIdentical,
+              stop: classifyStop(result.output),
             },
             noProgressStreak: streak,
           }))
@@ -886,6 +909,7 @@ export const layer = Layer.effect(
             guidance: record.queue?.guidance,
             steers: record.steers,
             persona,
+            stopNudge: ladderNudge(record.lastOutcome?.stop ?? "other"),
           })
           const result = yield* runIteration(record, { promptText: brief, sessionID: changeSessionID })
 
@@ -901,6 +925,14 @@ export const layer = Layer.effect(
 
           yield* patch(id, (current) => ({
             ...current,
+            // What ended this turn, so the next brief can say "do not stop to ask" when it was a
+            // question to the user or a wait on a peer (loop-done-handoff / escalate-before-idle).
+            lastOutcome: {
+              toolCalls: result.toolCalls,
+              outputLength: result.outputLength,
+              wasNearIdentical: false,
+              stop: classifyStop(result.output),
+            },
             info: {
               ...current.info,
               iteration: result.iteration,
@@ -1069,13 +1101,13 @@ export const layer = Layer.effect(
         // iteration: an unattended run is only auditable if you can see what it
         // decided to work, and in what order, up front.
         if (initial) {
-          const first = resolveQueue(initial.info.directory, initial.queue?.only)
+          const firstPass = resolveQueue(initial.info.directory, initial.queue?.only)
           // "Nothing eligible" and "this is not an openspec repo" are the same
           // empty queue but completely different situations. Reporting the
           // second as a drained backlog tells someone their work is done when
           // in fact nothing was ever found — most likely because the run was
           // started in a workspace directory rather than in a repo.
-          if (!first.hasOpenspec) {
+          if (!firstPass.hasOpenspec) {
             const nearby = nearbyOpenspecRepos(initial.info.directory)
             yield* finishQueue(
               id,
@@ -1087,6 +1119,16 @@ export const layer = Layer.effect(
             )
             return
           }
+          // A new run is a new attempt: blockers left by earlier runs are
+          // retried (see retryQuarantined) rather than silently emptying the
+          // queue forever.
+          const retried = retryQuarantined(initial.info.directory, initial.queue?.only)
+          if (retried.length > 0) {
+            yield* Effect.logInfo("queue retrying quarantined changes from earlier runs", {
+              "queue.retried": retried.join(", "),
+            })
+          }
+          const first = resolveQueue(initial.info.directory, initial.queue?.only)
           yield* Effect.logInfo("queue resolved", {
             "queue.order": first.eligible.map((c) => c.slug).join(", ") || "(nothing eligible)",
             "queue.quarantined": first.quarantined.join(", ") || "(none)",
@@ -1129,6 +1171,8 @@ export const layer = Layer.effect(
             }
           })
 
+        // Idle-watch backoff, in ms; reset whenever work is found.
+        let watchMs = 0
         while (true) {
           const record = yield* running()
           if (!record?.queue) return
@@ -1140,13 +1184,64 @@ export const layer = Layer.effect(
           const resolved = resolveQueue(record.info.directory, queueState.only)
           const change = cursor(resolved)
           if (!change) {
+            // Nothing attempted and nothing complete is not a finished
+            // backlog — say what is in the way instead of "completing".
+            if (queueState.outcomes.length === 0 && resolved.quarantined.length > 0) {
+              yield* finishQueue(
+                id,
+                "error",
+                `nothing to run — ${resolved.quarantined.length} change(s) are blocked (see .skein/blocker.md in each): ${resolved.quarantined.join(", ")}`,
+              )
+              return
+            }
+            if (queueState.outcomes.length === 0 && resolved.complete.length === 0) {
+              yield* finishQueue(id, "error", "nothing to run — no change under openspec/changes has a tasks.md with open tasks")
+              return
+            }
+            if (queueState.watch) {
+              // Done is a handoff, not an exit (loop-done-handoff). Say what happened once, stay
+              // alive, and look again — new openspec changes, a released blocker, or a lead's
+              // delegation all arrive as files, so the queue re-resolves from disk each time.
+              if (watchMs === 0) {
+                yield* Effect.logInfo("queue drained — watching for new work", { "loop.id": id })
+                yield* patch(id, (current) => ({
+                  ...current,
+                  info: {
+                    ...current.info,
+                    watching: true,
+                    currentChange: undefined,
+                    currentGate: undefined,
+                    report: buildReport(current.queue!, "queue drained — watching for new work"),
+                  },
+                }))
+                yield* emit(id)
+              }
+              watchMs = watchMs === 0 ? Math.max(WatchMinMs, (record.info.interval ?? 0) * 1000) : Math.min(WatchMaxMs, watchMs * 2)
+              // Sleep in short slices so cancel and pause are felt promptly, not after the backoff,
+              // and wake the moment the openspec files change. Re-resolving the queue shells out to
+              // git once per change, so it must not happen on every poll of an idle agent: it runs
+              // when the fingerprint moves, or when the backoff (capped at WatchMaxMs) expires, which
+              // catches changes that only exist on a loop/<slug> branch.
+              const before = queueFingerprint(record.info.directory)
+              let waited = 0
+              while (waited < watchMs) {
+                const slice = Math.min(250, watchMs - waited)
+                yield* Effect.sleep(`${slice} millis`)
+                waited += slice
+                const current = (yield* Ref.get(state)).get(id)
+                if (!current || current.info.status !== "running") break
+                if (queueFingerprint(record.info.directory) !== before) break
+              }
+              continue
+            }
             yield* finishQueue(id, "completed", "queue drained — every change is complete or quarantined")
             return
           }
 
+          watchMs = 0
           yield* patch(id, (current) => ({
             ...current,
-            info: { ...current.info, currentChange: change.slug, currentGate: "implement" },
+            info: { ...current.info, currentChange: change.slug, currentGate: "implement", watching: undefined },
           }))
           yield* emit(id)
 
@@ -1475,6 +1570,27 @@ export const layer = Layer.effect(
       anyGatePassed: false,
     })
 
+    // The one-queue-per-directory rule, in one place (loop-done-handoff 0.3).
+    //
+    // Two queue loops over one directory fight over the same derived cursor and
+    // working tree. This existed inline at both entry points with one difference
+    // between them — the prompt-to-queue transition has to exclude the loop that
+    // is asking, because at that moment it IS the live loop for the directory. An
+    // invariant written twice with a subtle difference is one refactor away from
+    // being wrong in a way no test covers, so the difference is a parameter.
+    //
+    // `exceptID` is the loop asking the question. Omit it when the loop does not
+    // yet exist.
+    const activeQueueOver = Effect.fnUntraced(function* (directory: string, exceptID?: LoopID) {
+      return Array.from((yield* Ref.get(state)).values()).find(
+        (record) =>
+          record.info.mode === "queue" &&
+          record.info.directory === directory &&
+          !isTerminal(record.info.status) &&
+          record.info.id !== exceptID,
+      )
+    })
+
     // Runs a prompt-mode loop; on completion, checks the openspec backlog
     // before finalizing (design: loop-eternal-by-default). If planned work
     // remains and the loop opted in (the default), the loop does not stop —
@@ -1501,14 +1617,9 @@ export const layer = Layer.effect(
         // same derived cursor and working tree (the exact conflict
         // QueueActiveError exists to prevent at creation time) — the same
         // guard applies here since this transition makes this loop
-        // queue-shaped too.
-        const activeQueue = Array.from((yield* Ref.get(state)).values()).find(
-          (other) =>
-            other.info.id !== id &&
-            other.info.mode === "queue" &&
-            other.info.directory === record.info.directory &&
-            !isTerminal(other.info.status),
-        )
+        // queue-shaped too. `exceptID` is this loop, which at this moment is
+        // itself the live loop for the directory.
+        const activeQueue = yield* activeQueueOver(record.info.directory, id)
         if (activeQueue) {
           yield* Effect.logInfo(
             "loop completed with backlog work remaining, but another queue run is already active in this directory — not transitioning",
@@ -1533,7 +1644,11 @@ export const layer = Layer.effect(
         }))
         yield* emit(id)
 
-        yield* session.setPermission({ sessionID, permission: [...priorPermission, ...QueueDenyRules] }).pipe(Effect.ignore)
+        // A scoped prompt-mode run is already fenced; do not append the ceiling twice.
+        const alreadyFenced = QueueAuthority.deniesPush(priorPermission)
+        yield* session
+          .setPermission({ sessionID, permission: alreadyFenced ? priorPermission : [...priorPermission, ...QueueDenyRules] })
+          .pipe(Effect.ignore)
         yield* runQueue(id).pipe(
           Effect.ensuring(session.setPermission({ sessionID, permission: priorPermission }).pipe(Effect.ignore)),
         )
@@ -1566,15 +1681,12 @@ export const layer = Layer.effect(
           directory = parent.directory
         }
         if (mode === "queue") {
-          // Two queue loops over one directory would fight over the same
-          // derived cursor and working tree (design D1) — refuse the second.
-          const active = Array.from((yield* Ref.get(state)).values()).find(
-            (record) =>
-              record.info.mode === "queue" && record.info.directory === directory && !isTerminal(record.info.status),
-          )
-          if (active) {
-            return yield* Effect.fail(new QueueActiveError({ activeLoopID: active.info.id, directory }))
-          }
+// Two queue loops over one directory would fight over the same
+        // derived cursor and working tree (design D1) — refuse the second.
+        const active = yield* activeQueueOver(directory)
+        if (active) {
+          return yield* Effect.fail(new QueueActiveError({ activeLoopID: active.info.id, directory }))
+        }
         }
         const completionToken = input.completionToken?.trim() || DEFAULT_COMPLETION_TOKEN
         // A token that already appears in the user's prompt cannot be told
@@ -1617,6 +1729,7 @@ export const layer = Layer.effect(
                     guidance: input.queueGuidance,
                     sync: input.queueSync ?? false,
                     push: input.queuePush ?? true,
+                    watch: input.queueWatch ?? false,
                     gatesPassed: new Set<Gate>(),
                     options: input.queueOptions,
                     syncs: [],
@@ -1635,19 +1748,34 @@ export const layer = Layer.effect(
         // as "error" and log the cause instead.
         // The authority ceiling rides on the session the work runs in — which
         // is the session you are watching, because a run you cannot see is
-        // useless. That ruleset is what denies pushing AND what marks the run
-        // unattended so it never stops to ask.
+        // useless. QueueDenyRules is what denies pushing, in queue mode.
+        // Unattended marking is what makes a permission `ask` auto-allow
+        // instead of hanging forever on a Deferred nobody will ever resolve
+        // (Permission.ask has no timeout) — that applies to every loop mode,
+        // not just queue, since a prompt-mode loop is just as unattended.
         //
         // Applied here, next to the fiber that owns the run's whole lifetime,
-        // and released with `ensuring` so that draining, halting, cancelling
-        // or dying all hand your session back exactly as it was found. Doing
-        // this deeper inside the driver would leave the return paths to be
-        // audited one by one.
-        const priorPermission =
-          mode === "queue"
-            ? ((yield* session.get(sessionID).pipe(Effect.orElseSucceed(() => undefined)))?.permission ?? [])
-            : []
-        if (mode === "queue") {
+        // and released with `ensuring` (permission) / in `finalize`/`cancel`
+        // (the mark) so that draining, halting, cancelling or dying all hand
+        // your session back exactly as it was found. Doing this deeper
+        // inside the driver would leave the return paths to be audited one
+        // by one.
+        // The unattended policy comes from config: `experimental.unattended_permissions`
+        // (scoped by default), and `auto_mode: true` means "full auto" unless that is set.
+        const cfgForPolicy = yield* config.get().pipe(Effect.orElseSucceed(() => ({}) as never))
+        const policy = Unattended.policyFromConfig(cfgForPolicy as Parameters<typeof Unattended.policyFromConfig>[0])
+        Unattended.mark(sessionID, policy)
+        // The authority ceiling (no push, deploy, ssh, remote changes) goes on a queue run, as before, and
+        // now also on a prompt-mode run under the default SCOPED policy. Marking a session unattended
+        // without fencing it left a prompt-mode loop with bash, the user's credentials and no ceiling at
+        // all (found in review): "scoped" means in-project, and publishing is outside the project.
+        // `full` and `off` are explicit choices that leave a plain loop as it was; a queue run is always
+        // fenced. The explicit denies are what the policy's "always wins" rests on, so they must exist.
+        const fenced = mode === "queue" || policy.mode === "scoped"
+        const priorPermission = fenced
+          ? ((yield* session.get(sessionID).pipe(Effect.orElseSucceed(() => undefined)))?.permission ?? [])
+          : []
+        if (fenced) {
           yield* session
             .setPermission({ sessionID, permission: [...priorPermission, ...QueueDenyRules] })
             .pipe(Effect.ignore)
@@ -1666,7 +1794,7 @@ export const layer = Layer.effect(
               }),
             ),
             Effect.ensuring(
-              mode === "queue"
+              fenced
                 ? session.setPermission({ sessionID, permission: [...priorPermission] }).pipe(Effect.ignore)
                 : Effect.void,
             ),
@@ -1722,6 +1850,7 @@ export const layer = Layer.effect(
         if (!record) return false
         if (record.info.status !== "running" && record.info.status !== "paused") return false
         const gate = record.pauseGate
+        Unattended.unmark(record.info.sessionID)
         yield* patch(id, (current) => ({
           ...current,
           pauseGate: undefined,
@@ -1729,6 +1858,7 @@ export const layer = Layer.effect(
             ...current.info,
             status: "cancelled",
             finishedAt: Date.now(),
+            watching: undefined,
           },
         }))
         yield* emit(id)

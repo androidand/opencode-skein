@@ -116,6 +116,13 @@ export const LoopCommand = effectCmd({
           "queue mode: push each completed change's branch to origin (default: on). --no-push leaves the commits local. " +
           "The default branch is never pushed, and the model still cannot run a push itself — the driver does it.",
       })
+      .option("once", {
+        type: "boolean",
+        default: false,
+        describe:
+          "queue mode: finish when the queue drains. By default a drained queue keeps watching for new work " +
+          "(new openspec changes, released blockers) so the agent never stops and waits for a restart.",
+      })
       .option("eternal", {
         type: "boolean",
         default: true,
@@ -177,6 +184,7 @@ export const LoopCommand = effectCmd({
         queue: queueMode && args.queue && args.queue.length > 0 ? args.queue : undefined,
         queueSync: queueMode && args.sync ? true : undefined,
         queuePush: queueMode && args.push === false ? false : undefined,
+        queueWatch: queueMode && !args.once ? true : undefined,
         queueGuidance: queueMode ? args.guidance : undefined,
         queueOptions:
           queueMode && (args["gate-cwd"] || args["test-command"] || args["verify-command"])

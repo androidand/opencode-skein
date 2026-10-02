@@ -12,6 +12,9 @@ import { PermissionCommand } from "../cli/cmd/permission"
 // Cross-owner agent roster (opencode-skein + Claude Code) — see
 // openspec/changes/claude-code-peer-source.
 import { AgentsCommand } from "../cli/cmd/agents"
+// Designate, inspect or revoke the session peers should follow — see
+// openspec/changes/lead-authority.
+import { LeadCommand } from "../cli/cmd/lead"
 
 /**
  * Fork-only CLI commands, registered as a single unit from `src/index.ts`.
@@ -30,4 +33,5 @@ export const ForkCommands: CommandModule<any, any>[] = [
   BeadsCommand,
   PermissionCommand,
   AgentsCommand,
+  LeadCommand,
 ]

@@ -59,6 +59,15 @@ describe("queue authority boundary — bypass attempts", () => {
     ["env -i wrapper", "env -i git push"],
     ["xargs indirection", "echo origin | xargs git push"],
     ["find -exec", "find . -name x -exec git push \\;"],
+    // Minting lead authority from a model-reachable shell. The TUI's human
+    // confirmation cannot help here: a model's shell resolves to its own
+    // session, so it would be the model confirming with itself.
+    ["lead set, plain", "opencode lead set"],
+    ["lead set behind a global flag", "opencode --print-logs lead set"],
+    ["lead set with env prefix", "OPENCODE_CONFIG=/tmp/x opencode lead set"],
+    ["lead set compound", "echo ready && opencode lead set"],
+    ["lead set absolute path", "/usr/local/bin/opencode lead set"],
+    ["lead set in a substitution", 'echo "$(opencode lead set)"'],
   ]
 
   for (const [label, command] of attempts) {
@@ -76,6 +85,13 @@ describe("queue authority boundary — bypass attempts", () => {
     ["opaque wrapper script that pushes internally", "./tools/ship.sh"],
     ["heredoc-written script then executed", "bash /tmp/generated.sh"],
     ["make target that pushes", "make release"],
+    // The word "lead" is supplied by xargs at runtime, so the extracted command
+    // node is `xargs opencode set` and `*opencode*lead*set*` cannot match it.
+    // Unlike the three above, the credential-less environment does NOT mitigate
+    // this one — minting lead authority needs no credentials. The protection that
+    // does apply is the human-presence confirmation on `opencode lead set`, which
+    // is why the shell deny is the second layer and not the only one.
+    ["lead set with the keyword supplied at runtime", "echo lead | xargs opencode set"],
   ]
 
   for (const [label, command] of residual) {

@@ -6,6 +6,7 @@ import { Deferred, Effect, Layer, Context } from "effect"
 import os from "os"
 import { PermissionV1 } from "@opencode-ai/core/v1/permission"
 import { EventV2Bridge } from "@/event-v2-bridge"
+import { Unattended } from "@/session/unattended"
 
 export const Event = PermissionV1.Event
 
@@ -78,6 +79,19 @@ const layer = Layer.effect(
           })
         }
         if (rule.action === "allow") continue
+        // Undecided ("ask"). A `/loop`-driven session (or a subagent spawned
+        // under one) has nobody to answer this, so it must not block forever on
+        // a Deferred nothing will ever resolve. What happens instead is the
+        // session's unattended policy (see session/unattended.ts): allow what
+        // belongs to the project, refuse the rest with a reason the model can act
+        // on, or — in full-auto mode — allow everything. An explicit `deny` above
+        // is untouched by this; only the default "ask" changes.
+        const verdict = Unattended.decide(Unattended.policyOf(request.sessionID), request.permission, [pattern])
+        if (verdict === "allow") continue
+        if (verdict === "deny") {
+          yield* Effect.logInfo("refused (unattended)", { permission: request.permission, pattern })
+          return yield* new PermissionV1.DeniedError({ ruleset: [Unattended.refusalRule(request.permission)] })
+        }
         needsAsk = true
       }
 

@@ -25,6 +25,7 @@ import { ModelV2 } from "@opencode-ai/core/model"
 import { AutoMode } from "@/auto-mode/service"
 import { PermissionV1 } from "@opencode-ai/core/v1/permission"
 import { QueueAuthority } from "@/loop/spec-queue/authority"
+import { Unattended } from "@/session/unattended"
 
 const MCP_RESOURCE_TOOLS = {
   list: "list_mcp_resources",
@@ -120,9 +121,20 @@ export const resolve = Effect.fn("SessionTools.resolve")(function* (input: {
         // nobody there to answer it. The ceiling is the control here, not the
         // prompt: deny rules were evaluated above and still hold, and such a
         // session also runs with its push credentials stripped.
-        const unattended = QueueAuthority.deniesPush(mergedRuleset)
-        const autoEnabled = unattended || (yield* autoMode.isEnabled())
-        if (autoEnabled) return
+        // An unattended session's policy decides first (scoped by default: allow what belongs to the
+        // project, refuse the rest with a reason), so the queue loop is no longer "allow everything not
+        // denied". Global auto mode is full auto, honoured as before.
+        const verdict = Unattended.toolAskVerdict({
+          policy: Unattended.policyOf(input.session.id),
+          permission: req.permission,
+          patterns: req.patterns,
+          autoEnabled: yield* autoMode.isEnabled(),
+          queueCeiling: QueueAuthority.deniesPush(mergedRuleset),
+        })
+        if (verdict === "allow") return
+        if (verdict === "deny") {
+          throw new PermissionV1.DeniedError({ ruleset: [Unattended.refusalRule(req.permission)] })
+        }
 
         yield* permission
           .ask({

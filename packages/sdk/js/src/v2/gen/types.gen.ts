@@ -757,6 +757,7 @@ export type Loop = {
   currentChange?: string
   currentGate?: string
   report?: string
+  watching?: boolean
   startedAt: number
   lastRunAt?: number
   finishedAt?: number
@@ -2100,6 +2101,9 @@ export type Config = {
     local_subagent_placement?: boolean
     local_subagent_placement_models?: Array<string>
     peer_delegation?: boolean
+    follow_lead?: boolean
+    unattended_permissions?: "scoped" | "full" | "off"
+    unattended_allow?: Array<string>
     queue_gate?: {
       cwd?: string
       test_command?: string
@@ -9466,6 +9470,7 @@ export type LoopCreateData = {
     queueGuidance?: string
     queueSync?: boolean
     queuePush?: boolean
+    queueWatch?: boolean
     queueOptions?: {
       testCommand?: string
       verifyCommand?: string

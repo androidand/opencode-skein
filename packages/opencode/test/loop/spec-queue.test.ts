@@ -3,16 +3,19 @@ import fs from "fs"
 import os from "os"
 import path from "path"
 import { parseTasksMd, allChecked, uncheckedTasks } from "@/loop/spec-queue/tasks-md"
+import type { PublishPolicy } from "@/policy/publish-policy"
 import {
   resolveQueue,
   cursor,
   quarantine,
   compareOrder,
   nearbyOpenspecRepos,
+  retryQuarantined,
   DefaultPriority,
   type QueueChange,
 } from "@/loop/spec-queue/queue"
 import { buildBrief } from "@/loop/spec-queue/brief"
+import { queueFingerprint } from "@/loop/spec-queue/queue"
 import {
   evaluateImplement,
   evaluateTest,
@@ -143,6 +146,16 @@ function fixtureChange(tasks: string = OPEN): QueueChange {
     order: { priority: DefaultPriority, created: "2026-01-01", slug: "demo" },
   }
 }
+
+describe("buildBrief — stop nudge", () => {
+  test("includes the nudge when the previous turn stopped to ask, and not otherwise", () => {
+    const change = { slug: "c", directory: "/x/openspec/changes/c", tasks: [] } as never
+    const withNudge = buildBrief({ change, gate: "implement", idlePeers: [], stopNudge: "Do not stop to ask." })
+    const without = buildBrief({ change, gate: "implement", idlePeers: [] })
+    expect(withNudge).toContain("Do not stop to ask.")
+    expect(without).not.toContain("Do not stop to ask.")
+  })
+})
 
 describe("buildBrief", () => {
   test("carries the change documents, gate instruction and next task", () => {
@@ -475,5 +488,132 @@ describe("starting somewhere without a backlog", () => {
 
   test("a directory that cannot be read is not an error", () => {
     expect(nearbyOpenspecRepos(path.join(os.tmpdir(), "definitely-missing-dir-xyz"))).toEqual([])
+  })
+})
+
+describe("retryQuarantined", () => {
+  const { mkdtempSync, mkdirSync, writeFileSync, existsSync } = fs
+  const { tmpdir } = os
+  const { join } = path
+
+  function repo() {
+    const root = mkdtempSync(join(tmpdir(), "rq-"))
+    for (const [slug, blocker] of [
+      ["auto", "- Quarantined: 2026-09-19T00:00:00.000Z (by loop-spec-queue)"],
+      ["human", "manual hold — do not touch"],
+    ] as const) {
+      const dir = join(root, "openspec", "changes", slug)
+      mkdirSync(join(dir, ".skein"), { recursive: true })
+      writeFileSync(join(dir, "tasks.md"), "- [ ] 1. work\n")
+      writeFileSync(join(dir, ".skein", "blocker.md"), blocker)
+    }
+    return root
+  }
+
+  test("clears blockers the queue wrote and leaves hand-written ones", () => {
+    const root = repo()
+    expect(resolveQueue(root).eligible).toEqual([])
+    expect(retryQuarantined(root)).toEqual(["auto"])
+    const after = resolveQueue(root)
+    expect(after.eligible.map((c) => c.slug)).toEqual(["auto"])
+    expect(after.quarantined).toEqual(["human"])
+    expect(existsSync(join(root, "openspec", "changes", "auto", ".skein"))).toBe(false)
+  })
+})
+
+describe("queueFingerprint", () => {
+  const make = () => fs.mkdtempSync(path.join(os.tmpdir(), "qfp-"))
+  const write = (root: string, slug: string, file: string, content: string) => {
+    const dir = path.join(root, "openspec", "changes", slug, path.dirname(file))
+    fs.mkdirSync(dir, { recursive: true })
+    fs.writeFileSync(path.join(root, "openspec", "changes", slug, file), content)
+  }
+
+  test("is stable when nothing changed, so an idle agent does not re-resolve the queue", () => {
+    const root = make()
+    write(root, "a", "tasks.md", "- [ ] 1.1 x\n")
+    expect(queueFingerprint(root)).toBe(queueFingerprint(root))
+  })
+
+  test("moves when a task is checked, a change appears, or a blocker is written or cleared", () => {
+    const root = make()
+    write(root, "a", "tasks.md", "- [ ] 1.1 x\n")
+    const first = queueFingerprint(root)
+    write(root, "a", "tasks.md", "- [x] 1.1 x and more\n")
+    const checked = queueFingerprint(root)
+    expect(checked).not.toBe(first)
+    write(root, "b", "tasks.md", "- [ ] 1.1 y\n")
+    const added = queueFingerprint(root)
+    expect(added).not.toBe(checked)
+    write(root, "a", ".skein/blocker.md", "stuck")
+    const blocked = queueFingerprint(root)
+    expect(blocked).not.toBe(added)
+    fs.rmSync(path.join(root, "openspec", "changes", "a", ".skein", "blocker.md"))
+    expect(queueFingerprint(root)).not.toBe(blocked)
+  })
+
+  test("ignores archive and other excluded directories", () => {
+    const root = make()
+    write(root, "a", "tasks.md", "- [ ] 1.1 x\n")
+    const before = queueFingerprint(root)
+    write(root, "archive", "tasks.md", "- [ ] old\n")
+    expect(queueFingerprint(root)).toBe(before)
+  })
+
+  test("a directory with no openspec tree has its own stable answer", () => {
+    expect(queueFingerprint(make())).toBe("no-openspec")
+  })
+})
+
+describe("commit gate under a standing publish policy", () => {
+  const policy: PublishPolicy.Policy = {
+    version: 1,
+    repo: "androidand/opencode-skein",
+    visibility: "public",
+    commit: { branches: ["loop/*"] },
+    push: { remotes: ["origin"], branches: ["loop/*"] },
+    merge: { into: ["dev"], method: "squash", requires: ["gates", "review"], by: ["integrator"] },
+  }
+  const withPolicy = { ...OPTIONS, policy }
+
+  // `scripted` matches the exact command string, so the git log invocation has to
+  // be keyed with the change's slug interpolated — the array form is just a
+  // computed property key.
+  const scriptedFor = (branch: string, change: QueueChange) =>
+    scripted({
+      "git rev-parse --abbrev-ref HEAD": { code: 0, output: `${branch}\n` },
+      [`git log -1 --name-only -- openspec/changes/${change.slug}`]: { code: 0, output: "abc123\ntasks.md" },
+      "git status --porcelain": { code: 0, output: "" },
+    })
+
+  test("a branch the policy granted passes", async () => {
+    const change = fixtureChange()
+    const outcome = await evaluateCommit(scriptedFor(`loop/${change.slug}`, change), change, withPolicy)
+    expect(outcome.passed).toBe(true)
+  })
+
+  test("a non-default branch outside the grant is refused", async () => {
+    // The whole point of putting branch-scoping in the gate: no shell allow can see
+    // which branch is checked out, so `feat/x` has to be caught here.
+    const change = fixtureChange()
+    const outcome = await evaluateCommit(scriptedFor("feat/other", change), change, withPolicy)
+    expect(outcome.passed).toBe(false)
+    expect(outcome.output).toContain("publish policy")
+    expect(outcome.output).toContain("feat/other")
+  })
+
+  test("the default branch is still refused before the policy is consulted", async () => {
+    const change = fixtureChange()
+    const outcome = await evaluateCommit(scriptedFor("dev", change), change, withPolicy)
+    expect(outcome.passed).toBe(false)
+    expect(outcome.output).toContain("default branch")
+  })
+
+  test("with no policy the gate behaves exactly as before", async () => {
+    // A branch outside every plausible grant must still pass when there is no
+    // policy, or this change would silently narrow every ungranted run.
+    const change = fixtureChange()
+    const outcome = await evaluateCommit(scriptedFor("feat/other", change), change, OPTIONS)
+    expect(outcome.passed).toBe(true)
   })
 })

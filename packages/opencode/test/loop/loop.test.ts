@@ -527,6 +527,80 @@ it.instance(
 )
 
 it.instance(
+  "a turn that ends by asking the user gets the ladder next, not the stall directive, and the run continues",
+  () =>
+    Effect.gen(function* () {
+      const { directory: dir } = yield* TestInstance
+      const llm = yield* TestLLMServer
+      yield* writeConfig(dir, providerCfg(llm.url))
+      const loop = yield* Loop.Service
+
+      // The failure the operator reported: the agent stops to ask instead of deciding. Then it carries on.
+      yield* llm.text("I have refactored the parser. Should I also update the docs, or leave that for later?")
+      yield* llm.text("decided from the spec: updating the docs. all finished <promise>COMPLETE</promise>")
+
+      const info = yield* loop.create({ prompt: "refactor the parser", maxIterations: 5, interval: 0, noProgressLimit: 0 })
+      const final = yield* waitForTerminal(info.id)
+      expect(final.status).toBe("completed")
+
+      const hits = yield* llm.hits
+      const bodies = hits.map((h) => JSON.stringify(h.body))
+      const nudged = bodies.filter((b) => b.includes("Do not stop to ask"))
+      expect(nudged.length).toBeGreaterThanOrEqual(1)
+      // The user's own prompt is never lost, and the plain stall directive is not used for an ask.
+      for (const body of nudged) {
+        expect(body).toContain("refactor the parser")
+        expect(body).not.toContain("used no tools")
+      }
+      // The first iteration, before anything was asked, carries no nudge.
+      expect(bodies[0]).not.toContain("Do not stop to ask")
+    }),
+  { config: {} },
+)
+
+// A prompt-mode loop is marked unattended too. Under the default (scoped) policy it must also carry the
+// authority ceiling, or "explicit denies always win" is vacuously true: there would be none to find, and the
+// run would hold bash and the user's credentials with nothing fencing publication.
+const runPushLoop = (config: Record<string, unknown>) =>
+  Effect.gen(function* () {
+    const { directory: dir } = yield* TestInstance
+    const llm = yield* TestLLMServer
+    yield* writeConfig(dir, { ...providerCfg(llm.url), ...config } as never)
+    const loop = yield* Loop.Service
+    const session = yield* Session.Service
+    // No remote exists in the test directory, so an un-fenced push fails harmlessly with a git error.
+    yield* llm.tool("bash", { command: "git push origin nothing-to-push", description: "push the branch" })
+    yield* llm.text("done <promise>COMPLETE</promise>")
+    const info = yield* loop.create({ prompt: "push it", maxIterations: 3, interval: 0, noProgressLimit: 0, eternal: false })
+    const final = yield* waitForTerminal(info.id)
+    const bodies = (yield* llm.hits).map((hit) => JSON.stringify(hit.body)).join("\n")
+    const after = yield* session.get(final.sessionID)
+    return { bodies, after, final }
+  })
+
+it.instance(
+  "a prompt-mode loop under the default policy is fenced: a push is denied by the ceiling",
+  () =>
+    Effect.gen(function* () {
+      const { bodies, after } = yield* runPushLoop({})
+      expect(bodies).toContain("*git*push*") // the DeniedError names the ceiling's rule
+      // ...and the session is handed back exactly as it was found.
+      expect(JSON.stringify(after.permission ?? [])).not.toContain("*git*push*")
+    }),
+  { config: {} },
+)
+
+it.instance(
+  "full auto leaves a plain loop unfenced, as an explicit choice",
+  () =>
+    Effect.gen(function* () {
+      const { bodies } = yield* runPushLoop({ experimental: { unattended_permissions: "full" } })
+      expect(bodies).not.toContain("*git*push*")
+    }),
+  { config: {} },
+)
+
+it.instance(
   "pause, resume, and cancel transition loop status",
   () =>
     Effect.gen(function* () {

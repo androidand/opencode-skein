@@ -9,6 +9,7 @@ import { EventV2Bridge } from "@/event-v2-bridge"
 import { FetchHttpClient } from "effect/unstable/http"
 import { expect } from "bun:test"
 import fs from "fs"
+import os from "os"
 import path from "path"
 import { Effect, Layer, Result } from "effect"
 import { Agent as AgentSvc } from "@/agent/agent"
@@ -25,6 +26,7 @@ import { Git } from "@/git"
 import { Image } from "@/image/image"
 import { Question } from "@/question"
 import { Todo } from "@/session/todo"
+import { Unattended } from "../../src/session/unattended"
 import { Loop } from "@/loop/loop"
 import { LLM } from "@/session/llm"
 import { Session } from "@/session/session"
@@ -236,6 +238,142 @@ const waitForTerminal = (id: Loop.LoopID, seconds = 15) =>
     `${seconds} seconds`,
   )
 
+// loop-done-handoff: a drained queue is not the end of the run when the client
+// asked to keep watching. The agent stays alive, quiet, and picks up the next
+// change that appears — it does not finalize and wait for a human to restart it.
+const waitFor = (label: string, check: Effect.Effect<boolean, never, Loop.Service>, seconds = 10) =>
+  pollWithTimeout(
+    Effect.gen(function* () {
+      return (yield* check) ? true : undefined
+    }),
+    label,
+    `${seconds} seconds`,
+  )
+
+it.instance(
+  "queueWatch: a drained queue keeps watching instead of completing, and says so",
+  () =>
+    Effect.gen(function* () {
+      const { directory: dir } = yield* TestInstance
+      const llm = yield* TestLLMServer
+      yield* writeConfig(dir, providerCfg(llm.url))
+      writeChange(dir, "done-change", "- [x] 1.1 already finished\n")
+      const loop = yield* Loop.Service
+
+      const info = yield* loop.create({ prompt: "", mode: "queue", interval: 0, queueWatch: true })
+      yield* waitFor("loop never entered watching", loop.get(info.id).pipe(Effect.map((l) => l?.watching === true)))
+      // Give it long enough that a finalizing loop would have finished several times over.
+      yield* Effect.sleep("1500 millis")
+      const still = yield* loop.get(info.id)
+      expect(still?.status).toBe("running")
+      expect(still?.watching).toBe(true)
+      expect(still?.finishedAt).toBeUndefined()
+      expect(yield* llm.hits).toHaveLength(0) // watching costs no model turns
+      yield* loop.cancel(info.id)
+    }),
+  { config: {} },
+)
+
+it.instance(
+  "queueWatch: a change that appears while watching is picked up",
+  () =>
+    Effect.gen(function* () {
+      const { directory: dir } = yield* TestInstance
+      const llm = yield* TestLLMServer
+      yield* writeConfig(dir, providerCfg(llm.url))
+      writeChange(dir, "done-change", "- [x] 1.1 already finished\n")
+      const loop = yield* Loop.Service
+
+      const info = yield* loop.create({ prompt: "", mode: "queue", interval: 0, queueWatch: true })
+      yield* waitFor("loop never entered watching", loop.get(info.id).pipe(Effect.map((l) => l?.watching === true)))
+      writeChange(dir, "late-change", "- [ ] 1.1 something new\n")
+      yield* waitFor(
+        "the late change was never picked up",
+        loop.get(info.id).pipe(Effect.map((l) => l?.currentChange === "late-change" && l?.watching !== true)),
+      )
+      yield* loop.cancel(info.id)
+    }),
+  { config: {} },
+)
+
+it.instance(
+  "queueWatch: cancel ends a watching loop promptly",
+  () =>
+    Effect.gen(function* () {
+      const { directory: dir } = yield* TestInstance
+      const llm = yield* TestLLMServer
+      yield* writeConfig(dir, providerCfg(llm.url))
+      writeChange(dir, "done-change", "- [x] 1.1 already finished\n")
+      const loop = yield* Loop.Service
+
+      const info = yield* loop.create({ prompt: "", mode: "queue", interval: 0, queueWatch: true })
+      yield* waitFor("loop never entered watching", loop.get(info.id).pipe(Effect.map((l) => l?.watching === true)))
+      yield* loop.cancel(info.id)
+      const final = yield* waitForTerminal(info.id, 3)
+      expect(final.status).toBe("cancelled")
+      // A finished loop must not keep reporting that it is watching for new work.
+      expect(final.watching).toBeUndefined()
+    }),
+  { config: {} },
+)
+
+// One instance per config: the config service caches within an instance, so rewriting the
+// file mid-test would not be seen.
+const policyForConfig = (config: Record<string, unknown>) =>
+  Effect.gen(function* () {
+    const { directory: dir } = yield* TestInstance
+    const llm = yield* TestLLMServer
+    yield* writeConfig(dir, { ...providerCfg(llm.url), ...config } as never)
+    writeChange(dir, "done-change", "- [x] 1.1 already finished\n")
+    const loop = yield* Loop.Service
+    // queueWatch keeps the run alive, so its session stays marked long enough to read.
+    const info = yield* loop.create({ prompt: "", mode: "queue", interval: 0, queueWatch: true })
+    yield* waitFor("session never marked", Effect.sync(() => Unattended.policyOf(info.sessionID) !== undefined))
+    const policy = Unattended.policyOf(info.sessionID)
+    yield* loop.cancel(info.id)
+    yield* waitForTerminal(info.id, 5)
+    return policy
+  })
+
+it.instance(
+  "a loop run is marked scoped by default",
+  () => Effect.gen(function* () { expect(yield* policyForConfig({})).toEqual({ mode: "scoped", extraAllow: [] }) }),
+  { config: {} },
+)
+
+it.instance(
+  "auto_mode: true marks a loop run full auto",
+  () => Effect.gen(function* () { expect((yield* policyForConfig({ auto_mode: true }))?.mode).toBe("full") }),
+  { config: {} },
+)
+
+it.instance(
+  "experimental.unattended_permissions and unattended_allow reach the loop's session",
+  () =>
+    Effect.gen(function* () {
+      const policy = yield* policyForConfig({ experimental: { unattended_permissions: "scoped", unattended_allow: ["webfetch"] } })
+      expect(policy).toEqual({ mode: "scoped", extraAllow: ["webfetch"] })
+    }),
+  { config: {} },
+)
+
+it.instance(
+  "without queueWatch a drained queue still completes (the server default is unchanged)",
+  () =>
+    Effect.gen(function* () {
+      const { directory: dir } = yield* TestInstance
+      const llm = yield* TestLLMServer
+      yield* writeConfig(dir, providerCfg(llm.url))
+      writeChange(dir, "done-change", "- [x] 1.1 already finished\n")
+      const loop = yield* Loop.Service
+      const info = yield* loop.create({ prompt: "", mode: "queue", interval: 0 })
+      const final = yield* waitForTerminal(info.id)
+      expect(final.status).toBe("completed")
+      expect(final.watching).toBeUndefined()
+    }),
+  { config: {} },
+)
+
 it.instance(
   "a drained queue completes immediately with a full-accounting report",
   () =>
@@ -357,6 +495,33 @@ it.instance(
         expect(second.failure.activeLoopID).toBe(first.id)
       }
       yield* loop.cancel(first.id)
+    }),
+  { config: {} },
+)
+
+it.instance(
+  "a finished queue loop does not keep blocking its directory",
+  () =>
+    Effect.gen(function* () {
+      // The other half of the one-queue-per-directory rule. Refusing a second
+      // live queue loop is only correct if a *finished* one stops blocking —
+      // otherwise a directory is permanently unusable after its first run, and
+      // the guard that protects the cursor would also be the thing that ends the
+      // driver.
+      const { directory: dir } = yield* TestInstance
+      const llm = yield* TestLLMServer
+      yield* writeConfig(dir, providerCfg(llm.url))
+      writeChange(dir, "quick-change", "- [ ] 1.1 do the work\n")
+      const loop = yield* Loop.Service
+
+      const first = yield* loop.create({ prompt: "", mode: "queue", interval: 0 })
+      yield* loop.cancel(first.id)
+      const settled = yield* waitForTerminal(first.id)
+      expect(settled.status).not.toBe("running")
+
+      const second = yield* loop.create({ prompt: "", mode: "queue", interval: 0 }).pipe(Effect.result)
+      if (Result.isFailure(second)) throw new Error(`expected a second queue loop to be allowed, got ${second.failure._tag}`)
+      yield* loop.cancel(second.success.id)
     }),
   { config: {} },
 )
@@ -571,6 +736,120 @@ it.instance(
       expect(final.report).toContain("nothing was attempted")
       expect(yield* llm.hits).toHaveLength(0)
     }),
+  { config: {} },
+)
+
+// The tool layer used to skip permission questions for a queue session before the unattended policy
+// was consulted, so the main swarm mode could read outside the project while the policy only governed
+// prompt-mode loops. These drive a real queue loop through the real tool path. `external_directory`
+// is the permission that asks by default (webfetch is allowed by the built-in agent, so it never asks).
+const REFUSAL = "not available in an unattended run"
+const SECRET = "OUTSIDE-THE-PROJECT-MARKER-7f3a"
+const runOutsideReadLoop = (config: Record<string, unknown>) =>
+  Effect.gen(function* () {
+    const { directory: dir } = yield* TestInstance
+    const llm = yield* TestLLMServer
+    yield* writeConfig(dir, { ...providerCfg(llm.url), ...config } as never)
+    writeChange(dir, "needs-outside", "- [ ] 1.1 read something outside\n")
+    const outsideDir = fs.mkdtempSync(path.join(os.tmpdir(), "outside-project-"))
+    const outside = path.join(outsideDir, "notes.txt")
+    fs.writeFileSync(outside, `${SECRET}\n`)
+    const loop = yield* Loop.Service
+    yield* llm.tool("read", { filePath: outside })
+    for (let i = 0; i < 8; i++) yield* llm.text("carrying on")
+    const info = yield* loop.create({
+      prompt: "",
+      mode: "queue",
+      interval: 0,
+      maxIterations: 4,
+      queueOptions: { testCommand: "exit 0", verifyCommand: "exit 0", defaultBranch: "main" },
+    })
+    // Wait until the model is called again: the first call's tool result is in that request.
+    yield* pollWithTimeout(
+      Effect.gen(function* () {
+        return (yield* llm.hits).length >= 2 ? true : undefined
+      }),
+      "the model was never called again after the tool call",
+      "30 seconds",
+    )
+    const bodies = (yield* llm.hits).map((hit) => JSON.stringify(hit.body)).join("\n")
+    yield* loop.cancel(info.id)
+    fs.rmSync(outsideDir, { recursive: true, force: true })
+    return bodies
+  })
+
+it.instance(
+  "a queue loop is refused a read outside the project by default, and is told how to carry on",
+  () =>
+    Effect.gen(function* () {
+      const bodies = yield* runOutsideReadLoop({})
+      expect(bodies).toContain(REFUSAL)
+      expect(bodies).not.toContain(SECRET)
+    }),
+  { config: {} },
+)
+
+it.instance(
+  "full auto lets the same queue loop read it (the refusal is the policy, not a broken tool)",
+  () =>
+    Effect.gen(function* () {
+      const bodies = yield* runOutsideReadLoop({ experimental: { unattended_permissions: "full" } })
+      expect(bodies).toContain(SECRET)
+      expect(bodies).not.toContain(REFUSAL)
+    }),
+  { config: {} },
+)
+
+it.instance(
+  "unattended_allow: external_directory opens it for one named permission",
+  () =>
+    Effect.gen(function* () {
+      const bodies = yield* runOutsideReadLoop({ experimental: { unattended_allow: ["external_directory"] } })
+      expect(bodies).toContain(SECRET)
+    }),
+  { config: {} },
+)
+
+// The built-in agent asks before reading `*.env` on purpose. Scoped must refuse that for an unattended
+// run, not settle it as an ordinary `read`.
+const ENV_SECRET = "DATABASE_PASSWORD-7c1e-secret-marker"
+const runEnvReadLoop = (config: Record<string, unknown>) =>
+  Effect.gen(function* () {
+    const { directory: dir } = yield* TestInstance
+    const llm = yield* TestLLMServer
+    yield* writeConfig(dir, { ...providerCfg(llm.url), ...config } as never)
+    writeChange(dir, "reads-secrets", "- [ ] 1.1 read config\n")
+    fs.writeFileSync(path.join(dir, ".env"), `${ENV_SECRET}\n`)
+    const loop = yield* Loop.Service
+    yield* llm.tool("read", { filePath: path.join(dir, ".env") })
+    for (let i = 0; i < 8; i++) yield* llm.text("carrying on")
+    const info = yield* loop.create({ prompt: "", mode: "queue", interval: 0, maxIterations: 4, queueOptions: { testCommand: "exit 0", verifyCommand: "exit 0", defaultBranch: "main" } })
+    yield* pollWithTimeout(
+      Effect.gen(function* () {
+        return (yield* llm.hits).length >= 2 ? true : undefined
+      }),
+      "the model was never called again after the tool call",
+      "30 seconds",
+    )
+    const bodies = (yield* llm.hits).map((hit) => JSON.stringify(hit.body)).join("\n")
+    yield* loop.cancel(info.id)
+    return bodies
+  })
+
+it.instance(
+  "an unattended queue loop is refused a secret .env file by default, with a reason",
+  () =>
+    Effect.gen(function* () {
+      const bodies = yield* runEnvReadLoop({})
+      expect(bodies).toContain("not available in an unattended run")
+      expect(bodies).not.toContain(ENV_SECRET)
+    }),
+  { config: {} },
+)
+
+it.instance(
+  "full auto reads the same .env (an explicit choice)",
+  () => Effect.gen(function* () { expect(yield* runEnvReadLoop({ experimental: { unattended_permissions: "full" } })).toContain(ENV_SECRET) }),
   { config: {} },
 )
 

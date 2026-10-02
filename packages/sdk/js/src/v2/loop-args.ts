@@ -6,9 +6,16 @@
 // calls parseLoopArgs directly.
 // Mirrors the server-side defaults in packages/opencode/src/loop/loop.ts —
 // these two must be kept in step by hand (the server cannot import the SDK).
+//
+// fix-loop-stall-drift: `noProgressLimit` said 10 here while the server said 15.
+// Because the CLI (cli/cmd/loop.ts) and the TUI both send this value explicitly,
+// the server's `?? DefaultNoProgressLimit` never applied and the stall fix
+// never reached a real user. loop-defaults.test.ts now parses this file and
+// asserts equality with loop.ts, so the next drift fails a test instead of
+// silently shipping.
 export const LoopArgDefaults = {
   maxIterations: 50,
-  noProgressLimit: 10,
+  noProgressLimit: 15,
   intervalSeconds: 2,
   completionToken: "<promise>COMPLETE</promise>",
 } as const
@@ -25,6 +32,8 @@ export interface ParsedLoopArgs {
   sync: boolean
   /** false when --no-push was passed (queue mode: push completed branches) */
   push: boolean
+  /** true when --once was passed (queue mode: finish when the queue drains instead of watching for new work) */
+  once: boolean
   /** false when --no-eternal was passed (prompt mode: continue into backlog work on completion) */
   eternal: boolean
   /** queue mode: standing instruction repeated on every iteration */
@@ -64,6 +73,7 @@ export function parseLoopArgs(input: string): ParsedLoopArgs {
   let sync = false
   let push = true
   let eternal = true
+  let once = false
   let guidance: string | undefined
   let gateCwd: string | undefined
   let testCommand: string | undefined
@@ -90,6 +100,10 @@ export function parseLoopArgs(input: string): ParsedLoopArgs {
     }
     if (token === "--no-push") {
       push = false
+      continue
+    }
+    if (token === "--once") {
+      once = true
       continue
     }
     if (token === "--no-eternal") {
@@ -142,6 +156,7 @@ export function parseLoopArgs(input: string): ParsedLoopArgs {
   return {
     prompt: promptParts.join(" ").trim(),
     push,
+    once,
     eternal,
     guidance,
     interval,
