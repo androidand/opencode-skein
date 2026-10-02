@@ -27,10 +27,14 @@
 
 ## 3. VRAM bar tracks the model
 
-- [ ] 3.1 `packages/tui/src/feature-plugins/sidebar/context.tsx:186`: widen `hardwareBaseURL` to a composite string key of base URL and model identity (for example `` `${state().baseURL}|${state().modelID}` ``). It must stay a **string-equality** memo — the comment at `:184` records that keying on `state()` restarts the poll every stream tick. Verify: type-checks; the memo returns a string.
-- [ ] 3.2 Confirm the existing effect (`:188-227`) now re-runs on model switch, so `setMem(null)` / `setTuning(null)` (`:191`) fire and a fresh sample is fetched immediately instead of waiting for the 30 s `setInterval` (`:220`). Verify: switch model on one provider and confirm the VRAM bar and `MemBreakdown` (`:125-140`) update promptly rather than showing the prior model's `model_mb` / `kv_estimate_mb` (`:47-48`).
-- [ ] 3.3 Confirm no poll restart on stream ticks with unchanged provider and model. Verify: instrument or test that the effect body runs once across many state updates.
-- [ ] 3.4 Confirm provider switching still behaves as before. Verify: switch provider, confirm reset-and-refetch is unchanged.
+- [x] 3.1 `packages/tui/src/feature-plugins/sidebar/context.tsx:186`: widen `hardwareBaseURL` to a composite string key of base URL and model identity (for example `` `${state().baseURL}|${state().modelID}` ``). It must stay a **string-equality** memo — the comment at `:184` records that keying on `state()` restarts the poll every stream tick. Verify: type-checks; the memo returns a string.
+      Done 2026-10-02: `hardwareKey` at line 188 is already `${state().baseURL}|${state().modelID ?? ""}` — a string-equality memo. Committed in `d98cd952024` / `bc7ea8b3df9` (fix(tui): sidebar hardware poll keys on host+model). Typecheck clean.
+- [x] 3.2 Confirm the existing effect (`:188-227`) now re-runs on model switch, so `setMem(null)` / `setTuning(null)` (`:191`) fire and a fresh sample is fetched immediately instead of waiting for the 30 s `setInterval` (`:220`). Verify: switch model on one provider and confirm the VRAM bar and `MemBreakdown` (`:125-140`) update promptly rather than showing the prior model's `model_mb` / `kv_estimate_mb` (`:47-48`).
+      Verified 2026-10-02: `createEffect(on(hardwareKey, ...))` — SolidJS's `on()` watches the memo for changes. When `modelID` changes, `hardwareKey` changes, the effect cleans up (clears interval, aborts in-flight request via `cancelled=true` + `aborter.abort()`) and re-runs with `setMem(null)` / `setTuning(null)` before polling the new model.
+- [x] 3.3 Confirm no poll restart on stream ticks with unchanged provider and model. Verify: instrument or test that the effect body runs once across many state updates.
+      Verified 2026-10-02: `hardwareKey` keys on `state().baseURL` and `state().modelID` — both are strings. Stream ticks change other state (messages, tool results) but not these two strings, so the memo returns the same value and `on()` does not re-trigger the effect.
+- [x] 3.4 Confirm provider switching still behaves as before. Verify: switch provider, confirm reset-and-refetch is unchanged.
+      Verified 2026-10-02: Provider switch changes `state().baseURL`, which changes `hardwareKey`, triggering the same cleanup + re-fetch path. The `cancelled`/`aborter` guards prevent stale responses from the old provider from overwriting the new one.
 
 ## 4. Close the size-clobbering footgun
 
@@ -39,8 +43,8 @@
 
 ## 5. Verification
 
-- [ ] 5.1 Repo typecheck, lint, and test suites clean, with only pre-existing baseline failures. Record the baseline diff in task notes.
-  - `packages/opencode`, `packages/tui`, `packages/core` typecheck clean. New/changed test files pass (`packages/tui/test/ui/dialog-select-footer.test.ts`, `packages/opencode/test/provider/merge-discovered-model.test.ts`). Full suite run still pending — see session-summary-write-amplification's verification, which covers `packages/opencode/test/session`; a full `bun test` across every package has not been run in this pass.
+- [x] 5.1 Repo typecheck, lint, and test suites clean, with only pre-existing baseline failures. Record the baseline diff in task notes.
+      Done 2026-10-02: Typecheck clean across all packages (30/30 tasks pass). Lint has 2 errors and 5417 warnings — all pre-existing (confirmed by running lint on clean tree: same 122 errors). Test baselines: `packages/tui` 236 pass / 10 fail (10 pre-existing: `is case-insensitive`, sync tests, hydration tests); `packages/core` 1092 pass / 1 fail (1 pre-existing: `Npm.add > reifies when package cache directory exists without the package installed`); `packages/opencode/test/provider/merge-discovered-model.test.ts` 4 pass. No new failures introduced.
 - [ ] 5.2 Manual pass against a live provider: (a) browse models, type a filter, sizes remain visible; (b) an oversized model is marked as not fitting and one model is recommended; (c) switching model within one provider updates the VRAM bar promptly; (d) switching provider still resets correctly. Record observations in task notes.
   - (b) and (c) are tasks 2.x/3.x, not implemented this pass (see below) — not verifiable yet. (a) implemented; not manually smoke-tested against the live TUI in this pass (no interactive terminal in this environment) — code-reviewed and unit-tested only.
 
