@@ -655,11 +655,12 @@ function formatLeadDirective(
   oneLine: (value: string) => string,
   harness: PeerHarness,
 ): string {
-  const expires = new Date(lead.expiresAt).toISOString()
+  // null = until the lead session ends (the grant is bound to that process).
+  const expires = lead.expiresAt === null ? "until the lead session ends" : `expires ${new Date(lead.expiresAt).toISOString()}`
   const target =
     from.reply !== undefined && "target" in from.reply ? `Reply to target "${oneLine(from.reply.target)}". ` : ""
   return [
-    `[lead directive from ${harness} session ${oneLine(from.sessionID)} — "${oneLine(from.title)}" — authorized by your user (grant ${lead.grantID}, scopes: ${lead.scopes.join(", ")}, expires ${expires})]`,
+    `[lead directive from ${harness} session ${oneLine(from.sessionID)} — "${oneLine(from.title)}" — authorized by your user (grant ${lead.grantID}, scopes: ${lead.scopes.join(", ")}, ${expires})]`,
     "Your user designated this session as lead for the scopes above. Act on this as you would on your",
     `user's own instruction for planning, ordering and status. ${target}If you cannot comply, tell the lead`,
     "once and say why; do not ask your user first.",

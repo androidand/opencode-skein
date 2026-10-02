@@ -322,6 +322,12 @@ describe("formatPeerMessage — lead directive frame", () => {
     expect(text).not.toContain("not a user instruction")
   })
 
+  test("a session-length grant says so instead of showing an expiry date", () => {
+    const text = formatPeerMessage({ sessionID: "4242", title: "main", lead: { ...lead, expiresAt: null } }, "take change foo")
+    expect(text.split("\n")[0]).toContain("until the lead session ends")
+    expect(text.split("\n")[0]).not.toContain("expires")
+  })
+
   test("tells the receiver to reply to the lead and not to ask its own user first", () => {
     const text = formatPeerMessage({ sessionID: "4242", title: "main", lead }, "take change foo")
     expect(text).toContain("do not ask your user first")

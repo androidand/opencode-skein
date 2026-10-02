@@ -27,7 +27,11 @@ export type LeadScope = (typeof LEAD_SCOPES)[number]
 
 export type LeadHarness = "opencode-skein" | "claude-code"
 
-/** A forgotten grant must not live forever. */
+/**
+ * A timed grant must not live forever. A grant with `expiresAt: null` lasts as long as the lead
+ * SESSION does instead, and is only accepted together with the identity of the lead process
+ * (`lead.procStart`), because "the same pid" stops meaning "the same session" once the OS reuses it.
+ */
 export const MAX_GRANT_LIFETIME_MS = 24 * 60 * 60 * 1000
 
 // Ids are rendered into a frame the receiving model reads as trusted, so the
@@ -37,11 +41,12 @@ const SAFE_ID = /^[A-Za-z0-9_-]{1,64}$/
 export interface LeadGrant {
   version: 1
   id: string
-  lead: { harness: LeadHarness; sessionID?: string; pid: number; address?: string; name?: string }
+  lead: { harness: LeadHarness; sessionID?: string; pid: number; address?: string; name?: string; procStart?: string }
   scopes: LeadScope[]
   delegates: { kind: string; scopes: string[] }[]
   issuedAt: number
-  expiresAt: number
+  /** null = until the lead session ends; then `lead.procStart` is required. */
+  expiresAt: number | null
   issuedBy: "user:tui" | "user:cli"
 }
 
@@ -49,6 +54,11 @@ export type GrantResult = { ok: true; grant: LeadGrant } | { ok: false; reason: 
 
 export interface ParseDeps {
   pidAlive: (pid: number) => boolean
+  /**
+   * The start time the OS reports for a pid, or undefined when it cannot be read. Compared with the
+   * grant's `lead.procStart`: a different value means the pid was reused by another process.
+   */
+  startTime?: (pid: number) => string | undefined
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -71,11 +81,11 @@ export function parseGrant(raw: unknown, now: number, deps: ParseDeps): GrantRes
 
   const lead = raw.lead
   if (!isRecord(lead)) return fail("lead is not a mapping")
-  const leadExtra = unknownKeys(lead, ["harness", "sessionID", "pid", "address", "name"])
+  const leadExtra = unknownKeys(lead, ["harness", "sessionID", "pid", "address", "name", "procStart"])
   if (leadExtra.length > 0) return fail(`unknown key in lead: ${leadExtra.join(", ")}`)
   if (lead.harness !== "opencode-skein" && lead.harness !== "claude-code") return fail("lead.harness is invalid")
   if (typeof lead.pid !== "number" || !Number.isInteger(lead.pid) || lead.pid <= 0) return fail("lead.pid is invalid")
-  for (const key of ["sessionID", "address", "name"] as const) {
+  for (const key of ["sessionID", "address", "name", "procStart"] as const) {
     if (lead[key] !== undefined && typeof lead[key] !== "string") return fail(`lead.${key} is not a string`)
   }
   if (lead.harness === "opencode-skein" && typeof lead.sessionID !== "string") {
@@ -102,12 +112,26 @@ export function parseGrant(raw: unknown, now: number, deps: ParseDeps): GrantRes
     delegates.push({ kind: entry.kind, scopes: entry.scopes as string[] })
   }
 
-  if (typeof raw.issuedAt !== "number" || typeof raw.expiresAt !== "number") return fail("issuedAt/expiresAt must be numbers")
-  if (raw.expiresAt <= now) return fail("grant has expired")
-  if (raw.expiresAt - raw.issuedAt > MAX_GRANT_LIFETIME_MS) return fail("grant lifetime exceeds 24h")
+  if (typeof raw.issuedAt !== "number") return fail("issuedAt must be a number")
+  if (raw.expiresAt === null) {
+    // Until the lead session ends: only with a process identity to bind it to.
+    if (typeof lead.procStart !== "string" || lead.procStart.length === 0) {
+      return fail("a grant without an expiry needs the lead's process identity (lead.procStart)")
+    }
+  } else {
+    if (typeof raw.expiresAt !== "number") return fail("expiresAt must be a number or null")
+    if (raw.expiresAt <= now) return fail("grant has expired")
+    if (raw.expiresAt - raw.issuedAt > MAX_GRANT_LIFETIME_MS) return fail("grant lifetime exceeds 24h")
+  }
   if (raw.issuedBy !== "user:tui" && raw.issuedBy !== "user:cli") return fail("issuedBy must be a user action")
 
   if (!deps.pidAlive(lead.pid)) return fail("the lead process is not running")
+  // Bound to the process, not just its pid: a reused pid is a different session.
+  if (typeof lead.procStart === "string") {
+    const current = deps.startTime?.(lead.pid)
+    if (current === undefined) return fail("could not read the lead process start time, so it cannot be confirmed")
+    if (current !== lead.procStart) return fail("the pid is not the process that was designated (it was reused)")
+  }
 
   return {
     ok: true,
@@ -120,6 +144,7 @@ export function parseGrant(raw: unknown, now: number, deps: ParseDeps): GrantRes
         ...(typeof lead.sessionID === "string" ? { sessionID: lead.sessionID } : {}),
         ...(typeof lead.address === "string" ? { address: lead.address } : {}),
         ...(typeof lead.name === "string" ? { name: lead.name } : {}),
+        ...(typeof lead.procStart === "string" ? { procStart: lead.procStart } : {}),
       },
       scopes,
       delegates,
@@ -181,7 +206,8 @@ export type Verdict =
       granted: true
       grantID: string
       scopes: readonly LeadScope[]
-      expiresAt: number
+      /** null = until the lead session ends */
+      expiresAt: number | null
       via: "lead"
       leadName?: string
     }
@@ -200,7 +226,7 @@ export function verifyLead(
 ): Verdict {
   if (!grant) return { granted: false, reason: "no grant" }
   if (!opts.follow) return { granted: false, reason: "this session does not follow a lead" }
-  if (grant.expiresAt <= opts.now) return { granted: false, reason: "grant has expired" }
+  if (grant.expiresAt !== null && grant.expiresAt <= opts.now) return { granted: false, reason: "grant has expired" }
   if (sender.harness !== grant.lead.harness) return { granted: false, reason: "sender is not the lead" }
 
   const same =

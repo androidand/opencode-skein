@@ -27,6 +27,8 @@ export interface SessionCandidate {
   sessionID?: string
   address?: string
   name?: string
+  /** The OS-reported start time of the session's process; recorded for a session-length grant. */
+  procStart?: string
 }
 
 /** Nearest ancestor (starting at the process itself) that is a known session. */
@@ -59,8 +61,11 @@ export function parseScopes(input: string | undefined): LeadScope[] | { error: s
   return scopes.length > 0 ? scopes : { error: "no scopes given" }
 }
 
-export function parseTtl(input: string | undefined): number | { error: string } {
-  if (!input) return DEFAULT_GRANT_TTL_MS
+/** Lasts as long as the lead session does, bound to its process identity. */
+export const SESSION_TTL = "session" as const
+
+export function parseTtl(input: string | undefined): number | typeof SESSION_TTL | { error: string } {
+  if (!input || input === SESSION_TTL) return SESSION_TTL
   const match = input.match(/^(\d+)(m|h)$/)
   if (!match) return { error: "ttl must look like 30m or 8h" }
   const ms = Number(match[1]) * (match[2] === "h" ? 3_600_000 : 60_000)
@@ -72,7 +77,7 @@ export function parseTtl(input: string | undefined): number | { error: string } 
 export function buildGrant(input: {
   lead: SessionCandidate
   scopes: LeadScope[]
-  ttlMs: number
+  ttlMs: number | typeof SESSION_TTL
   now: number
   issuedBy: LeadGrant["issuedBy"]
 }): LeadGrant {
@@ -85,11 +90,12 @@ export function buildGrant(input: {
       ...(input.lead.sessionID ? { sessionID: input.lead.sessionID } : {}),
       ...(input.lead.address ? { address: input.lead.address } : {}),
       ...(input.lead.name ? { name: input.lead.name.replace(/[^\x20-\x7e]/g, "").slice(0, 80) } : {}),
+      ...(input.lead.procStart ? { procStart: input.lead.procStart } : {}),
     },
     scopes: input.scopes,
     delegates: [],
     issuedAt: input.now,
-    expiresAt: input.now + input.ttlMs,
+    expiresAt: input.ttlMs === SESSION_TTL ? null : input.now + input.ttlMs,
     issuedBy: input.issuedBy,
   }
 }

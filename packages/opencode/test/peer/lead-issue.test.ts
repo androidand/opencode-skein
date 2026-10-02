@@ -37,7 +37,10 @@ describe("selectSession", () => {
 describe("parseScopes / parseTtl", () => {
   test("defaults", () => {
     expect(parseScopes(undefined)).toEqual(["assign", "sync", "reprioritise", "decide"])
-    expect(parseTtl(undefined)).toBe(8 * 3_600_000)
+    // The default is "until the lead session ends", bound to its process; a time is an explicit choice.
+    expect(parseTtl(undefined)).toBe("session")
+    expect(parseTtl("session")).toBe("session")
+    expect(parseTtl("8h")).toBe(8 * 3_600_000)
   })
   test("rejects an unknown scope and an over-long ttl", () => {
     expect(parseScopes("assign,publish")).toEqual({ error: "unknown scope: publish" })
@@ -71,5 +74,33 @@ describe("buildGrant / writeGrantFile", () => {
     })
     expect(grant.lead.name).not.toMatch(/[\n\u001b]/)
     expect(parseGrant(JSON.parse(JSON.stringify(grant)), NOW, { pidAlive: alive }).ok).toBe(true)
+  })
+})
+
+describe("a session-length grant", () => {
+  test("buildGrant records no expiry and carries the process identity", () => {
+    const grant = buildGrant({
+      lead: { ...claude, procStart: "Thu Oct  2 10:10:00 2026" },
+      scopes: ["assign"],
+      ttlMs: "session",
+      now: NOW,
+      issuedBy: "user:cli",
+    })
+    expect(grant.expiresAt).toBeNull()
+    expect(grant.lead.procStart).toBe("Thu Oct  2 10:10:00 2026")
+  })
+
+  test("what the CLI writes is accepted by the reader while the process is the same", () => {
+    const dir = mkdtempSync(join(tmpdir(), "lead-session-"))
+    try {
+      const path = join(dir, "lead.json")
+      const grant = buildGrant({ lead: { ...claude, procStart: "T0" }, scopes: ["assign"], ttlMs: "session", now: NOW, issuedBy: "user:cli" })
+      writeGrantFile(path, grant)
+      const base = { now: NOW + 40 * 24 * 3_600_000, pidAlive: alive, uid: process.getuid?.() ?? 0 }
+      expect(readGrantFile(path, { ...base, startTime: () => "T0" }).ok).toBe(true)
+      expect(readGrantFile(path, { ...base, startTime: () => "T1" }).ok).toBe(false)
+    } finally {
+      rmSync(dir, { recursive: true, force: true })
+    }
   })
 })
