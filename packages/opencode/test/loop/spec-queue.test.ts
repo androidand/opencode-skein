@@ -562,6 +562,8 @@ describe("queueFingerprint", () => {
 
   test("a directory with no openspec tree has its own stable answer", () => {
     expect(queueFingerprint(make())).toBe("no-openspec")
+  })
+})
 
 describe("commit gate under a standing publish policy", () => {
   const policy: PublishPolicy.Policy = {
