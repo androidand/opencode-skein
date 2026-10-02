@@ -15,6 +15,9 @@ const BLOCKED_STOPS: Array<[string, "asking-user" | "waiting-on-peer"]> = [
   ["I'm stuck on a peer's review before I can proceed.", "waiting-on-peer"],
   ["Should I commit this change before pushing?", "asking-user"],
   ["Should I merge this to main?", "asking-user"],
+  // A done turn that also asks the user a direct question is a hand-back,
+  // not a finish — the ask at the end means the human must decide next.
+  ["Task complete. Should I push this to main?", "asking-user"],
   ["This won't be answered until the lead decides.", "waiting-on-peer"],
 ]
 
