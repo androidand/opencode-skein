@@ -47,7 +47,7 @@ import {
   unquarantine,
   type QueueChange,
 } from "./spec-queue/queue"
-import { QueueDenyRules, withoutCredentials } from "./spec-queue/authority"
+import { QueueAuthority, QueueDenyRules, withoutCredentials } from "./spec-queue/authority"
 import { AgentGates, readVerdict, resolvePersonas, type PersonaBindings } from "./spec-queue/personas"
 
 import { contractPart, DEFAULT_COMPLETION_TOKEN, matchesCompletion, promptDisablesCompletion } from "./completion"
@@ -1637,7 +1637,11 @@ export const layer = Layer.effect(
         }))
         yield* emit(id)
 
-        yield* session.setPermission({ sessionID, permission: [...priorPermission, ...QueueDenyRules] }).pipe(Effect.ignore)
+        // A scoped prompt-mode run is already fenced; do not append the ceiling twice.
+        const alreadyFenced = QueueAuthority.deniesPush(priorPermission)
+        yield* session
+          .setPermission({ sessionID, permission: alreadyFenced ? priorPermission : [...priorPermission, ...QueueDenyRules] })
+          .pipe(Effect.ignore)
         yield* runQueue(id).pipe(
           Effect.ensuring(session.setPermission({ sessionID, permission: priorPermission }).pipe(Effect.ignore)),
         )
@@ -1749,17 +1753,22 @@ export const layer = Layer.effect(
         // your session back exactly as it was found. Doing this deeper
         // inside the driver would leave the return paths to be audited one
         // by one.
-        {
-          // The unattended policy comes from config: `experimental.unattended_permissions`
-          // (scoped by default), and `auto_mode: true` means "full auto" unless that is set.
-          const cfg = yield* config.get().pipe(Effect.orElseSucceed(() => ({}) as never))
-          Unattended.mark(sessionID, Unattended.policyFromConfig(cfg as Parameters<typeof Unattended.policyFromConfig>[0]))
-        }
-        const priorPermission =
-          mode === "queue"
-            ? ((yield* session.get(sessionID).pipe(Effect.orElseSucceed(() => undefined)))?.permission ?? [])
-            : []
-        if (mode === "queue") {
+        // The unattended policy comes from config: `experimental.unattended_permissions`
+        // (scoped by default), and `auto_mode: true` means "full auto" unless that is set.
+        const cfgForPolicy = yield* config.get().pipe(Effect.orElseSucceed(() => ({}) as never))
+        const policy = Unattended.policyFromConfig(cfgForPolicy as Parameters<typeof Unattended.policyFromConfig>[0])
+        Unattended.mark(sessionID, policy)
+        // The authority ceiling (no push, deploy, ssh, remote changes) goes on a queue run, as before, and
+        // now also on a prompt-mode run under the default SCOPED policy. Marking a session unattended
+        // without fencing it left a prompt-mode loop with bash, the user's credentials and no ceiling at
+        // all (found in review): "scoped" means in-project, and publishing is outside the project.
+        // `full` and `off` are explicit choices that leave a plain loop as it was; a queue run is always
+        // fenced. The explicit denies are what the policy's "always wins" rests on, so they must exist.
+        const fenced = mode === "queue" || policy.mode === "scoped"
+        const priorPermission = fenced
+          ? ((yield* session.get(sessionID).pipe(Effect.orElseSucceed(() => undefined)))?.permission ?? [])
+          : []
+        if (fenced) {
           yield* session
             .setPermission({ sessionID, permission: [...priorPermission, ...QueueDenyRules] })
             .pipe(Effect.ignore)
@@ -1778,7 +1787,7 @@ export const layer = Layer.effect(
               }),
             ),
             Effect.ensuring(
-              mode === "queue"
+              fenced
                 ? session.setPermission({ sessionID, permission: [...priorPermission] }).pipe(Effect.ignore)
                 : Effect.void,
             ),

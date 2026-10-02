@@ -808,6 +808,49 @@ it.instance(
   { config: {} },
 )
 
+// The built-in agent asks before reading `*.env` on purpose. Scoped must refuse that for an unattended
+// run, not settle it as an ordinary `read`.
+const ENV_SECRET = "DATABASE_PASSWORD-7c1e-secret-marker"
+const runEnvReadLoop = (config: Record<string, unknown>) =>
+  Effect.gen(function* () {
+    const { directory: dir } = yield* TestInstance
+    const llm = yield* TestLLMServer
+    yield* writeConfig(dir, { ...providerCfg(llm.url), ...config } as never)
+    writeChange(dir, "reads-secrets", "- [ ] 1.1 read config\n")
+    fs.writeFileSync(path.join(dir, ".env"), `${ENV_SECRET}\n`)
+    const loop = yield* Loop.Service
+    yield* llm.tool("read", { filePath: path.join(dir, ".env") })
+    for (let i = 0; i < 8; i++) yield* llm.text("carrying on")
+    const info = yield* loop.create({ prompt: "", mode: "queue", interval: 0, maxIterations: 4, queueOptions: { testCommand: "exit 0", verifyCommand: "exit 0", defaultBranch: "main" } })
+    yield* pollWithTimeout(
+      Effect.gen(function* () {
+        return (yield* llm.hits).length >= 2 ? true : undefined
+      }),
+      "the model was never called again after the tool call",
+      "30 seconds",
+    )
+    const bodies = (yield* llm.hits).map((hit) => JSON.stringify(hit.body)).join("\n")
+    yield* loop.cancel(info.id)
+    return bodies
+  })
+
+it.instance(
+  "an unattended queue loop is refused a secret .env file by default, with a reason",
+  () =>
+    Effect.gen(function* () {
+      const bodies = yield* runEnvReadLoop({})
+      expect(bodies).toContain("not available in an unattended run")
+      expect(bodies).not.toContain(ENV_SECRET)
+    }),
+  { config: {} },
+)
+
+it.instance(
+  "full auto reads the same .env (an explicit choice)",
+  () => Effect.gen(function* () { expect(yield* runEnvReadLoop({ experimental: { unattended_permissions: "full" } })).toContain(ENV_SECRET) }),
+  { config: {} },
+)
+
 it.instance(
   "a NEEDS_WORK verdict fails the verify gate and its findings reach the repair brief",
   () =>
