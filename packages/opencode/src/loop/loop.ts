@@ -542,7 +542,7 @@ export const layer = Layer.effect(
         Unattended.unmark(current.info.sessionID)
         yield* patch(id, (record) => ({
           ...record,
-          info: { ...record.info, status, finishedAt: Date.now() },
+          info: { ...record.info, status, finishedAt: Date.now(), watching: undefined },
         }))
         yield* emit(id)
       })
@@ -1844,6 +1844,7 @@ export const layer = Layer.effect(
             ...current.info,
             status: "cancelled",
             finishedAt: Date.now(),
+            watching: undefined,
           },
         }))
         yield* emit(id)
