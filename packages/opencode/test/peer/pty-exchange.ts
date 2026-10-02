@@ -81,7 +81,7 @@ async function spawnPTY(label: string, message: string): Promise<PTYProcess> {
 
   terminal.onExit(({ exitCode, signal }) => {
     proc.exitCode = exitCode
-    proc.exitSignal = signal
+    proc.exitSignal = signal ?? null
     console.log(`\n[${label}] Process exited with code ${exitCode} and signal ${signal}`)
   })
 

@@ -70,12 +70,6 @@ export function buildTaskEnvelope(input: TaskEnvelopeInput): string {
   ].join("\n")
 }
 
-export function parseTaskReply(text: string): { taskID: string; text: string } | undefined {
-  const match = text.match(REPLY_RE)
-  if (!match) return undefined
-  return { taskID: match[1], text: match[2].trim() }
-}
-
 type TaskEntry = {
   settle: (result: TaskReplyResult) => void
   timer: ReturnType<typeof setTimeout>
