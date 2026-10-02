@@ -127,7 +127,17 @@ export interface MergeEvidence {
   readonly headSHA: string
   readonly gates?: { readonly passed: boolean; readonly sha: string }
   readonly ci?: { readonly passed: boolean; readonly sha: string }
-  readonly reviewVerdict?: { readonly verdict: "LGTM" | "NEEDS_WORK"; readonly sha: string }
+  /**
+   * `independence` is carried, not yet enforced: whether a same-model review
+   * satisfies the review requirement is a policy knob, and it cannot be decided
+   * from data that was not recorded. Absent on evidence assembled by callers that
+   * predate the field.
+   */
+  readonly reviewVerdict?: {
+    readonly verdict: "LGTM" | "NEEDS_WORK"
+    readonly sha: string
+    readonly independence?: "independent" | "same-model"
+  }
   /** The merge base of target and head, as the caller computed it. The executor recomputes it. */
   readonly mergeBase?: string
 }

@@ -16,30 +16,32 @@ const POLICY: PublishPolicy.Policy = {
   merge: { into: ["dev"], method: "squash", requires: ["gates", "review"], by: ["integrator"] },
 }
 
-
-// Real files on disk, because the reader's job is to be honest about what is
-// actually written — a fixture validated in memory would not exercise the paths,
-// the JSON parse, or the "file is absent" case that a merge waits on.
-
 const HEAD = "a".repeat(40)
-const OTHER = "b".repeat(40)
+const BASE = "b".repeat(40)
+const REVIEWER_SESSION = "ses_abc123"
 
 const VALID: ReviewRecord.Record = {
   headSHA: HEAD,
-  base: OTHER,
-  reviewer: { harness: "opencode", model: "some-other-family" },
+  base: BASE,
+  reviewer: { harness: "opencode", model: "some-other-family", sessionID: REVIEWER_SESSION },
   independence: "independent",
   verdict: "LGTM",
-  reviewedSHA: HEAD,
   findings: [{ file: "src/x.ts", line: 12, severity: "advisory", text: "consider naming this" }],
   round: 1,
 }
+
+// Real files on disk, because the reader's job is to be honest about what is
+// actually written — a fixture validated in memory would not exercise the paths,
+// the JSON parse, or the "file is absent" case a merge waits on.
 
 async function withRecord(contents: unknown | string) {
   const dir = await mkdtemp(path.join(tmpdir(), "review-record-"))
   await mkdir(path.join(dir, ".skein"), { recursive: true })
   if (contents !== undefined)
-    await writeFile(path.join(dir, ".skein", "review.json"), typeof contents === "string" ? contents : JSON.stringify(contents))
+    await writeFile(
+      path.join(dir, ".skein", "review.json"),
+      typeof contents === "string" ? contents : JSON.stringify(contents),
+    )
   return dir
 }
 
@@ -81,27 +83,36 @@ describe("review record reading", () => {
 
   test("an abbreviated head SHA is refused", async () => {
     // Two commits can share a prefix, so an abbreviation cannot identify a head.
-    expect(await reasonOf({ ...VALID, headSHA: "abc1234", reviewedSHA: "abc1234" })).toBe(
-      ReviewRecord.Reason.headNotFullSha,
-    )
+    expect(await reasonOf({ ...VALID, headSHA: "abc1234" })).toBe(ReviewRecord.Reason.headNotFullSha)
   })
 
-  test("a verdict with no reviewedSHA is refused", async () => {
-    // The most dangerous shape this record can take: it reads as an approval and
-    // covers nothing.
-    const { reviewedSHA: _dropped, ...withoutSha } = VALID
-    expect(await reasonOf(withoutSha)).toBe(ReviewRecord.Reason.verdictNotForHead)
+  test("an abbreviated base is refused", async () => {
+    // The record names a `base..head` range; an abbreviated base cannot anchor one.
+    expect(await reasonOf({ ...VALID, base: "dev" })).toBe(ReviewRecord.Reason.baseNotFullSha)
   })
 
-  test("a verdict for a different SHA is refused", async () => {
-    // A stale review: LGTM for an earlier commit must not cover the new head.
-    expect(await reasonOf({ ...VALID, reviewedSHA: OTHER })).toBe(ReviewRecord.Reason.verdictNotForHead)
+  test("a record with no reviewer session is refused", async () => {
+    // The record lives in the author's own working tree and a model can write a
+    // file. Until a writer binds this to an authenticated identity it is only a
+    // claim, but a record that omits it cannot even be compared later.
+    const { sessionID: _dropped, ...noSession } = VALID.reviewer
+    expect(await reasonOf({ ...VALID, reviewer: noSession })).toBe(ReviewRecord.Reason.malformed)
+  })
+
+  test("a reviewer session with unsafe characters is refused", async () => {
+    // This value ends up in a comparison against an authenticated identity, so it
+    // must not be a place to smuggle structure.
+    for (const sessionID of ["ses/../other", "ses 123", "x".repeat(65), ""]) {
+      expect(await reasonOf({ ...VALID, reviewer: { ...VALID.reviewer, sessionID } })).toBe(
+        ReviewRecord.Reason.reviewerSessionInvalid,
+      )
+    }
   })
 
   test("a record with no verdict at all is valid", async () => {
     // A round that ended without a verdict is a real outcome worth recording. What
     // matters is that it does not become a pass, which the mapper tests pin.
-    const { verdict: _v, reviewedSHA: _s, ...noVerdict } = VALID
+    const { verdict: _v, ...noVerdict } = VALID
     const result = await load(await withRecord(noVerdict))
     expect(result.ok).toBe(true)
   })
@@ -110,6 +121,45 @@ describe("review record reading", () => {
     expect(
       await reasonOf({ ...VALID, findings: [{ file: "x", line: 1, severity: "nit", text: "t" }] }),
     ).toBe(ReviewRecord.Reason.malformed)
+  })
+
+  test("a blocking finding must name a line", async () => {
+    // A blocking finding nobody can point at cannot be fixed.
+    expect(
+      await reasonOf({ ...VALID, findings: [{ file: "x", severity: "blocking", text: "t" }] }),
+    ).toBe(ReviewRecord.Reason.findingLineMissing)
+  })
+
+  test("an advisory finding may have no line", async () => {
+    // A design or test-gap finding genuinely has no location.
+    const result = await load(
+      await withRecord({ ...VALID, findings: [{ file: "x", severity: "advisory", text: "t" }] }),
+    )
+    expect(result.ok).toBe(true)
+  })
+
+  test("zero and negative lines are refused", async () => {
+    // Observed: `Schema.Number` accepts 0, -3, 1.5, NaN and Infinity.
+    for (const line of [0, -3]) {
+      expect(await reasonOf({ ...VALID, findings: [{ file: "x", line, severity: "advisory", text: "t" }] })).toBe(
+        ReviewRecord.Reason.findingLineInvalid,
+      )
+    }
+  })
+
+  test("a non-integer line is refused", async () => {
+    // NaN and Infinity cannot survive JSON.parse, so they are only reachable
+    // through the exported validate; the file path still has to reject 1.5.
+    expect(await reasonOf({ ...VALID, findings: [{ file: "x", line: 1.5, severity: "advisory", text: "t" }] })).toBe(
+      ReviewRecord.Reason.malformed,
+    )
+    for (const line of [Number.NaN, Number.POSITIVE_INFINITY]) {
+      const result = ReviewRecord.validate({
+        ...VALID,
+        findings: [{ file: "x", line, severity: "advisory", text: "t" }],
+      })
+      expect(result._tag).toBe("Failure")
+    }
   })
 
   test("every named reason is distinct", () => {
@@ -121,16 +171,25 @@ describe("review record reading", () => {
 
 describe("mapping onto the merge driver's evidence", () => {
   test("the verdict carries the record's headSHA", () => {
-    // Never `reviewedSHA`: validate has already proven they are equal, and the
-    // driver should not have to know that.
+    // The only sha the verdict covers: a review is made for one head.
     const evidence = ReviewRecord.toMergeEvidence(VALID)
     expect(evidence.headSHA).toBe(HEAD)
-    expect(evidence.reviewVerdict).toEqual({ verdict: "LGTM", sha: HEAD })
+    expect(evidence.reviewVerdict?.sha).toBe(HEAD)
+    expect(evidence.reviewVerdict?.verdict).toBe("LGTM")
+  })
+
+  test("independence travels with the verdict", () => {
+    // A same-model review must be visible as same-model, or "the reviewer differs
+    // from the author" cannot be enforced by anything downstream.
+    const independent = ReviewRecord.toMergeEvidence(VALID)
+    expect(independent.reviewVerdict?.independence).toBe("independent")
+    const sameModel = ReviewRecord.toMergeEvidence({ ...VALID, independence: "same-model" })
+    expect(sameModel.reviewVerdict?.independence).toBe("same-model")
   })
 
   test("no verdict yields no reviewVerdict at all, not a passing one", () => {
     // The whole point: "the reviewer replied without a token" is not an approval.
-    const { verdict: _v, reviewedSHA: _s, ...noVerdict } = VALID
+    const { verdict: _v, ...noVerdict } = VALID
     const evidence = ReviewRecord.toMergeEvidence(noVerdict)
     expect(evidence.reviewVerdict).toBeUndefined()
     expect(evidence.headSHA).toBe(HEAD)
@@ -153,14 +212,14 @@ describe("mapping onto the merge driver's evidence", () => {
   test("the real driver refuses a record with no verdict", () => {
     // The property that matters, checked against the actual consumer rather than a
     // type assertion: a review record without a verdict must not become a pass.
-    const { verdict: _v, reviewedSHA: _s, ...noVerdict } = VALID
+    const { verdict: _v, ...noVerdict } = VALID
     const refusal = PublishDrivers.mayMerge({
       policy: POLICY,
       target: "dev",
       actor: "integrator",
       evidence: {
         ...ReviewRecord.toMergeEvidence(noVerdict),
-        mergeBase: "b".repeat(40),
+        mergeBase: BASE,
         gates: { passed: true, sha: HEAD },
       },
     })
@@ -176,7 +235,24 @@ describe("mapping onto the merge driver's evidence", () => {
       actor: "integrator",
       evidence: {
         ...ReviewRecord.toMergeEvidence(VALID),
-        mergeBase: "b".repeat(40),
+        mergeBase: BASE,
+        gates: { passed: true, sha: HEAD },
+      },
+    })
+    expect(ok).toEqual({ ok: true })
+  })
+
+  test("the driver still refuses a same-model verdict it was not told to accept", () => {
+    // `independence` is carried, not yet enforced: today's driver accepts a
+    // same-model LGTM. Pinning today's behaviour so the later policy knob is a
+    // deliberate change rather than a silent drift.
+    const ok = PublishDrivers.mayMerge({
+      policy: POLICY,
+      target: "dev",
+      actor: "integrator",
+      evidence: {
+        ...ReviewRecord.toMergeEvidence({ ...VALID, independence: "same-model" }),
+        mergeBase: BASE,
         gates: { passed: true, sha: HEAD },
       },
     })
