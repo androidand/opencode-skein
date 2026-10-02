@@ -46,6 +46,41 @@ describe("Unattended.decide", () => {
   })
 })
 
+describe("Unattended.toolAskVerdict — the tool layer that sits in front of Permission.ask", () => {
+  const base = { autoEnabled: false, queueCeiling: false }
+  const scoped = { mode: "scoped" as const, extraAllow: [] as string[] }
+
+  test("a queue session (the push-deny ceiling) is refused what scoped refuses, instead of being waved through", () => {
+    // The bug this exists for: tools.ts skipped the question for any queue session, so the policy
+    // was never consulted and the main swarm mode allowed webfetch and outside directories.
+    expect(Unattended.toolAskVerdict({ ...base, queueCeiling: true, policy: scoped, permission: "webfetch" })).toBe("deny")
+    expect(Unattended.toolAskVerdict({ ...base, queueCeiling: true, policy: scoped, permission: "external_directory" })).toBe("deny")
+    expect(Unattended.toolAskVerdict({ ...base, queueCeiling: true, policy: scoped, permission: "bash" })).toBe("allow")
+  })
+
+  test("global auto mode is full auto, for every session", () => {
+    expect(Unattended.toolAskVerdict({ ...base, autoEnabled: true, policy: scoped, permission: "webfetch" })).toBe("allow")
+    expect(Unattended.toolAskVerdict({ ...base, autoEnabled: true, policy: undefined, permission: "webfetch" })).toBe("allow")
+  })
+
+  test("a marked session follows its own policy: full allows, off asks a human, extraAllow opens one name", () => {
+    expect(Unattended.toolAskVerdict({ ...base, policy: { mode: "full", extraAllow: [] }, permission: "webfetch" })).toBe("allow")
+    expect(Unattended.toolAskVerdict({ ...base, policy: { mode: "off", extraAllow: [] }, permission: "bash" })).toBe("ask")
+    expect(Unattended.toolAskVerdict({ ...base, policy: { mode: "scoped", extraAllow: ["webfetch"] }, permission: "webfetch" })).toBe("allow")
+  })
+
+  test("an unmarked session with the ceiling keeps the earlier behaviour; an ordinary session still asks", () => {
+    expect(Unattended.toolAskVerdict({ ...base, queueCeiling: true, policy: undefined, permission: "webfetch" })).toBe("allow")
+    expect(Unattended.toolAskVerdict({ ...base, policy: undefined, permission: "bash" })).toBe("ask")
+  })
+
+  test("session/tools.ts actually uses it, so the policy cannot be bypassed again by an early return", () => {
+    const source = require("fs").readFileSync(require("path").join(import.meta.dir, "../../src/session/tools.ts"), "utf8") as string
+    expect(source).toContain("Unattended.toolAskVerdict")
+    expect(source).not.toMatch(/const autoEnabled = unattended \|\|/)
+  })
+})
+
 describe("Unattended.policyFromConfig", () => {
   test("scoped by default", () => expect(Unattended.policyFromConfig({})).toEqual({ mode: "scoped", extraAllow: [] }))
   test("auto_mode means full auto", () => expect(Unattended.policyFromConfig({ auto_mode: true }).mode).toBe("full"))
