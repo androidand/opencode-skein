@@ -84,6 +84,10 @@
     "packages/opencode/src/peer/lead-issue.ts",
     "packages/opencode/src/peer/lead-runtime.ts",
     "packages/opencode/src/peer/lead.ts",
+    "packages/opencode/src/policy/drivers.ts",
+    "packages/opencode/src/policy/merge-run.ts",
+    "packages/opencode/src/policy/publish-policy.ts",
+    "packages/opencode/src/policy/push-run.ts",
     "packages/opencode/src/provider/balance.ts",
     "packages/opencode/src/server/routes/instance/httpapi/groups/agents.ts",
     "packages/opencode/src/server/routes/instance/httpapi/groups/gallery.ts",
@@ -232,6 +236,12 @@
     "packages/app/src/components/settings-v2/models-discover.tsx",
     "packages/app/src/components/settings-v2/models-operations.tsx",
     "packages/opencode/test/peer/lead.test.ts",
+    "packages/opencode/test/policy/drivers.test.ts",
+    "packages/opencode/test/policy/merge-run.test.ts",
+    "packages/opencode/test/policy/publish-policy-cache.test.ts",
+    "packages/opencode/test/policy/publish-policy-git.test.ts",
+    "packages/opencode/test/policy/publish-policy.test.ts",
+    "packages/opencode/test/policy/push-run.test.ts",
     "packages/opencode/test/session/unattended.test.ts",
     "packages/opencode/test/tool/send-peer-message-ladder.test.ts",
     "packages/tui/src/component/dialog-gallery.tsx",
@@ -851,6 +861,11 @@
       "file": "packages/opencode/test/permission/next.test.ts",
       "marker": "Unattended.mark",
       "note": "Pins the unattended auto-allow behaviour of permission asks."
+    },
+    {
+      "file": "packages/opencode/src/session/llm/request.ts",
+      "marker": "PublishPolicy.composeSystem",
+      "note": "Injects the standing publish authorization into the system prompt, and only when a valid policy exists. Without a grant the prompt is byte-for-byte what it was before."
     }
   ],
   "divergence": {

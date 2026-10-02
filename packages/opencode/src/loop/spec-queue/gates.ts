@@ -10,6 +10,8 @@
 import fs from "fs"
 import path from "path"
 
+import type { PublishPolicy } from "@/policy/publish-policy"
+import { mayCommit } from "@/policy/drivers"
 import { allChecked, parseTasksMd } from "./tasks-md"
 import type { QueueChange } from "./queue"
 import type { Gate } from "./brief"
@@ -42,6 +44,15 @@ export interface GateOptions {
   verifyCommand: string
   /** default branch that the commit gate must never touch */
   defaultBranch: string
+  /**
+   * A standing publish authorization, when one is in force.
+   *
+   * Optional rather than required so the gate keeps working with no policy at all,
+   * which is the common case and must behave exactly as before. When present it
+   * narrows the gate further: the default-branch check below is not replaced, it is
+   * joined by the policy's own branch patterns.
+   */
+  readonly policy?: PublishPolicy.Policy
 }
 
 /** implement passes when every checkbox in tasks.md is checked (re-read from disk). */
@@ -98,6 +109,14 @@ export async function evaluateCommit(exec: Exec, change: QueueChange, options: G
       passed: false,
       output: `still on default branch "${name}" — commit belongs on loop/${change.slug}`,
     }
+  }
+  // A standing grant narrows the gate rather than replacing it: the default-branch
+  // refusal above still applies, and on top of it the branch must match a pattern
+  // the policy actually granted. This is where branch-scoping lives, because no
+  // shell allow can see which branch is checked out.
+  if (options.policy) {
+    const allowed = mayCommit({ policy: options.policy, branch: name, defaultBranch: options.defaultBranch })
+    if (!allowed.ok) return { gate: "commit", passed: false, output: `commit refused by publish policy: ${allowed.reason}` }
   }
   const touched = await exec(`git log -1 --name-only -- openspec/changes/${change.slug}`)
   if (touched.code !== 0 || touched.output.trim() === "") {

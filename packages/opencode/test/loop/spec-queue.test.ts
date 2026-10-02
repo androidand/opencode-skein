@@ -3,6 +3,7 @@ import fs from "fs"
 import os from "os"
 import path from "path"
 import { parseTasksMd, allChecked, uncheckedTasks } from "@/loop/spec-queue/tasks-md"
+import type { PublishPolicy } from "@/policy/publish-policy"
 import {
   resolveQueue,
   cursor,
@@ -561,5 +562,56 @@ describe("queueFingerprint", () => {
 
   test("a directory with no openspec tree has its own stable answer", () => {
     expect(queueFingerprint(make())).toBe("no-openspec")
+
+describe("commit gate under a standing publish policy", () => {
+  const policy: PublishPolicy.Policy = {
+    version: 1,
+    repo: "androidand/opencode-skein",
+    visibility: "public",
+    commit: { branches: ["loop/*"] },
+    push: { remotes: ["origin"], branches: ["loop/*"] },
+    merge: { into: ["dev"], method: "squash", requires: ["gates", "review"], by: ["integrator"] },
+  }
+  const withPolicy = { ...OPTIONS, policy }
+
+  // `scripted` matches the exact command string, so the git log invocation has to
+  // be keyed with the change's slug interpolated — the array form is just a
+  // computed property key.
+  const scriptedFor = (branch: string, change: QueueChange) =>
+    scripted({
+      "git rev-parse --abbrev-ref HEAD": { code: 0, output: `${branch}\n` },
+      [`git log -1 --name-only -- openspec/changes/${change.slug}`]: { code: 0, output: "abc123\ntasks.md" },
+      "git status --porcelain": { code: 0, output: "" },
+    })
+
+  test("a branch the policy granted passes", async () => {
+    const change = fixtureChange()
+    const outcome = await evaluateCommit(scriptedFor(`loop/${change.slug}`, change), change, withPolicy)
+    expect(outcome.passed).toBe(true)
+  })
+
+  test("a non-default branch outside the grant is refused", async () => {
+    // The whole point of putting branch-scoping in the gate: no shell allow can see
+    // which branch is checked out, so `feat/x` has to be caught here.
+    const change = fixtureChange()
+    const outcome = await evaluateCommit(scriptedFor("feat/other", change), change, withPolicy)
+    expect(outcome.passed).toBe(false)
+    expect(outcome.output).toContain("publish policy")
+    expect(outcome.output).toContain("feat/other")
+  })
+
+  test("the default branch is still refused before the policy is consulted", async () => {
+    const change = fixtureChange()
+    const outcome = await evaluateCommit(scriptedFor("dev", change), change, withPolicy)
+    expect(outcome.passed).toBe(false)
+    expect(outcome.output).toContain("default branch")
+  })
+
+  test("with no policy the gate behaves exactly as before", async () => {
+    // A branch outside every plausible grant must still pass when there is no
+    // policy, or this change would silently narrow every ungranted run.
+    const change = fixtureChange()
+    const outcome = await evaluateCommit(scriptedFor("feat/other", change), change, OPTIONS)
+    expect(outcome.passed).toBe(true)
   })
 })

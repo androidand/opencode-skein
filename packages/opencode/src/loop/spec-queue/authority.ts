@@ -59,6 +59,11 @@ export const QueueDenyRules: PermissionV1.Ruleset = [
   // `git config` can rewrite a remote URL or install a credential helper,
   // both of which turn a later allowed command into a push.
   deny("*git*config*"),
+  // Minting lead authority from a shell. `opencode lead set` confirms human
+  // presence in the TUI, but a model's shell resolves to its own session, so the
+  // confirmation would be the model confirming with itself. This is the second
+  // layer: the grant is minted by the user, never by an agent's own command.
+  deny("*opencode*lead*set*"),
 ]
 
 /**
