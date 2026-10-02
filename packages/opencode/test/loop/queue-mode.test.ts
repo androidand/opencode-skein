@@ -311,6 +311,8 @@ it.instance(
       yield* loop.cancel(info.id)
       const final = yield* waitForTerminal(info.id, 3)
       expect(final.status).toBe("cancelled")
+      // A finished loop must not keep reporting that it is watching for new work.
+      expect(final.watching).toBeUndefined()
     }),
   { config: {} },
 )
