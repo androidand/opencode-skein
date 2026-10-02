@@ -34,6 +34,7 @@ const ASKING_USER = [
   /\boption[sa-z]? (A|B|C|\d)\b/i,
   /\b(a|the|my) question is?\b/i,
   /\bdo I (need to|have to|should)\b/i,
+  /\bshould I (do|make|try|handle|use|choose|pick|go|send|call|run|push|commit|merge|close|open|start|stop|restart)\b/i,
 ]
 
 // A turn that ends waiting on a peer, a blocker, or an external dependency. The
