@@ -14,10 +14,19 @@
       `test/loop/queue-mode.test.ts` ("task 0.1: first queue picks the
       earliest eligible change, second is refused with QueueActiveError").
       219 loop tests pass.
-- [ ] 0.2 Run two plain sessions, hand-simulate claims by message ("I take
+- [x] 0.2 Run two plain sessions, hand-simulate claims by message ("I take
       X"), and record where coordination breaks: mid-turn messages, no board,
       no resume of the other's branch. Write the observations into
       `findings.md`.
+      Three breakages confirmed (findings.md §Observation 2): (1) inbound
+      peer messages are delivered as a competing prompt turn — the loop's
+      foreign-turn guard skips its own iteration, so the claim message wins
+      and the loop's work is lost that tick; (2) no shared board or inbox —
+      loop state is per-process in-memory `Ref<Map>`, no `claims` table, no
+      `inbox` field on `Loop.Record`; (3) no worktree resume API —
+      `Worktree` has `create`/`list`/`remove` but no "attach to existing
+      branch+gate" method, so a killed member's branch/gate/position is
+      unrecoverable by another member.
 - [ ] 0.3 Confirm `peer-conversation-reliability` Phase 0 is merged (return
       address, truthful tool text) so a spike member can actually answer a
       peer.
