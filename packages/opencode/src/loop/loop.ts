@@ -13,7 +13,7 @@ import { Cause, Context, Deferred, Effect, Layer, Ref, Result, Schema, Scope } f
 import { EventV2Bridge } from "@/event-v2-bridge"
 import { Identifier } from "@/id/id"
 import { SessionPrompt } from "@/session/prompt"
-import { SessionID } from "@/session/schema"
+import { SessionID, MessageID, PartID } from "@/session/schema"
 import { Session } from "@/session/session"
 import { SessionStatus } from "@/session/status"
 import { Config } from "@/config/config"
@@ -26,6 +26,7 @@ import { baseURLOf, parentCapacity } from "@/local/placement"
 import { PermissionV1 } from "@opencode-ai/core/v1/permission"
 import { ModelV2 } from "@opencode-ai/core/model"
 import { ProviderV2 } from "@opencode-ai/core/provider"
+import { ProjectV2 } from "@opencode-ai/core/project"
 
 import { buildBrief, type Gate } from "./spec-queue/brief"
 import {
@@ -48,6 +49,8 @@ import {
 } from "./spec-queue/queue"
 import { QueueDenyRules, withoutCredentials } from "./spec-queue/authority"
 import { AgentGates, readVerdict, resolvePersonas, type PersonaBindings } from "./spec-queue/personas"
+import { Claim } from "./crew/claims"
+import { Project } from "@/project/project"
 
 import { contractPart, DEFAULT_COMPLETION_TOKEN, matchesCompletion, promptDisablesCompletion } from "./completion"
 
@@ -222,6 +225,11 @@ export interface Interface {
   readonly cancel: (id: LoopID) => Effect.Effect<boolean>
   /** Append a correction carried into every subsequent iteration. */
   readonly nudge: (id: LoopID, text: string) => Effect.Effect<boolean>
+  /**
+   * Append an inbound peer message to the loop's inbox. A durable copy is
+   * written as a synthetic session message so a crash does not lose it.
+   */
+  readonly inbox: (input: { loopID: LoopID; from: { harness: string; id: string; name?: string }; mode: "notify" | "request"; text: string }) => Effect.Effect<boolean>
 }
 
 export class Service extends Context.Service<Service, Interface>()("@opencode/Loop") {}
@@ -297,6 +305,18 @@ type Record_ = {
   // unbounded retry — one extra, harder-worded iteration per loop lifetime,
   // never more.
   stallReprieve?: "pending" | "used"
+  // Inbox of inbound peer messages delivered while the loop is running.
+  // Each entry carries sender metadata and the text; drained into the brief
+  // at the top of the next iteration, then cleared. Durable copy is written
+  // as a synthetic session message so a crash does not lose it.
+  inbox: InboxEntry[]
+}
+
+export interface InboxEntry {
+  at: number
+  from: { harness: string; id: string; name?: string }
+  mode: "notify" | "request"
+  text: string
 }
 
 export const layer = Layer.effect(
@@ -310,6 +330,8 @@ export const layer = Layer.effect(
     const provider = yield* Provider.Service
     const agents = yield* AgentSvc.Service
     const permission = yield* Permission.Service
+    const project = yield* Project.Service
+    const crewClaim = yield* Claim.Service
     const scope = yield* Scope.Scope
 
     const state = yield* Ref.make<Map<LoopID, Record_>>(new Map())
@@ -1063,15 +1085,31 @@ export const layer = Layer.effect(
       })
 
 
-    const runQueue = (id: LoopID): Effect.Effect<void> =>
+    const runQueue = (id: LoopID) =>
       Effect.gen(function* () {
         const initial = (yield* Ref.get(state)).get(id)
         const exec = execIn(yield* gateCwd(initial))
+        // Resolve the project so claims can be scoped to it. A missing project
+        // degrades gracefully: claims are best-effort and a failed claim does
+        // not halt the run.
+        const projectResult = yield* project.fromDirectory(initial?.info.directory ?? "").pipe(
+          Effect.orElseSucceed(() =>
+            ({
+              project: { id: ProjectV2.ID.make("global"), worktree: "", vcs: "", name: "", sandboxes: [], commands: undefined, icon_url: undefined, icon_url_override: undefined, icon_color: undefined, time_created: 0, time_updated: 0, time_initialized: undefined },
+              sandbox: "",
+            }) as { project: { id: ProjectV2.ID; worktree: string; vcs: string; name: string; sandboxes: never[]; commands: undefined; icon_url: undefined; icon_url_override: undefined; icon_color: undefined; time_created: number; time_updated: number; time_initialized: undefined }; sandbox: string },
+          ),
+        )
+        const projectID = projectResult.project.id
+        // Live claims from all members in this project — their slugs are excluded
+        // from the cursor so two members never both pick the same change.
+        const liveClaims = yield* crewClaim.listLive(projectID).pipe(Effect.orElseSucceed(() => [] as import("./crew/claims").ClaimInfo[]))
+        const claimedSlugs = new Set(liveClaims.map((c) => c.slug))
         // The spec requires the resolved order be reported before the first
         // iteration: an unattended run is only auditable if you can see what it
         // decided to work, and in what order, up front.
         if (initial) {
-          const firstPass = resolveQueue(initial.info.directory, initial.queue?.only)
+          const firstPass = resolveQueue(initial.info.directory, initial.queue?.only, claimedSlugs)
           // "Nothing eligible" and "this is not an openspec repo" are the same
           // empty queue but completely different situations. Reporting the
           // second as a drained backlog tells someone their work is done when
@@ -1098,7 +1136,7 @@ export const layer = Layer.effect(
               "queue.retried": retried.join(", "),
             })
           }
-          const first = resolveQueue(initial.info.directory, initial.queue?.only)
+          const first = resolveQueue(initial.info.directory, initial.queue?.only, claimedSlugs)
           yield* Effect.logInfo("queue resolved", {
             "queue.order": first.eligible.map((c) => c.slug).join(", ") || "(nothing eligible)",
             "queue.quarantined": first.quarantined.join(", ") || "(none)",
@@ -1141,15 +1179,38 @@ export const layer = Layer.effect(
             }
           })
 
+        let currentClaimID: Claim.ClaimID | undefined
         while (true) {
           const record = yield* running()
           if (!record?.queue) return
           const queueState = record.queue
 
+          // Re-resolve live claims each iteration so inter-member visibility
+          // is up to date, then re-resolve the queue with the current claim set.
+          const refreshedClaims = yield* crewClaim.listLive(projectID).pipe(Effect.orElseSucceed(() => [] as import("./crew/claims").ClaimInfo[]))
+          const refreshedSlugs = new Set(refreshedClaims.map((c) => c.slug))
+          // Drop the claim if the holder is gone and it is no longer in the
+          // refreshed set — the next iteration will pick a new change.
+          if (currentClaimID && !refreshedClaims.some((c) => c.id === currentClaimID)) {
+            currentClaimID = undefined
+          }
+          // Heartbeat the current claim so it stays live across iterations.
+          if (currentClaimID) {
+            yield* crewClaim.heartbeat(currentClaimID).pipe(
+              Effect.catch((err: unknown) => {
+                const e = err as { _tag?: string }
+                if (e._tag === "ClaimReleasedError" || e._tag === "ClaimNotFoundError") {
+                  currentClaimID = undefined
+                  return Effect.void
+                }
+                return Effect.fail(err)
+              }),
+            )
+          }
           // The queue is re-resolved from disk every time a change is chosen
           // (design D1/D8): restarts resume, mid-run additions join, and a
           // drained resolution is the only clean ending.
-          const resolved = resolveQueue(record.info.directory, queueState.only)
+          const resolved = resolveQueue(record.info.directory, queueState.only, refreshedSlugs)
           const change = cursor(resolved)
           if (!change) {
             // Nothing attempted and nothing complete is not a finished
@@ -1175,6 +1236,28 @@ export const layer = Layer.effect(
             info: { ...current.info, currentChange: change.slug, currentGate: "implement" },
           }))
           yield* emit(id)
+
+          // Record a claim so other members (and this run after a restart) know
+          // this change is being worked and must not be picked again.
+          const claimResult = yield* crewClaim
+            .claim({
+              projectID,
+              slug: change.slug,
+              holderSession: record.info.sessionID,
+              gate: "implement",
+            })
+            .pipe(
+              Effect.catch((err: unknown) => {
+                // Another member claimed it in the same tick — re-pick.
+                if ((err as { _tag?: string })._tag === "ClaimExistsError") return Effect.succeed(undefined)
+                return Effect.fail(err)
+              }),
+            )
+          currentClaimID = claimResult?.id
+          if (!currentClaimID) {
+            // Lost the claim race; re-resolve and try the next eligible change.
+            continue
+          }
 
           // Work this change through its gates until it completes, is
           // quarantined, or the loop leaves "running".
@@ -1403,6 +1486,16 @@ export const layer = Layer.effect(
             iterations,
             cause: ending.cause,
           })
+          // Release the claim so the change becomes available again (quarantined)
+          // or stays released (completed). A failed release is logged but does
+          // not change the outcome — the queue state already recorded it.
+          if (currentClaimID) {
+            const reason = ending.outcome === "completed" ? ("completed" as const) : ("quarantined" as const)
+            yield* crewClaim.release(currentClaimID, reason).pipe(
+              Effect.catch((err: unknown) => Effect.logWarning("queue claim release failed", { "claim.id": currentClaimID, error: err })),
+            )
+            currentClaimID = undefined
+          }
           // Push the completed change's branch. The commit gate has already
           // established that a commit exists, that it touches this change, that
           // the tree is clean, and that we are NOT on the default branch — so
@@ -1512,7 +1605,7 @@ export const layer = Layer.effect(
     // from the model) — an eternal plain loop must never end up with MORE
     // authority than a queue loop has today just because it started as a
     // single prompt.
-    const runPromptThenMaybeQueue = (id: LoopID): Effect.Effect<void> =>
+    const runPromptThenMaybeQueue = (id: LoopID) =>
       Effect.gen(function* () {
         yield* run(id)
         const record = (yield* Ref.get(state)).get(id)
@@ -1636,6 +1729,7 @@ export const layer = Layer.effect(
             info,
             noProgressStreak: 0,
             steers: [],
+            inbox: [],
             queue:
               mode === "queue"
                 ? {
@@ -1790,7 +1884,43 @@ export const layer = Layer.effect(
         return true
       })
 
-    return Service.of({ create, list, get, pause, resume, cancel, nudge })
+    const inbox = (input: { loopID: LoopID; from: { harness: string; id: string; name?: string }; mode: "notify" | "request"; text: string }) =>
+      Effect.gen(function* () {
+        const { loopID, from, mode, text } = input
+        const trimmed = text.trim()
+        if (trimmed === "") return false
+        const record = (yield* Ref.get(state)).get(loopID)
+        if (!record) return false
+        if (record.info.status !== "running" && record.info.status !== "paused") return false
+        // Append to the in-memory inbox so the next brief surfaces it.
+        yield* patch(loopID, (current) => ({
+          ...current,
+          inbox: [...current.inbox, { at: Date.now(), from, mode, text: trimmed }],
+        }))
+        // Write a durable synthetic session message so a crash does not lose it.
+        const sessionID = record.info.sessionID
+        const userMsg: SessionV1.User = {
+          id: MessageID.ascending(),
+          sessionID,
+          role: "user",
+          time: { created: Date.now() },
+          agent: "crew-inbox",
+          model: { providerID: ProviderV2.ID.make("none"), modelID: ModelV2.ID.make("none") },
+        }
+        yield* session.updateMessage(userMsg)
+        yield* session.updatePart({
+          id: PartID.ascending(),
+          messageID: userMsg.id,
+          sessionID,
+          type: "text",
+          text: `[peer ${mode}] ${trimmed}`,
+          synthetic: true,
+        } satisfies SessionV1.TextPart)
+        yield* Effect.logInfo("loop inbox", { "loop.id": loopID, "inbox.length": record.inbox.length + 1, "peer.mode": mode })
+        return true
+      })
+
+    return Service.of({ create, list, get, pause, resume, cancel, nudge, inbox })
   }),
 )
 
@@ -1806,6 +1936,8 @@ export const node = LayerNode.make({
     AgentSvc.node,
     Permission.node,
     EventV2Bridge.node,
+    Project.node,
+    Claim.node,
   ],
 })
 

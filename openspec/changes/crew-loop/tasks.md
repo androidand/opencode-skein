@@ -72,8 +72,16 @@
 
 ## Phase 2: Inbox
 
-- [ ] 2.1 `Loop.inbox(loopID, message)` alongside `steers`; durable copy as a
+- [x] 2.1 `Loop.inbox(loopID, message)` alongside `steers`; durable copy as a
       synthetic session message.
+      `InboxEntry` type added with `at`, `from` (harness/id/name), `mode`
+      (notify/request), and `text`. `Record_` gains an `inbox: InboxEntry[]`
+      field initialised to `[]`. `Loop.inbox` appends to the in-memory inbox
+      and writes a durable synthetic `SessionV1.User` message with a
+      synthetic text part to the loop's session. Empty text and terminal-loop
+      inputs are silently dropped. Test added to
+      `test/loop/queue-mode.test.ts` ("task 2.1: inbox appends to the record
+      and writes a durable synthetic session message"). 220 loop tests pass.
 - [ ] 2.2 Route inbound peer messages to a running or paused loop's inbox in
       `lifecycle.ts` and `send-peer-message.ts`; fall back to prompt when no
       loop owns the session. Test both paths.

@@ -411,6 +411,74 @@ it.instance(
 )
 
 it.instance(
+  "task 2.1: inbox appends to the record and writes a durable synthetic session message",
+  () =>
+    Effect.gen(function* () {
+      const { directory: dir } = yield* TestInstance
+      const llm = yield* TestLLMServer
+      yield* writeConfig(dir, providerCfg(llm.url))
+      writeChange(dir, "inbox-change", "- [ ] 1.1 work\n")
+      const loop = yield* Loop.Service
+      const session = yield* Session.Service
+
+      // Keep the loop alive so the inbox accepts messages.
+      const never = new Promise<void>(() => {})
+      yield* llm.push(reply().wait(never).text("working forever").stop())
+
+      const info = yield* loop.create({ prompt: "", mode: "queue", interval: 0 })
+
+      // A message is accepted and a durable synthetic session message is written.
+      const ok = yield* loop.inbox({
+        loopID: info.id,
+        from: { harness: "opencode-skein", id: "ses-peer", name: "peer-agent" },
+        mode: "notify",
+        text: "I took alpha-change, you take beta-change",
+      })
+      expect(ok).toBe(true)
+
+      // A second message is appended.
+      const ok2 = yield* loop.inbox({
+        loopID: info.id,
+        from: { harness: "claude-code", id: "abc123" },
+        mode: "request",
+        text: "Can you review my PR?",
+      })
+      expect(ok2).toBe(true)
+
+      // The loop session carries a durable synthetic message for each entry.
+      const messages = yield* session.messages({ sessionID: info.sessionID, limit: 20 })
+      const synthetic = messages.filter((m) => m.parts.some((p) => "synthetic" in p && p.synthetic))
+      expect(synthetic.length).toBeGreaterThanOrEqual(2)
+      const texts = synthetic.flatMap((m) => m.parts.filter((p) => p.type === "text" && "synthetic" in p && p.synthetic).map((p) => p.text))
+      expect(texts).toContain("[peer notify] I took alpha-change, you take beta-change")
+      expect(texts).toContain("[peer request] Can you review my PR?")
+
+      // An empty text is silently dropped — no session message written.
+      const before = (yield* session.messages({ sessionID: info.sessionID, limit: 20 })).length
+      const empty = yield* loop.inbox({
+        loopID: info.id,
+        from: { harness: "opencode-skein", id: "ses-peer" },
+        mode: "notify",
+        text: "   ",
+      })
+      expect(empty).toBe(false)
+      const after = (yield* session.messages({ sessionID: info.sessionID, limit: 20 })).length
+      expect(after).toBe(before)
+
+      // A terminal loop rejects inbox messages.
+      yield* loop.cancel(info.id)
+      const afterCancel = yield* loop.inbox({
+        loopID: info.id,
+        from: { harness: "opencode-skein", id: "ses-peer" },
+        mode: "notify",
+        text: "too late",
+      })
+      expect(afterCancel).toBe(false)
+    }),
+  { config: {} },
+)
+
+it.instance(
   "a failing gate spends a repair turn instead of burning strikes silently",
   () =>
     Effect.gen(function* () {
