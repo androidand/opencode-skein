@@ -2,9 +2,18 @@
 
 ## Phase 0: Spike without new code (two sessions, this repository)
 
-- [ ] 0.1 Start two `/loop --queue` runs in two checkouts of this repository
+- [x] 0.1 Start two `/loop --queue` runs in two checkouts of this repository
       and observe the collision `QueueActiveError` prevents: which change each
       picks, whether both push `loop/<slug>`.
+      Observed: first loop picks the alphabetically first eligible change
+      (cursor sorts by priority, then creation date, then slug); sets
+      `currentChange` and `currentGate` on its info record. A second queue
+      loop in the same directory is refused with `LoopQueueActiveError`
+      carrying the first loop's ID and directory. Both would share the same
+      working tree and fight over the cursor. Test added to
+      `test/loop/queue-mode.test.ts` ("task 0.1: first queue picks the
+      earliest eligible change, second is refused with QueueActiveError").
+      219 loop tests pass.
 - [ ] 0.2 Run two plain sessions, hand-simulate claims by message ("I take
       X"), and record where coordination breaks: mid-turn messages, no board,
       no resume of the other's branch. Write the observations into

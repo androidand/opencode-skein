@@ -362,6 +362,55 @@ it.instance(
 )
 
 it.instance(
+  "task 0.1: first queue picks the earliest eligible change, second is refused with QueueActiveError",
+  () =>
+    Effect.gen(function* () {
+      const { directory: dir } = yield* TestInstance
+      const llm = yield* TestLLMServer
+      yield* writeConfig(dir, providerCfg(llm.url))
+      // Two eligible changes: "alpha" sorts before "beta" alphabetically,
+      // so the cursor should pick alpha first.
+      writeChange(dir, "beta-change", "- [ ] 1.1 work\n")
+      writeChange(dir, "alpha-change", "- [ ] 1.1 work\n")
+      const loop = yield* Loop.Service
+
+      // Keep the first loop alive so the second cannot start.
+      const never = new Promise<void>(() => {})
+      yield* llm.push(reply().wait(never).text("working forever").stop())
+
+      const first = yield* loop.create({ prompt: "", mode: "queue", interval: 0 })
+      // Wait until the loop has picked a change (currentChange is set).
+      yield* pollWithTimeout(
+        Effect.gen(function* () {
+          const info = yield* loop.get(first.id)
+          return info?.currentChange ? info : undefined
+        }),
+        "first loop never picked a change",
+        "10 seconds",
+      )
+
+      const firstInfo = yield* loop.get(first.id)
+      expect(firstInfo).toBeDefined()
+      // The first loop picks the alphabetically first eligible change.
+      expect(firstInfo!.currentChange).toBe("alpha-change")
+      // It is in the implement gate.
+      expect(firstInfo!.currentGate).toBe("implement")
+
+      // A second queue loop in the same directory is refused.
+      const second = yield* loop.create({ prompt: "", mode: "queue", interval: 0 }).pipe(Effect.result)
+      expect(Result.isFailure(second)).toBe(true)
+      if (Result.isFailure(second)) {
+        expect(second.failure._tag).toBe("LoopQueueActiveError")
+        expect(second.failure.activeLoopID).toBe(first.id)
+        expect(second.failure.directory).toBe(dir)
+      }
+
+      yield* loop.cancel(first.id)
+    }),
+  { config: {} },
+)
+
+it.instance(
   "a failing gate spends a repair turn instead of burning strikes silently",
   () =>
     Effect.gen(function* () {
