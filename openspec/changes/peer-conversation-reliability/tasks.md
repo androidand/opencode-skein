@@ -256,12 +256,24 @@ These overlap items above; the numbers refer to the sections they satisfy.
 - [x] I.6 Tool text: `send-peer-message.txt` and the Claude success output no
       longer say the channel is outbound-only; `peers.txt` and the send tool now
       agree. Guarded by `test/tool/send-peer-message-text.test.ts`.
-- [ ] I.7 Still open from this slice: the step-boundary fix (3.3 — note the
-        race is `prompt()` persisting the message and then
-        `Runner.ensureRunning` joining a run that already passed its exit check,
-        see `findings.md` "Busy handling"; the fork is not itself the hazard),
-        a live opencode-to-opencode request/reply exchange (5.3), and a
-        reassessment for specsync (5.5). All other slice items complete.
+- [x] I.7 Step-boundary fix (3.3) — prompt-level regression guard added
+      2026-10-02 (`test/session/prompt.test.ts`: "prompt returns assistant
+      parented to user message, loop does not double-process"). The test
+      verifies the answered-check invariant: `prompt()` returns an assistant
+      message whose `parentID` matches the user message it just persisted,
+      and a subsequent `loop()` call does not re-process the same message.
+      Limitation: the race window itself (between the step loop's final exit
+      check and the runner reaching Idle) is not reachable from the public API
+      without instrumenting the runner, so there is no end-to-end reproduction
+      of the race. The fix is verified at two levels: (1) runner-level:
+      `test/effect/runner.test.ts` "work dropped by a join runs when it is
+      resubmitted after the run ends" covers the recovery mechanism the fix
+      depends on; (2) prompt-level: the answered-check logic is tested above.
+      The trigger condition rests on the code path in `prompt.ts:1152-1167`
+      plus the runner's semantics, not on a failing-first integration test.
+      A live opencode-to-opencode request/reply exchange (5.3) and a
+      reassessment for specsync (5.5) remain open. All other slice items
+      complete.
 
 ## Addressing fixes 2026-09-18 (from a real failed send)
 

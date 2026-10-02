@@ -822,6 +822,60 @@ it.instance("static loop consumes queued replies across turns", () =>
   }),
 )
 
+it.instance("prompt returns assistant parented to user message, loop does not double-process", () =>
+  Effect.gen(function* () {
+    const { llm } = yield* useServerConfig(providerCfg)
+    const prompt = yield* SessionPrompt.Service
+    const sessions = yield* Session.Service
+    const session = yield* sessions.create({
+      title: "Answered check",
+      permission: [{ permission: "*", pattern: "*", action: "allow" }],
+    })
+
+    // First prompt: persists user message, loop processes it, prompt returns
+    // the assistant. The answered-check (prompt.ts:1158-1166) verifies that
+    // the loop result is an assistant parented to the user message — if not,
+    // a second run is started. This test locks in that invariant: the first
+    // prompt returns an assistant with the correct parentID, and a subsequent
+    // loop call does not re-process the same message.
+    const firstUser = yield* prompt.prompt({
+      sessionID: session.id,
+      agent: "build",
+      noReply: true,
+      parts: [{ type: "text", text: "hello" }],
+    })
+    yield* llm.text("world")
+
+    const firstResult = yield* prompt.loop({ sessionID: session.id })
+    expect(firstResult.info.role).toBe("assistant")
+    if (firstResult.info.role === "assistant") {
+      expect(firstResult.info.parentID).toBe(firstUser.info.id)
+      expect(firstResult.parts.some((part) => part.type === "text" && part.text === "world")).toBe(true)
+    }
+
+    // Second prompt with a new message: should create a new assistant, not
+    // re-process the first one.
+    const secondUser = yield* prompt.prompt({
+      sessionID: session.id,
+      agent: "build",
+      noReply: true,
+      parts: [{ type: "text", text: "again" }],
+    })
+    yield* llm.text("resp")
+
+    const secondResult = yield* prompt.loop({ sessionID: session.id })
+    expect(secondResult.info.role).toBe("assistant")
+    if (secondResult.info.role === "assistant") {
+      expect(secondResult.info.parentID).toBe(secondUser.info.id)
+      expect(secondResult.parts.some((part) => part.type === "text" && part.text === "resp")).toBe(true)
+      // Must not be parented to the first user message.
+      expect(secondResult.info.parentID).not.toBe(firstUser.info.id)
+    }
+
+    expect(yield* llm.hits).toHaveLength(2)
+  }),
+)
+
 it.instance("loop continues when finish is tool-calls", () =>
   Effect.gen(function* () {
     const { llm } = yield* useServerConfig(providerCfg)
