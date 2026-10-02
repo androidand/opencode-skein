@@ -9,6 +9,7 @@ import { EventV2Bridge } from "@/event-v2-bridge"
 import { FetchHttpClient } from "effect/unstable/http"
 import { expect } from "bun:test"
 import fs from "fs"
+import os from "os"
 import path from "path"
 import { Effect, Layer, Result } from "effect"
 import { Agent as AgentSvc } from "@/agent/agent"
@@ -732,6 +733,77 @@ it.instance(
       expect(final.report).toContain("nobody")
       expect(final.report).toContain("nothing was attempted")
       expect(yield* llm.hits).toHaveLength(0)
+    }),
+  { config: {} },
+)
+
+// The tool layer used to skip permission questions for a queue session before the unattended policy
+// was consulted, so the main swarm mode could read outside the project while the policy only governed
+// prompt-mode loops. These drive a real queue loop through the real tool path. `external_directory`
+// is the permission that asks by default (webfetch is allowed by the built-in agent, so it never asks).
+const REFUSAL = "not available in an unattended run"
+const SECRET = "OUTSIDE-THE-PROJECT-MARKER-7f3a"
+const runOutsideReadLoop = (config: Record<string, unknown>) =>
+  Effect.gen(function* () {
+    const { directory: dir } = yield* TestInstance
+    const llm = yield* TestLLMServer
+    yield* writeConfig(dir, { ...providerCfg(llm.url), ...config } as never)
+    writeChange(dir, "needs-outside", "- [ ] 1.1 read something outside\n")
+    const outsideDir = fs.mkdtempSync(path.join(os.tmpdir(), "outside-project-"))
+    const outside = path.join(outsideDir, "notes.txt")
+    fs.writeFileSync(outside, `${SECRET}\n`)
+    const loop = yield* Loop.Service
+    yield* llm.tool("read", { filePath: outside })
+    for (let i = 0; i < 8; i++) yield* llm.text("carrying on")
+    const info = yield* loop.create({
+      prompt: "",
+      mode: "queue",
+      interval: 0,
+      maxIterations: 4,
+      queueOptions: { testCommand: "exit 0", verifyCommand: "exit 0", defaultBranch: "main" },
+    })
+    // Wait until the model is called again: the first call's tool result is in that request.
+    yield* pollWithTimeout(
+      Effect.gen(function* () {
+        return (yield* llm.hits).length >= 2 ? true : undefined
+      }),
+      "the model was never called again after the tool call",
+      "30 seconds",
+    )
+    const bodies = (yield* llm.hits).map((hit) => JSON.stringify(hit.body)).join("\n")
+    yield* loop.cancel(info.id)
+    fs.rmSync(outsideDir, { recursive: true, force: true })
+    return bodies
+  })
+
+it.instance(
+  "a queue loop is refused a read outside the project by default, and is told how to carry on",
+  () =>
+    Effect.gen(function* () {
+      const bodies = yield* runOutsideReadLoop({})
+      expect(bodies).toContain(REFUSAL)
+      expect(bodies).not.toContain(SECRET)
+    }),
+  { config: {} },
+)
+
+it.instance(
+  "full auto lets the same queue loop read it (the refusal is the policy, not a broken tool)",
+  () =>
+    Effect.gen(function* () {
+      const bodies = yield* runOutsideReadLoop({ experimental: { unattended_permissions: "full" } })
+      expect(bodies).toContain(SECRET)
+      expect(bodies).not.toContain(REFUSAL)
+    }),
+  { config: {} },
+)
+
+it.instance(
+  "unattended_allow: external_directory opens it for one named permission",
+  () =>
+    Effect.gen(function* () {
+      const bodies = yield* runOutsideReadLoop({ experimental: { unattended_allow: ["external_directory"] } })
+      expect(bodies).toContain(SECRET)
     }),
   { config: {} },
 )

@@ -64,6 +64,43 @@ export function policyFromConfig(cfg: {
   return { mode, extraAllow: (cfg.experimental?.unattended_allow ?? []).filter((x) => typeof x === "string") }
 }
 
+/**
+ * The rule shown to the model when an unattended session is refused something. It names the
+ * way out, so the agent decides without the permission or records the need, instead of retrying.
+ */
+export function refusalRule(permission: string) {
+  return {
+    permission,
+    pattern: "*",
+    action: `deny: "${permission}" is not available in an unattended run. Decide without it, or record the need in the change's .skein/blocker.md and move on.`,
+  }
+}
+
+/**
+ * What the TOOL layer does with an undecided ask (session/tools.ts), which sits in front of
+ * `Permission.ask`. It matters because that layer used to skip the question entirely for a queue
+ * session (one carrying the push-deny ceiling) and for global auto mode, so the unattended policy
+ * was never consulted for the main swarm mode.
+ *
+ *   global auto mode            allow   (full auto, honoured for every session)
+ *   a marked unattended session its policy decides: scoped allows a closed list and refuses the
+ *                               rest, full allows, off asks a human
+ *   unmarked, with the ceiling  allow   (the earlier behaviour, kept as a fallback)
+ *   otherwise                   ask
+ *
+ * Explicit denies are evaluated before this is reached, and always win.
+ */
+export function toolAskVerdict(input: {
+  policy: Policy | undefined
+  permission: string
+  autoEnabled: boolean
+  queueCeiling: boolean
+}): Verdict {
+  if (input.autoEnabled) return "allow"
+  if (input.policy) return decide(input.policy, input.permission)
+  return input.queueCeiling ? "allow" : "ask"
+}
+
 const sessions = new Map<SessionID, Policy>()
 
 export function mark(sessionID: SessionID, policy: Policy = DefaultPolicy): void {

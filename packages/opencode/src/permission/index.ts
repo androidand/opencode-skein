@@ -90,15 +90,7 @@ const layer = Layer.effect(
         if (verdict === "allow") continue
         if (verdict === "deny") {
           yield* Effect.logInfo("refused (unattended)", { permission: request.permission, pattern })
-          return yield* new PermissionV1.DeniedError({
-            ruleset: [
-              {
-                permission: request.permission,
-                pattern: "*",
-                action: `deny: "${request.permission}" is not available in an unattended run. Decide without it, or record the need in the change's .skein/blocker.md and move on.`,
-              },
-            ],
-          })
+          return yield* new PermissionV1.DeniedError({ ruleset: [Unattended.refusalRule(request.permission)] })
         }
         needsAsk = true
       }
