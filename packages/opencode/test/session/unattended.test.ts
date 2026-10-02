@@ -46,6 +46,41 @@ describe("Unattended.decide", () => {
   })
 })
 
+describe("Unattended — secrets and the stop-and-ask brake", () => {
+  const scoped = { mode: "scoped" as const, extraAllow: [] as string[] }
+
+  test("isSensitivePath: env files and private keys are, an example file and ordinary files are not", () => {
+    for (const p of [".env", "/proj/.env", "/proj/app.env", "/proj/.env.production", "/proj/config/prod.env", "/home/x/.ssh/id_rsa", "/x/server.pem", "/x/tls.key", "/x/.netrc", "/x/credentials.json"]) {
+      expect({ p, v: Unattended.isSensitivePath(p) }).toEqual({ p, v: true })
+    }
+    for (const p of ["/proj/.env.example", "/proj/.env.sample", "/proj/src/environment.ts", "/proj/README.md", "/home/x/.ssh/id_rsa.pub", "/proj/src/envelope.ts"]) {
+      expect({ p, v: Unattended.isSensitivePath(p) }).toEqual({ p, v: false })
+    }
+  })
+
+  test("scoped refuses a read or edit of a secret file, even though read and edit are on its list", () => {
+    expect(Unattended.decide(scoped, "read", ["/proj/.env"])).toBe("deny")
+    expect(Unattended.decide(scoped, "edit", ["/proj/.env.production"])).toBe("deny")
+    expect(Unattended.decide(scoped, "read", ["/proj/src/a.ts", "/proj/.env"])).toBe("deny")
+    expect(Unattended.decide(scoped, "read", ["/proj/src/a.ts"])).toBe("allow")
+    expect(Unattended.decide(scoped, "read", ["/proj/.env.example"])).toBe("allow")
+  })
+
+  test("full still allows a secret file (an explicit choice), and bash is not judged by file patterns", () => {
+    expect(Unattended.decide({ mode: "full", extraAllow: [] }, "read", ["/proj/.env"])).toBe("allow")
+    expect(Unattended.decide(scoped, "bash", ["cat .env"])).toBe("allow")
+  })
+
+  test("doom_loop is refused, not waved through: it is the stop-and-ask brake an agent chose to keep", () => {
+    expect(Unattended.decide(scoped, "doom_loop")).toBe("deny")
+    expect(Unattended.decide({ mode: "full", extraAllow: [] }, "doom_loop")).toBe("allow")
+  })
+
+  test("the tool layer passes the patterns through", () => {
+    expect(Unattended.toolAskVerdict({ policy: scoped, permission: "read", patterns: ["/p/.env"], autoEnabled: false, queueCeiling: true })).toBe("deny")
+  })
+})
+
 describe("Unattended.toolAskVerdict — the tool layer that sits in front of Permission.ask", () => {
   const base = { autoEnabled: false, queueCeiling: false }
   const scoped = { mode: "scoped" as const, extraAllow: [] as string[] }

@@ -86,7 +86,7 @@ const layer = Layer.effect(
         // belongs to the project, refuse the rest with a reason the model can act
         // on, or — in full-auto mode — allow everything. An explicit `deny` above
         // is untouched by this; only the default "ask" changes.
-        const verdict = Unattended.decide(Unattended.policyOf(request.sessionID), request.permission)
+        const verdict = Unattended.decide(Unattended.policyOf(request.sessionID), request.permission, [pattern])
         if (verdict === "allow") continue
         if (verdict === "deny") {
           yield* Effect.logInfo("refused (unattended)", { permission: request.permission, pattern })

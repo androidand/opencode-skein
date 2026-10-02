@@ -20,6 +20,17 @@ import type { SessionID } from "./schema"
 //
 // None of this touches `deny`. An explicit denial — a role's, or QueueDenyRules' —
 // is decided before this is consulted and always wins.
+//
+// Two things worth stating rather than assuming:
+//   - "scoped by default" holds unless `auto_mode` is on: a global auto mode means full auto for
+//     every session (see `toolAskVerdict`), and `policyFromConfig` maps `auto_mode: true` to "full".
+//     So `off` is only reachable when auto mode is off, and a marked session's own `off` does not
+//     override a global auto mode.
+//   - Scoped does not only settle UNDECIDED asks, it settles asks an agent put there on purpose.
+//     The built-in agent allows everything and asks only about doom_loop, directories outside the
+//     project, and secret files (`*.env`, `*.env.*`). Those asks exist to put a human in front of
+//     something, so scoped REFUSES them rather than waving them through: an unattended run is told
+//     no, and carries on.
 export type Mode = "scoped" | "full" | "off"
 
 export interface Policy {
@@ -47,8 +58,28 @@ export const ScopedAllow: ReadonlySet<string> = new Set([
   "todowrite",
   "task",
   "skill",
-  "doom_loop",
 ])
+
+// Files whose read or edit the built-in agent asks about on purpose (`*.env`, `*.env.*`, with
+// `*.env.example` exempt), plus the obvious private-key and credential files. An unattended run is
+// refused these instead of being handed them: nobody is there to say yes.
+const SENSITIVE: readonly RegExp[] = [
+  /(^|[\\/])\.env(\..+)?$/i,
+  /\.env$/i,
+  /\.pem$/i,
+  /\.p12$/i,
+  /\.pfx$/i,
+  /\.key$/i,
+  /(^|[\\/])id_(rsa|dsa|ecdsa|ed25519)$/i,
+  /(^|[\\/])\.(netrc|npmrc|pypirc)$/i,
+  /(^|[\\/])credentials(\.json)?$/i,
+]
+const NOT_SENSITIVE: readonly RegExp[] = [/\.env\.(example|sample|template)$/i]
+
+export function isSensitivePath(pattern: string): boolean {
+  if (NOT_SENSITIVE.some((rx) => rx.test(pattern))) return false
+  return SENSITIVE.some((rx) => rx.test(pattern))
+}
 
 /**
  * The policy a loop run uses, from config. `experimental.unattended_permissions` decides;
@@ -93,11 +124,12 @@ export function refusalRule(permission: string) {
 export function toolAskVerdict(input: {
   policy: Policy | undefined
   permission: string
+  patterns?: readonly string[]
   autoEnabled: boolean
   queueCeiling: boolean
 }): Verdict {
   if (input.autoEnabled) return "allow"
-  if (input.policy) return decide(input.policy, input.permission)
+  if (input.policy) return decide(input.policy, input.permission, input.patterns)
   return input.queueCeiling ? "allow" : "ask"
 }
 
@@ -119,10 +151,15 @@ export function policyOf(sessionID: SessionID): Policy | undefined {
   return sessions.get(sessionID)
 }
 
-/** What to do with an undecided ask. `undefined` policy means the session is not unattended. */
-export function decide(policy: Policy | undefined, permission: string): Verdict {
+/**
+ * What to do with an undecided ask. `undefined` policy means the session is not unattended.
+ * `patterns` are what the ask is about (file paths, commands): a scoped session is refused a read or
+ * edit of a secret file even though `read` and `edit` are otherwise on its list.
+ */
+export function decide(policy: Policy | undefined, permission: string, patterns: readonly string[] = []): Verdict {
   if (!policy || policy.mode === "off") return "ask"
   if (policy.mode === "full") return "allow"
+  if ((permission === "read" || permission === "edit") && patterns.some(isSensitivePath)) return "deny"
   return ScopedAllow.has(permission) || policy.extraAllow.includes(permission) ? "allow" : "deny"
 }
 

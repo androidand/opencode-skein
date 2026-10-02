@@ -127,6 +127,7 @@ export const resolve = Effect.fn("SessionTools.resolve")(function* (input: {
         const verdict = Unattended.toolAskVerdict({
           policy: Unattended.policyOf(input.session.id),
           permission: req.permission,
+          patterns: req.patterns,
           autoEnabled: yield* autoMode.isEnabled(),
           queueCeiling: QueueAuthority.deniesPush(mergedRuleset),
         })
