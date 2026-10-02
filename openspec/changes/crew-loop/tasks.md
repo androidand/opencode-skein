@@ -38,19 +38,24 @@
 
 ## Phase 1: Claims
 
-- [ ] 1.1 Add the `claims` table and migration with the partial unique index
+- [x] 1.1 Add the `claims` table and migration with the partial unique index
       on (projectID, slug) where `releasedAt IS NULL`, including `providerID`
       and `modelID` so the board doubles as a capacity map.
       Done on branch `crew-loop/claims` (not merged — adds a table to the
       shared session database for a feature still at proposal stage; that is
-      a product decision, not a code-readiness one). Migration registered,
-      claim/heartbeat/release/listLive/listAbandoned implemented, 7 tests
+      a product decision, not a code-readiness one). Migration registered
+      as `20260919055032_add_claims.ts` in the working tree; `schema.json`,
+      `migration.gen.ts`, `schema.gen.ts` updated. `ClaimKind` and
+      `ReleaseReason` defined in `packages/core/src/loop/sql.ts`. 7 tests
       pass including two added for a review finding: heartbeat on an
       already-released claim now fails with ClaimReleasedError instead of
       succeeding silently, and release is idempotent (a second release does
       not overwrite the first release's timestamp or reason).
-- [ ] 1.2 `loop/crew/claims.ts`: claim, heartbeat, release, listLive,
+- [x] 1.2 `loop/crew/claims.ts`: claim, heartbeat, release, listLive,
       listAbandoned; unit tests for atomic claim and stale detection.
+      `Claim.Service` exposed in `packages/opencode/src/loop/crew/claims.ts`;
+      `ClaimID`, `ClaimInfo`, `CreateClaimInput` types exported.
+      `packages/opencode/test/loop/crew/claims.test.ts` has 7 passing tests.
 - [x] 1.3 Queue cursor skips slugs with a live claim; queue mode records a
       claim on pick and heartbeats each iteration; releases on completion or
       quarantine. Remove the one-queue-per-directory refusal for crew mode
