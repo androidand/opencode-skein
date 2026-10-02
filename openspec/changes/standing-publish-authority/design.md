@@ -58,8 +58,8 @@ client).
 ## D4. Who runs the publishing commands
 
 Commit: the member, on granted branches, staging explicit paths (matches the way-of-working
-rule). Push and merge: stay driver-executed in queue mode (one command, argv-built, no
-shell), preserving "the model cannot push anything itself". Plain sessions use the derived
+rule). Push: allowed to granted sessions by derived rules (D7). Merge: driver-executed (one command,
+argv-built, no shell) because it needs evidence. Plain sessions use the derived
 allow rules. The merge driver checks: head SHA == reviewed SHA, gates green, CI green,
 target in `merge.into`, merge-base non-empty (empty merge-base → stop and ask a human, per
 the way-of-working file).
@@ -79,18 +79,28 @@ Add under the publishing paragraph:
 > explicit instruction for the actions it lists, durably. It never covers its never-list.
 > No policy file, an invalid one, or a visibility mismatch means no grant.
 
-## D7. Credential stripping is not gated on the grant
+## D7. Credentials (operator decision 2026-10-01, replaces the earlier default)
 
-`CredentialEnvKeys` stripping is defence in depth behind the deny list. A grant must not
-remove it, or a granted session would have fewer layers than an ungranted one. So: commit
-is allowed to the model's shell (no credentials needed); push and merge stay driver-executed
-(D4) with credentials present only in the driver's own one-command environment, never in any
-model-reachable shell. Allow rules derived from the policy therefore cover `git commit` and
-local branch operations, not `git push` or `gh pr merge`, for model shells. Plain sessions
-that the operator wants to push by hand use the same driver through `skein policy push`
-(a tool call to the driver), not a credentialed shell.
-Raised by a peer session reviewing the design; the narrowing of a security control is the
-operator's decision, recorded here as the default until they say otherwise.
+The operator's shells already carry an SSH key and possibly a token, and they want agents with a
+valid grant to push without a detour. So:
+
+- A session WITH a valid grant keeps its normal shell and credentials. `git push` is allowed by
+  the derived rules for the exact remote and the granted branch patterns, with no force flags;
+  the never-list stays denied and wins on order (last match wins).
+- A session WITHOUT a grant keeps today's behaviour: `QueueDenyRules` and credential stripping.
+- Merge into the default branch stays executed by the merge driver, not by a shell rule. The
+  reason is evidence, not credentials: a merge must check gates, a recorded review verdict for
+  the head SHA and CI, and a shell allow rule cannot check any of that.
+- Residual to state plainly: a token exported in the environment is visible to any command that
+  prints it and can end up in model context. Prefer injecting it per command over exporting it.
+
+## D8. Merge target (operator decision 2026-10-01)
+
+The merge driver merges straight into the policy's `merge.into` branch (this repo: `dev`) once
+review evidence exists. It cannot run before `review-on-done` (#102) records a verdict, because
+that verdict is a required input; until then the driver is built and tested with fake evidence
+and gated on evidence: until #102 records a verdict for the head SHA it refuses every merge, which is the same safety as a disabled flag without a flag to forget. Pushing the merged branch to `origin` still needs the remote's push
+interlock lifted by the operator.
 
 ## Open questions
 
