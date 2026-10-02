@@ -27,9 +27,14 @@
       `Worktree` has `create`/`list`/`remove` but no "attach to existing
       branch+gate" method, so a killed member's branch/gate/position is
       unrecoverable by another member.
-- [ ] 0.3 Confirm `peer-conversation-reliability` Phase 0 is merged (return
+- [x] 0.3 Confirm `peer-conversation-reliability` Phase 0 is merged (return
       address, truthful tool text) so a spike member can actually answer a
       peer.
+      Confirmed merged into `dev` as `c2feec678b9` ("fix: peer-conversation
+      reliability — reachable, answerable, loop-free A2A messaging (#91)").
+      `returnAddressFor` in `src/peer/route.ts:34` provides the return
+      address; `fromAddress` is included in outbound messages (line 179).
+      The branch `fix/peer-conversation-reliability` was merged via PR #91.
 
 ## Phase 1: Claims
 
