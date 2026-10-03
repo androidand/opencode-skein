@@ -79,36 +79,65 @@ claim. Until then, the honest statement is: **sender identity is unenforced.**
 
 ## The decision
 
-**Option A — server-attributed (recommended).** The project server mediates the write, so
-the requesting session is the one it served. Identity is intrinsic to the request rather
-than asserted inside a payload, which is what makes 1b.3 enforceable.
+Revised after peer consultation (2026-10-03). The original recommendation here was
+server-attributed identity, per `project-server` D5. **That recommendation is withdrawn:
+the user rejected the project server, so its premise no longer exists.**
 
-Cost, stated plainly: Phase 1b waits on the project server, and that is not a small
-dependency. `project-server` findings 0.5 measured ~172-204 MB resident *per registered
-session sidecar*, and D5 alone does not deliver the memory argument (findings,
-"Consequences" #3). This is multi-phase work.
+### Correction to the evidence above
 
-**Option B — socket-resolved.** Reuses existing infrastructure and unblocks 1b.1 now. But
-it rests on a claim, so 1b.3's author check is defeatable by any same-user process that can
-read the registry directory. Records written under it would have to be invalidated later.
+I listed the absence of `SO_PEERCRED` / `getpeereid` as a gap in this codebase. It is
+worse than that: the primitive is not available in the runtime. Probed directly against
+Bun 1.3.14 on a live unix-socket connection, `Socket` exposes no `getPeerName`,
+`getPeerCredentials` or `getPeerCert`. So an unforgeable *connection* identity is not
+merely unimplemented here — it is not reachable without OS-level separation or a different
+runtime. Any proposal resting on peer credentials is not implementable as written.
 
-**Recommendation: A**, on one narrow ground — B cannot close the hole it appears to close.
-The cost of A is that authenticity stays open longer, which is uncomfortable and truthful.
-An unenforceable check is worse than a visibly missing one.
+### Option 1 — callback confirmation (recommended)
+
+Before attributing a message, the receiver asks the claimed `from` socket: did you send
+`msg_id` X to me? The real session answers from its own in-process sent-log. A forger
+cannot make it say yes, because it does not have the log. Cost is roughly one new frame
+type plus a sent-log — no server, no peer credentials.
+
+This bounds the claim rather than making it absolute, and it is the strongest thing
+available in this runtime.
+
+### Option 2 — socket-resolved, as-is
+
+Unblocked today, and rejected. It rests on a claim, so any same-user process that can
+write the registry can attribute itself as another session.
+
+### What no option delivers
+
+Against a same-user, shell-capable agent, **nothing short of OS separation makes sender
+identity unforgeable.** A process that can replace a registry entry or a socket can
+answer for it. This should be stated wherever sender identity is relied upon, so the
+residual is a decision the user accepts rather than one discovered later.
+
+The real control is that claims stay **bounded**: human-granted, scoped, expiring, and
+subject to a never-list. For the review record specifically, the durable part is that the
+record is written by a tool from a session id the tool holds — never parsed out of message
+text.
+
+### Sequence
+
+Callback confirmation first, since it hardens `verifyLead` as well; then 1b.1 on top of it.
 
 ## Orthogonal: 1b.2 is not sound on its own
 
-Task 1b.2 denies model `edit`/`write` of `.skein/review.json`. That is worth doing and is
-independent of A versus B — but it is only a control if the fenced path cannot be reached
-another way, and scoped unattended bash can read and write arbitrary files today. A fence
-covering `edit`/`write` alone would hold in tests and be bypassable in practice, which is
-the more expensive failure because the code reads as though it is safe.
+Task 1b.2 denies model `edit`/`write` of `.skein/review.json`. Worth doing, and independent
+of the identity choice — but only a control if the fenced path cannot be reached another
+way, and scoped unattended bash can read and write arbitrary files today. A fence covering
+`edit`/`write` alone holds in tests and is bypassable in practice, which is the more
+expensive failure because the code reads as though it were safe.
 
-The bash gap should be settled before 1b.2 is treated as done, or 1b.2 should carry an
-explicit note that it is not a sandbox.
+Settle the bash gap before treating 1b.2 as done, or carry an explicit note that it is not
+a sandbox.
 
 ## What this does not change
 
-Nothing here is a fix, and nothing here is wired. The review record merged in
-`abadec9aea` remains a reader and a mapper. PR #111 covers 1b.3 only; 1b.1, 1b.2 and 1b.4
-wait on the decision recorded here.
+Nothing here is a fix, and nothing here is wired. The review record merged in `abadec9aea`
+remains a reader and a mapper. #111 covers 1b.3 only and is **inert as merged**: nothing
+passes `authorSessionID` yet, so it enforces nothing. It is recorded here as driver-side
+plumbing, not as a control in force — and that distinction matters only for as long as
+nobody ticks 1b done.
