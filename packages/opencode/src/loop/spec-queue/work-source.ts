@@ -138,12 +138,13 @@ function querySpecsync(repos: string[]): Effect.Effect<WorkItem[], never, never>
       return []
     }
 
-    let parsed: QueryItem[]
+    let parsed: QueryItem[] | null
     try {
       parsed = JSON.parse(result.stdout)
     } catch {
       return []
     }
+    if (!Array.isArray(parsed)) return []
 
     const items: WorkItem[] = []
     for (const q of parsed) {

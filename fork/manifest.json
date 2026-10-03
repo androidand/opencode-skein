@@ -152,6 +152,7 @@
     "packages/opencode/test/loop/similarity.test.ts",
     "packages/opencode/test/loop/spec-queue.test.ts",
     "packages/opencode/test/loop/branch-read.test.ts",
+    "packages/opencode/test/loop/work-source.test.ts",
     "packages/opencode/test/util/git-branch-repo.test.ts",
     "packages/opencode/test/mcp/fixtures.test.ts",
     "packages/opencode/test/mcp/protocol-mode.test.ts",
