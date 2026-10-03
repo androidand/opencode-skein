@@ -8,13 +8,22 @@
       `peer/delegate.ts` omission, the stderr-discard gap, the unsafe
       `startImmediately: true` fork, and the fragile text-marker correlation.
       All four findings incorporated into the updated spec.)
-- [ ] 0.2 Keep this change local until the review identifies a bounded first
+- [x] 0.2 Keep this change local until the review identifies a bounded first
       implementation slice. Do not run specsync against GitHub yet.
-- [ ] 0.3 Decide whether the existing Claude private protocol should remain an
+      Done 2026-10-03: review in 0.1 identified the bounded Phase 3 slice
+      (envelope + mode + reply correlation + step-boundary fix). Implementation
+      proceeded from that slice. Change remains local; no specsync against
+      GitHub. Task 5.5 is the gate for re-evaluating specsync readiness.
+- [x] 0.3 Decide whether the existing Claude private protocol should remain an
       adapter detail or whether a transport-neutral envelope is required at the
       sidecar boundary. (Leaning: structured envelope at the sidecar NDJSON
       boundary, with the Claude private protocol remaining an adapter detail
       behind `sidecar-manager.ts`.)
+      Done 2026-10-03: implemented as leaning — `peer/envelope.ts` owns the
+      structured envelope at the NDJSON boundary; Claude private protocol stays
+      behind `sidecar-manager.ts` + `peer/claude/codec.ts`. No separate transport-
+      neutral envelope needed — the `[peer mode id=...]` header survives all
+      hops (Claude, opencode-to-opencode) because it lives inside the text body.
 
 ## Phase 1: Reproduce and close the TUI corruption
 
