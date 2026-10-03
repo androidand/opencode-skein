@@ -409,3 +409,40 @@ it.instance(
     }),
   { config: {} },
 )
+
+it.instance(
+  "auto mode resolves items to repos and skips missing repos (Phase 3.2)",
+  () =>
+    Effect.gen(function* () {
+      const { directory: workspace } = yield* TestInstance
+      const llm = yield* TestLLMServer
+
+      // A real repo with an incomplete change (has eligible tasks).
+      const repoA = fs.mkdtempSync(path.join(workspace, "repo-a-"))
+      yield* writeConfig(repoA, {
+        ...providerCfg(llm.url),
+        experimental: { queue_gate: { test_command: "echo PASS" } },
+      })
+      writeChange(repoA, "change-a", "- [ ] 1.1 not done\n")
+      fs.writeFileSync(path.join(repoA, "openspec", "changes", "change-a", "proposal.md"), "# Change A\n")
+
+      // Provide LLM responses that complete the task.
+      yield* llm.text("I completed the task")
+
+      const loop = yield* Loop.Service
+      const info = yield* loop.create({ prompt: "", mode: "auto", interval: 0, maxIterations: 10 })
+      const final = yield* waitForTerminal(info.id, 30)
+
+      // The resolvable item (repoA/change-a) should have started a run and
+      // completed. If the repo were missing, the item would be skipped and
+      // the run would complete with no outcomes.
+      if (final.status !== "completed") {
+        throw new Error(
+          `Phase 3.2: expected completed, got ${final.status}, report=${final.report}`,
+        )
+      }
+      expect(final.status).toBe("completed")
+      expect(final.report).toContain("auto drained")
+    }),
+  { config: {} },
+)

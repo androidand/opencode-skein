@@ -4,6 +4,7 @@
 // loop and the TUI had no visibility into it at all. This service owns loop
 // state for the life of the server instead, so any client (CLI or TUI) can
 // see and control any loop.
+import fs from "fs"
 import path from "path"
 import { LayerNode } from "@opencode-ai/core/effect/layer-node"
 import { EventV2 } from "@opencode-ai/core/event"
@@ -1701,6 +1702,14 @@ export const layer = Layer.effect(
                 const itemExec = execIn(item.repo)
                 const itemOptions = yield* gateOptionsForRepo(item.repo, itemExec, initial.queue?.options)
 
+                // Skip items whose repo is not present on this machine.
+                if (!fs.existsSync(item.repo)) {
+                  outcomes.push({ repo: item.repo, change: item.change, outcome: "skipped", cause: "repo not found" })
+                  processedChanges.add(key)
+                  processedThisPass += 1
+                  continue
+                }
+
                 // Resolve the queue for this item's repo to check if it's already complete.
                 const resolved = resolveQueue(item.repo, [item.change])
                 const change = cursor(resolved)
@@ -1812,7 +1821,7 @@ export const layer = Layer.effect(
                       ...current.queue,
                       outcomes: [
                         ...current.queue.outcomes,
-                        ...outcomes.map((r) => ({ slug: r.change, outcome: r.outcome as "completed" | "quarantined", cause: r.cause, gate: "commit" as Gate, iterations: 0 })),
+                        ...outcomes.filter((r) => r.outcome !== "skipped").map((r) => ({ slug: r.change, outcome: r.outcome as "completed" | "quarantined", cause: r.cause, gate: "commit" as Gate, iterations: 0 })),
                       ] as ChangeOutcome[],
                     }
                   : undefined,
