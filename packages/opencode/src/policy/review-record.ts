@@ -181,7 +181,12 @@ export function toMergeEvidence(record: Record): PublishDrivers.MergeEvidence {
     reviewVerdict:
       record.verdict === undefined
         ? undefined
-        : { verdict: record.verdict, sha: record.headSHA, independence: record.independence },
+        : {
+            verdict: record.verdict,
+            sha: record.headSHA,
+            independence: record.independence,
+            reviewerSessionID: record.reviewer.sessionID,
+          },
   }
 }
 

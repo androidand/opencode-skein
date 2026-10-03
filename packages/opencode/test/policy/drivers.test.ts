@@ -163,6 +163,36 @@ describe("merge gate", () => {
     expect(may()).toEqual({ ok: true })
   })
 
+  describe("review authenticity", () => {
+    const verdictBy = (reviewerSessionID?: string, independence: "independent" | "same-model" = "independent") => ({
+      ...ok,
+      reviewVerdict: { verdict: "LGTM" as const, sha: HEAD, independence, reviewerSessionID },
+    })
+
+    test("refuses a verdict written by the author's own session", () => {
+      expect(refusal(may({ evidence: verdictBy("ses_author"), authorSessionID: "ses_author" }))).toContain("author's own session")
+    })
+
+    test("accepts a verdict from a different session", () => {
+      expect(may({ evidence: verdictBy("ses_reviewer"), authorSessionID: "ses_author" })).toEqual({ ok: true })
+    })
+
+    test("refuses a verdict that does not say who reviewed it once the author is known", () => {
+      expect(refusal(may({ evidence: verdictBy(undefined), authorSessionID: "ses_author" }))).toContain("which session reviewed")
+      expect(refusal(may({ evidence: verdictBy(""), authorSessionID: "ses_author" }))).toContain("which session reviewed")
+    })
+
+    test("without an author given the check does not apply (callers that predate it)", () => {
+      expect(may({ evidence: verdictBy("ses_author") })).toEqual({ ok: true })
+    })
+
+    test("requireIndependent refuses a same-model review and an unrecorded one, and accepts an independent one", () => {
+      expect(refusal(may({ evidence: verdictBy("r", "same-model"), requireIndependent: true }))).toContain("independent review is required")
+      expect(refusal(may({ requireIndependent: true }))).toContain("unrecorded")
+      expect(may({ evidence: verdictBy("r"), requireIndependent: true })).toEqual({ ok: true })
+    })
+  })
+
   test("refuses an actor the policy does not list", () => {
     expect(refusal(may({ actor: "model" }))).toContain("may not merge")
   })
