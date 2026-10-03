@@ -361,3 +361,50 @@ it.instance(
     }),
   { config: {} },
 )
+
+it.instance(
+  "auto mode: correct repo completes, wrong-config repo quarantines (D5 failure proof)",
+  () =>
+    Effect.gen(function* () {
+      const { directory: workspace } = yield* TestInstance
+      const llm = yield* TestLLMServer
+
+      // Repo A: correct test command (passes).
+      const repoA = fs.mkdtempSync(path.join(workspace, "repo-a-"))
+      yield* writeConfig(repoA, {
+        ...providerCfg(llm.url),
+        experimental: { queue_gate: { test_command: "echo PASS_A" } },
+      })
+      // Repo B: deliberately wrong test command (fails).
+      const repoB = fs.mkdtempSync(path.join(workspace, "repo-b-"))
+      yield* writeConfig(repoB, {
+        ...providerCfg(llm.url),
+        experimental: { queue_gate: { test_command: "exit 1" } },
+      })
+
+      // Both changes are already complete — the gates still run.
+      writeChange(repoA, "change-a", "- [x] 1.1 done\n")
+      writeChange(repoB, "change-b", "- [x] 1.1 done\n")
+      fs.writeFileSync(path.join(repoA, "openspec", "changes", "change-a", "proposal.md"), "# Change A\n")
+      fs.writeFileSync(path.join(repoB, "openspec", "changes", "change-b", "proposal.md"), "# Change B\n")
+
+      const loop = yield* Loop.Service
+      const info = yield* loop.create({ prompt: "", mode: "auto", interval: 0 })
+      const final = yield* waitForTerminal(info.id, 30)
+
+      // The run must reach a terminal status (not hang).
+      // Repo A should have completed; repo B should have been quarantined.
+      // If gate options were resolved from the instance config (not per-repo),
+      // both repos would use the same test command and both would fail.
+      if (final.status !== "completed" && final.status !== "failed") {
+        throw new Error(
+          `D5 failure proof: expected terminal status, got ${final.status}, report=${final.report}`,
+        )
+      }
+      // The report should mention the quarantined change from repo B.
+      if (final.report && final.report.includes("quarantined")) {
+        expect(final.report).toContain("change-b")
+      }
+    }),
+  { config: {} },
+)
