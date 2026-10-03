@@ -738,3 +738,32 @@ it.instance(
     }),
   { config: {} },
 )
+
+it.instance(
+  "auto mode: distinguishes drained from found nothing (Phase 4.2)",
+  () =>
+    Effect.gen(function* () {
+      const { directory: workspace } = yield* TestInstance
+
+      // No work source, no openspec changes anywhere in scope.
+      // The run should report "nothing found", not "drained".
+
+      const loop = yield* Loop.Service
+      const info = yield* loop.create({ prompt: "", mode: "auto", interval: 0 })
+      const final = yield* waitForTerminal(info.id, 30)
+
+      // The run should complete with a "nothing found" report.
+      if (final.status !== "completed") {
+        throw new Error(
+          `Phase 4.2: expected completed, got ${final.status}, report=${final.report}`,
+        )
+      }
+      expect(final.status).toBe("completed")
+      // The report should say "nothing found", not "drained".
+      if (final.report) {
+        expect(final.report).toContain("nothing found")
+        expect(final.report).not.toContain("drained")
+      }
+    }),
+  { config: {} },
+)

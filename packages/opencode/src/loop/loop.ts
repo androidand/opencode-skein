@@ -1684,6 +1684,7 @@ export const layer = Layer.effect(
           const claimedItems = new Set<string>()
           let consecutiveHalts = 0
           let anyGatePassed = false
+          let everFoundItems = false
 
          try {
             const deadline = Date.now() + 30_000
@@ -1708,10 +1709,22 @@ export const layer = Layer.effect(
                }),
              )
 
-              if (result.items.length === 0) {
-                yield* Effect.sleep("250 millis")
-                continue
-              }
+               if (result.items.length === 0) {
+                 // Distinguish "drained" from "found nothing" (Phase 4.2).
+                 // If we never found any items, the run ends with "nothing found".
+                 // If we found items but they're all processed, the run ends with "drained".
+                 if (outcomes.length === 0 && !everFoundItems) {
+                   yield* patch(id, (current) => ({
+                     ...current,
+                     info: { ...current.info, report: "nothing found — no work source and no openspec changes in scope" },
+                   }))
+                   yield* finalize(id, "completed")
+                   return
+                 }
+                 yield* Effect.sleep("250 millis")
+                 continue
+               }
+               everFoundItems = true
                 let processedThisPass = 0
                 let haltsThisPass = 0
                 const runningRepos = new Set<string>()
