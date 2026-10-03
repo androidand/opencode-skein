@@ -128,93 +128,109 @@ export type IterationInfo = Schema.Schema.Type<typeof IterationInfo>
 export const Mode = Schema.Literals(["prompt", "queue", "auto"])
 export type Mode = Schema.Schema.Type<typeof Mode>
 
-export const Info = Schema.Struct({
-  id: LoopID,
-  directory: Schema.String,
-  sessionID: SessionID,
-  parentSessionID: Schema.optional(SessionID),
-  prompt: Schema.String,
-  status: Status,
-  maxIterations: Schema.Int,
-  interval: Schema.optional(Schema.Finite),
-  noProgressLimit: Schema.Int,
-  completionToken: Schema.String,
-  // loop-eternal-by-default: when true (the default) a plain-mode loop that
-  // completes checks the openspec backlog before finalizing, and continues as
-  // a queue run if planned work remains instead of stopping. false restores
-  // the pre-existing stop-on-completion behavior exactly.
-  eternal: Schema.Boolean,
-  iteration: Schema.Int,
-  iterations: Schema.Array(IterationInfo),
-  // The most recent iteration's child session. Iterations run in fresh child
-  // sessions of `sessionID` so context never accumulates across iterations;
-  // this is the handle a client needs to navigate to (or abort) the turn
-  // that is actually executing.
-  iterationSessionID: Schema.optional(SessionID),
-  mode: Schema.optional(Mode),
-  // Queue mode progress for UI: the change being worked and its gate.
-  currentChange: Schema.optional(Schema.String),
-  currentGate: Schema.optional(Schema.String),
-  // End-of-run report for queue mode (design D7).
-  report: Schema.optional(Schema.String),
-  // loop-done-handoff: the queue drained but the run was asked to keep watching,
-  // so it is alive and quiet rather than finished. Not a stall and not terminal.
-  watching: Schema.optional(Schema.Boolean),
-  startedAt: Schema.Finite,
-  lastRunAt: Schema.optional(Schema.Finite),
-  finishedAt: Schema.optional(Schema.Finite),
-}).annotate({ identifier: "Loop" })
+ export const Info = Schema.Struct({
+   id: LoopID,
+   directory: Schema.String,
+   sessionID: SessionID,
+   parentSessionID: Schema.optional(SessionID),
+   prompt: Schema.String,
+   status: Status,
+   maxIterations: Schema.Int,
+   interval: Schema.optional(Schema.Finite),
+   noProgressLimit: Schema.Int,
+   completionToken: Schema.String,
+   // loop-eternal-by-default: when true (the default) a plain-mode loop that
+   // completes checks the openspec backlog before finalizing, and continues as
+   // a queue run if planned work remains instead of stopping. false restores
+   // the pre-existing stop-on-completion behavior exactly.
+   eternal: Schema.Boolean,
+   iteration: Schema.Int,
+   iterations: Schema.Array(IterationInfo),
+   // The most recent iteration's child session. Iterations run in fresh child
+   // sessions of `sessionID` so context never accumulates across iterations;
+   // this is the handle a client needs to navigate to (or abort) the turn
+   // that is actually executing.
+   iterationSessionID: Schema.optional(SessionID),
+   mode: Schema.optional(Mode),
+   // Queue mode progress for UI: the change being worked and its gate.
+   currentChange: Schema.optional(Schema.String),
+   currentGate: Schema.optional(Schema.String),
+   // End-of-run report for queue mode (design D7).
+   report: Schema.optional(Schema.String),
+   // loop-done-handoff: the queue drained but the run was asked to keep watching,
+   // so it is alive and quiet rather than finished. Not a stall and not terminal.
+   watching: Schema.optional(Schema.Boolean),
+   startedAt: Schema.Finite,
+   lastRunAt: Schema.optional(Schema.Finite),
+   finishedAt: Schema.optional(Schema.Finite),
+   // Auto mode: directory to scan for repositories. Sibling directories of
+   // this path with openspec changes are scanned. Defaults to the loop's
+   // directory (the server's working directory).
+   autoDirectory: Schema.optional(Schema.String),
+   // Auto mode: restrict which repositories to scan. When provided, only
+   // these repositories are scanned; otherwise all sibling directories with
+   // openspec changes are scanned.
+   autoRepos: Schema.optional(Schema.mutable(Schema.Array(Schema.String))),
+ }).annotate({ identifier: "Loop" })
 export type Info = Schema.Schema.Type<typeof Info>
 
-export const CreateInput = Schema.Struct({
-  prompt: Schema.String,
-  sessionID: Schema.optional(SessionID),
-  maxIterations: Schema.optional(Schema.Int),
-  interval: Schema.optional(Schema.Finite),
-  noProgressLimit: Schema.optional(Schema.Int),
-  completionToken: Schema.optional(Schema.String),
-  // Prompt mode only: continue into openspec backlog work on completion
-  // instead of stopping (default: true). Ignored in queue mode, which is
-  // already relentless by construction.
-  eternal: Schema.optional(Schema.Boolean),
-  // Queue mode (loop-spec-queue): the unit of work is an openspec change,
-  // not the prompt string. `queue` restricts and orders the changes; empty
-  // means every eligible change under openspec/changes/.
-  mode: Schema.optional(Mode),
-  queue: Schema.optional(Schema.mutable(Schema.Array(Schema.String))),
-  // Optional standing instruction repeated on every iteration of a queue run.
-  // Steers how the work is done; never what work is chosen.
-  queueGuidance: Schema.optional(Schema.String),
-  // Tracker sync after a change completes. Off by default: writing to
-  // GitHub/beads is an outward-facing side effect an unattended run must not
-  // take unless asked. When on, a dry run is executed and logged first.
-  queueSync: Schema.optional(Schema.Boolean),
-  // Push a completed change's branch. On by default: "done" means the work
-  // left this machine, and a run that stops at a local commit has not finished
-  // the job it was asked to do. Only the branch the commit gate already
-  // enforced is pushed, never the default branch, and the model still cannot
-  // push anything itself — the driver runs the one command.
-  queuePush: Schema.optional(Schema.Boolean),
-  // Keep watching for new work when the queue drains instead of finishing
-  // (loop-done-handoff). Off at the engine so existing callers keep their
-  // contract; the SDK's defaults turn it on for the CLI and TUI, because "done"
-  // should hand over, not halt the agent.
-  queueWatch: Schema.optional(Schema.Boolean),
-  // Gate command overrides. Defaults: `bun test`, `bun run typecheck`, and
-  // the default branch detected from origin/HEAD (fallback "main").
-  queueOptions: Schema.optional(
-    Schema.Struct({
-      testCommand: Schema.optional(Schema.String),
-      verifyCommand: Schema.optional(Schema.String),
-      defaultBranch: Schema.optional(Schema.String),
-      // Directory the gate commands run in. Defaults to the loop's directory
-      // (the repo root), which is wrong for repos whose test runner must be
-      // invoked from a package directory — this repo's root `test` script is
-      // literally `exit 1`, so a root-run gate can never pass here.
-      cwd: Schema.optional(Schema.String),
-    }),
-  ),
-})
+ export const CreateInput = Schema.Struct({
+   prompt: Schema.String,
+   sessionID: Schema.optional(SessionID),
+   maxIterations: Schema.optional(Schema.Int),
+   interval: Schema.optional(Schema.Finite),
+   noProgressLimit: Schema.optional(Schema.Int),
+   completionToken: Schema.optional(Schema.String),
+   // Prompt mode only: continue into openspec backlog work on completion
+   // instead of stopping (default: true). Ignored in queue mode, which is
+   // already relentless by construction.
+   eternal: Schema.optional(Schema.Boolean),
+   // Queue mode (loop-spec-queue): the unit of work is an openspec change,
+   // not the prompt string. `queue` restricts and orders the changes; empty
+   // means every eligible change under openspec/changes/.
+   mode: Schema.optional(Mode),
+   queue: Schema.optional(Schema.mutable(Schema.Array(Schema.String))),
+   // Optional standing instruction repeated on every iteration of a queue run.
+   // Steers how the work is done; never what work is chosen.
+   queueGuidance: Schema.optional(Schema.String),
+   // Tracker sync after a change completes. Off by default: writing to
+   // GitHub/beads is an outward-facing side effect an unattended run must not
+   // take unless asked. When on, a dry run is executed and logged first.
+   queueSync: Schema.optional(Schema.Boolean),
+   // Push a completed change's branch. On by default: "done" means the work
+   // left this machine, and a run that stops at a local commit has not finished
+   // the job it was asked to do. Only the branch the commit gate already
+   // enforced is pushed, never the default branch, and the model still cannot
+   // push anything itself — the driver runs the one command.
+   queuePush: Schema.optional(Schema.Boolean),
+   // Keep watching for new work when the queue drains instead of finishing
+   // (loop-done-handoff). Off at the engine so existing callers keep their
+   // contract; the SDK's defaults turn it on for the CLI and TUI, because "done"
+   // should hand over, not halt the agent.
+   queueWatch: Schema.optional(Schema.Boolean),
+   // Gate command overrides. Defaults: `bun test`, `bun run typecheck`, and
+   // the default branch detected from origin/HEAD (fallback "main").
+   queueOptions: Schema.optional(
+     Schema.Struct({
+       testCommand: Schema.optional(Schema.String),
+       verifyCommand: Schema.optional(Schema.String),
+       defaultBranch: Schema.optional(Schema.String),
+       // Directory the gate commands run in. Defaults to the loop's directory
+       // (the repo root), which is wrong for repos whose test runner must be
+       // invoked from a package directory — this repo's root `test` script is
+       // literally `exit 1`, so a root-run gate can never pass here.
+       cwd: Schema.optional(Schema.String),
+     }),
+   ),
+   // Auto mode: directory to scan for repositories. Sibling directories of
+   // this path with openspec changes are scanned. Defaults to the session's
+   // directory (the server's working directory).
+   autoDirectory: Schema.optional(Schema.String),
+   // Auto mode: restrict which repositories to scan. When provided, only
+   // these repositories are scanned; otherwise all sibling directories with
+   // openspec changes are scanned.
+   autoRepos: Schema.optional(Schema.mutable(Schema.Array(Schema.String))),
+ })
 export type CreateInput = Schema.Schema.Type<typeof CreateInput>
 
 export const Event = {
@@ -774,11 +790,15 @@ export const layer = Layer.effect(
     const gateOptionsForRepo = (repo: string, exec: Exec, overrides?: CreateInput["queueOptions"]) =>
       Effect.gen(function* () {
         let repoConfig: { experimental?: { queue_gate?: QueueGateConfig } } = {}
-        try {
-          const raw = yield* Effect.promise(() => Bun.file(`${repo}/opencode.json`).text())
-          repoConfig = JSON.parse(raw)
-        } catch {
-          // No opencode.json in this repo — fall through to instance config.
+        const raw = yield* Effect.promise(() => Bun.file(`${repo}/opencode.json`).text()).pipe(
+          Effect.catchCause(() => Effect.succeed("")),
+        )
+        if (raw) {
+          try {
+            repoConfig = JSON.parse(raw)
+          } catch {
+            // Invalid JSON — fall through to instance config.
+          }
         }
         const fromRepo = repoConfig.experimental?.queue_gate
         const cfg = yield* config.get().pipe(Effect.orElseSucceed(() => ({}) as never))
@@ -1658,9 +1678,9 @@ export const layer = Layer.effect(
     // authority than a queue loop has today just because it started as a
      // single prompt.
       const runAuto = (id: LoopID): Effect.Effect<void> =>
-       Effect.gen(function* () {
-         const initial = (yield* Ref.get(state)).get(id)
-         if (!initial) return
+        Effect.gen(function* () {
+          const initial = (yield* Ref.get(state)).get(id)
+          if (!initial) return
 
           const directory = initial.info.directory
 
@@ -1693,21 +1713,23 @@ export const layer = Layer.effect(
               if (!record) return
               if (record.info.status !== "running") return
 
-              const result = yield* Effect.promise(() =>
-               new Promise<{ items: import("./spec-queue/work-source").WorkItem[]; scanned: string[]; errors: string[] }>((resolve) => {
-                 const timer = setTimeout(() => resolve({ items: [], scanned: [], errors: [] }), 5000)
-                 Effect.runPromise(getWorkItems(directory)).then(
-                   (r) => {
-                     clearTimeout(timer)
-                     resolve(r)
-                   },
-                   () => {
-                     clearTimeout(timer)
-                     resolve({ items: [], scanned: [], errors: [] })
-                   },
-                 )
-               }),
-             )
+               const autoDir = initial.info.autoDirectory ?? directory
+               const autoRepos = initial.info.autoRepos
+               const result = yield* Effect.promise(() =>
+                new Promise<{ items: import("./spec-queue/work-source").WorkItem[]; scanned: string[]; errors: string[] }>((resolve) => {
+                  const timer = setTimeout(() => resolve({ items: [], scanned: [], errors: [] }), 5000)
+                  Effect.runPromise(getWorkItems(autoDir, autoRepos)).then(
+                    (r) => {
+                      clearTimeout(timer)
+                      resolve(r)
+                    },
+                    () => {
+                      clearTimeout(timer)
+                      resolve({ items: [], scanned: [], errors: [] })
+                    },
+                  )
+                }),
+              )
 
                if (result.items.length === 0) {
                  // Distinguish "drained" from "found nothing" (Phase 4.2).
@@ -1739,20 +1761,20 @@ export const layer = Layer.effect(
                    if (!live || live.info.status !== "running") return
 
                    const key = `${item.repo}:${item.change}`
-                   if (processedChanges.has(key)) return
+                    if (processedChanges.has(key)) return
 
-                   // Per-repo exec and gate options (D5 fallback): the instance
-                   // config answers for the loop's own directory, not the item's repo.
-                   const itemExec = execIn(item.repo)
-                   const itemOptions = yield* gateOptionsForRepo(item.repo, itemExec, initial.queue?.options)
+                    // Skip items whose repo is not present on this machine.
+                    if (!fs.existsSync(item.repo)) {
+                      outcomes.push({ repo: item.repo, change: item.change, outcome: "skipped", cause: "repo not found" })
+                      processedChanges.add(key)
+                      processedThisPass += 1
+                      return
+                    }
 
-                   // Skip items whose repo is not present on this machine.
-                   if (!fs.existsSync(item.repo)) {
-                     outcomes.push({ repo: item.repo, change: item.change, outcome: "skipped", cause: "repo not found" })
-                     processedChanges.add(key)
-                     processedThisPass += 1
-                     return
-                   }
+                    // Per-repo exec and gate options (D5 fallback): the instance
+                    // config answers for the loop's own directory, not the item's repo.
+                    const itemExec = execIn(item.repo)
+                    const itemOptions = yield* gateOptionsForRepo(item.repo, itemExec, initial.queue?.options)
 
                     // One run per repository at a time.
                     if (runningRepos.has(item.repo)) return
@@ -2066,25 +2088,27 @@ export const layer = Layer.effect(
             "loop prompt contains the completion token; token-based completion is disabled for this loop",
             { "loop.id": id, "loop.completionToken": completionToken },
           )
-        const info: Info = {
-          id,
-          directory,
-          sessionID,
-          parentSessionID,
-          prompt,
-          status: "running",
-          maxIterations: input.maxIterations ?? DefaultMaxIterations,
-          interval: input.interval,
-          noProgressLimit: input.noProgressLimit ?? DefaultNoProgressLimit,
-          completionToken,
-          // Only meaningful in prompt mode; queue mode is already relentless
-          // by construction (it drains the whole backlog before stopping).
-          eternal: mode === "prompt" ? (input.eternal ?? true) : false,
-          mode,
-          iteration: 0,
-          iterations: [],
-          startedAt: now,
-        }
+         const info: Info = {
+           id,
+           directory,
+           sessionID,
+           parentSessionID,
+           prompt,
+           status: "running",
+           maxIterations: input.maxIterations ?? DefaultMaxIterations,
+           interval: input.interval,
+           noProgressLimit: input.noProgressLimit ?? DefaultNoProgressLimit,
+           completionToken,
+           // Only meaningful in prompt mode; queue mode is already relentless
+           // by construction (it drains the whole backlog before stopping).
+           eternal: mode === "prompt" ? (input.eternal ?? true) : false,
+           mode,
+           iteration: 0,
+           iterations: [],
+           startedAt: now,
+           autoDirectory: input.autoDirectory,
+           autoRepos: input.autoRepos,
+         }
         yield* Ref.update(state, (map) =>
           new Map(map).set(id, {
             info,

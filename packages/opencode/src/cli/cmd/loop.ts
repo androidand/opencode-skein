@@ -87,6 +87,19 @@ export const LoopCommand = effectCmd({
           "Never pushes, tags, or deploys — the authority ceiling is inherited unchanged. " +
           "Work comes from the work source: specsync query if bound, otherwise local openspec changes.",
       })
+      .option("repos", {
+        type: "string",
+        array: true,
+        describe:
+          "auto mode: restrict which repositories to scan (comma-separated paths). " +
+          "By default, all sibling directories with openspec changes are scanned.",
+      })
+      .option("directory", {
+        type: "string",
+        describe:
+          "auto mode: directory to scan for repositories (default: the server's working directory). " +
+          "Sibling directories of this path with openspec changes are scanned.",
+      })
       .option("max", {
         type: "number",
         alias: "n",
@@ -203,6 +216,8 @@ export const LoopCommand = effectCmd({
                 verifyCommand: args["verify-command"],
               }
             : undefined,
+        autoDirectory: autoMode && args.directory ? args.directory : undefined,
+        autoRepos: autoMode && args.repos && args.repos.length > 0 ? args.repos : undefined,
       }),
     )
     // Say WHY. "failed to create loop" on its own sent me hunting for a
