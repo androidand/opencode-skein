@@ -2099,7 +2099,7 @@ export const layer = Layer.effect(
         // all (found in review): "scoped" means in-project, and publishing is outside the project.
         // `full` and `off` are explicit choices that leave a plain loop as it was; a queue run is always
         // fenced. The explicit denies are what the policy's "always wins" rests on, so they must exist.
-        const fenced = mode === "queue" || policy.mode === "scoped"
+        const fenced = mode === "queue" || mode === "auto" || policy.mode === "scoped"
         const priorPermission = fenced
           ? ((yield* session.get(sessionID).pipe(Effect.orElseSucceed(() => undefined)))?.permission ?? [])
           : []
