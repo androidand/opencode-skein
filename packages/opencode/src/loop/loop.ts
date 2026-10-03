@@ -280,6 +280,9 @@ type QueueState = {
   outcomes: ChangeOutcome[]
   consecutiveQuarantines: number
   anyGatePassed: boolean
+  // Consecutive empty-board ticks — drives the idle backoff so the no-progress
+  // guard does not mistake a quiet board for a stalled run.
+  consecutiveIdle: number
 }
 
 type Record_ = {
@@ -1257,7 +1260,34 @@ export const layer = Layer.effect(
               yield* finishQueue(id, "error", "nothing to run — no change under openspec/changes has a tasks.md with open tasks")
               return
             }
-            yield* finishQueue(id, "completed", "queue drained — every change is complete or quarantined")
+            if (queueState.outcomes.length === 0) {
+              // Everything was already complete — clean drain, not idle.
+              yield* finishQueue(id, "completed", "queue drained — every change is complete or quarantined")
+              return
+            }
+            if (resolved.eligible.length === 0 && resolved.complete.length === 0) {
+              // All remaining changes are quarantined — drain, not idle.
+              yield* finishQueue(id, "completed", "queue drained — every change is complete or quarantined")
+              return
+            }
+            if (resolved.complete.length > 0) {
+              // Remaining changes are complete — drain, not idle.
+              yield* finishQueue(id, "completed", "queue drained — every change is complete or quarantined")
+              return
+            }
+            // Board is empty but work has been done — idle with backoff instead
+            // of completing. The no-progress guard does not count this as a stall.
+            // Backoff: 30 s → 2 min, cap 10 min. Resets when a change appears
+            // or an inbox message arrives.
+            const hasInbox = record.inbox.length > 0
+            const nextIdle = hasInbox ? 0 : queueState.consecutiveIdle + 1
+            yield* patch(id, (current) => ({
+              ...current,
+              queue: { ...current.queue!, consecutiveIdle: nextIdle },
+              noProgressStreak: 0,
+            }))
+            const stages = [30_000, 120_000]
+            yield* waitBetween(id, stages[Math.min(nextIdle, stages.length) - 1] ?? 600_000)
             return
           }
 
@@ -1622,6 +1652,7 @@ export const layer = Layer.effect(
       outcomes: [],
       consecutiveQuarantines: 0,
       anyGatePassed: false,
+      consecutiveIdle: 0,
     })
 
     // Runs a prompt-mode loop; on completion, checks the openspec backlog
@@ -1772,6 +1803,7 @@ export const layer = Layer.effect(
                     syncs: [],
                     pushes: [],
                     outcomes: [],
+                    consecutiveIdle: 0,
                     consecutiveQuarantines: 0,
                     anyGatePassed: false,
                   }
