@@ -73,10 +73,17 @@
 
 ## Phase 2: Specify request/reply semantics
 
-- [ ] 2.1 Decide and document the minimum envelope: message id, sender,
+- [x] 2.1 Decide and document the minimum envelope: message id, sender,
       recipient, mode, context id, reply correlation, and response expectation.
       The envelope generalizes `peer/delegate.ts`; see `design.md` for the
       proposed shape and the migration path from the text marker.
+      Done 2026-10-03: `peer/envelope.ts` defines `PeerEnvelope` with
+      `messageID`, `contextID`, `inReplyTo`, `deadlineMinutes`, `taskID`,
+      `from`. `formatHeader`/`parsePeerEnvelope` round-trip all fields.
+      `newMessageID()`/`newContextID()` generate unique ids. Request mode
+      auto-generates both `messageID` and `contextID` (3.1). Tests in
+      `test/peer/envelope.test.ts` (17 tests) cover round-trip, forgery
+      resistance, and generated-id uniqueness.
 - [x] 2.2 Define delivery states and tool metadata separately from model-visible
       text: accepted, acknowledged, working, replied, failed, timed out. The
       existing `peer/delegate.ts` `pending` map covers accepted/replied/timeout;
@@ -85,24 +92,48 @@
       `envelope.ts` and `delegate.ts` wire it into reply correlation so the
       sender-facing path reports accepted at send time and the state machine
       drives all transitions on reply/timeout/cancel.
-- [ ] 2.3 Define retry/idempotency behavior for sidecar reconnects and duplicate
+- [x] 2.3 Define retry/idempotency behavior for sidecar reconnects and duplicate
       inbound frames. The current `pending` map is in-memory; a sidecar restart
       loses all correlations. Decide whether correlation state needs
       persistence for the first slice or whether in-memory is acceptable with a
       documented limitation.
-- [ ] 2.4 Decide where context state lives: existing session message metadata,
+      Done 2026-10-03: `peer/recent-ids.ts` drops duplicate inbound frames by
+      `msg_id` (1024 ids per process, FIFO eviction). `peer/repeat-guard.ts`
+      refuses a repeated send within a window. In-memory correlation is
+      acceptable for the first slice; a sidecar restart loses all correlations
+      — documented in `envelope.ts` and in task 5.5 as a known limitation.
+      No persistence added yet; see tasks 2.4/4.4 for the follow-up.
+- [x] 2.4 Decide where context state lives: existing session message metadata,
       a peer-conversation store, or a durable task relation. The existing
       `peer/delegate.ts` uses an in-memory `pending` map; the general case may
       need more.
-- [ ] 2.5 Update the OpenSpec capability delta only after these decisions are
+      Done 2026-10-03: Context state lives in the peer envelope header (the
+      `contextID` field on every message) and in the in-memory `pendingReplies`
+      map in `envelope.ts`. No separate store or session-message metadata
+      coupling. A sidecar restart loses correlation state — documented as a
+      known limitation; persistence is the follow-up in task 4.4.
+- [x] 2.5 Update the OpenSpec capability delta only after these decisions are
       supported by tests or a concrete protocol trace.
+      Done 2026-10-03: The spec at
+      `specs/peer-conversation-reliability/spec.md` captures all decisions —
+      envelope shape, delivery-state machine, duplicate dropping, safe
+      boundary enqueue, and response-contract preamble. Tests back every
+      requirement (envelope round-trip, state transitions, repeat guard,
+      delivery correlation). No separate capability delta needed; the spec IS
+      the delta.
 
 ## Phase 3: Implement the smallest useful AX slice
 
-- [ ] 3.1 Add generated message ids and optional context/reply correlation to
+- [x] 3.1 Add generated message ids and optional context/reply correlation to
       `send_peer_message` without requiring callers to handcraft ids. Extend
       the sidecar NDJSON frame with the structured envelope fields alongside
       the existing `type`, `text`, `from`, `fromName` fields.
+      Done 2026-10-03: `resolveSendMode` auto-generates `messageID` and
+      `contextID` for request mode; notify carries neither. The envelope is
+      rendered into the message text via `formatPeerEnvelope` and the id is
+      returned in tool metadata. Sidecar NDJSON frame carries the structured
+      envelope alongside existing fields. `test/peer/envelope.test.ts` covers
+      round-trip and forgery resistance. Typecheck clean; 104 peer tests pass.
 - [x] 3.2 Add an explicit `notify` versus `request` mode, with request mode
       producing a clear response expectation in the receiving prompt. The
       existing `peer/delegate.ts` path is implicitly `request`; the new `notify`
