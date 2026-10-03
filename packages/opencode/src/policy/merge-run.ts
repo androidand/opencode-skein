@@ -82,6 +82,9 @@ export async function runMerge(input: {
   remote: string
   actor: string
   evidence: PublishDrivers.MergeEvidence
+  /** See `mayMerge`: the author's session, so the author cannot approve itself. */
+  authorSessionID?: string
+  requireIndependent?: boolean
   /** Skip publication and leave the result in the throwaway worktree's object store only. */
   dryRun?: boolean
   git?: Git
@@ -92,7 +95,11 @@ export async function runMerge(input: {
 
   // The decision, with the same inputs the caller will log. The remote must be one
   // the policy was verified against (the loader matched its URL to `repo`).
-  const decision = PublishDrivers.mayMerge({ policy: input.policy, target, actor: input.actor, evidence })
+  const decision = PublishDrivers.mayMerge({ policy: input.policy, target, actor: input.actor,
+    evidence,
+    authorSessionID: input.authorSessionID,
+    requireIndependent: input.requireIndependent,
+  })
   if (!decision.ok) return refuse("decision", decision.reason)
   if (!PublishDrivers.isSafeRefName(remote) || !input.policy.push.remotes.includes(remote))
     return refuse("decision", `remote "${remote}" is not one the policy grants (${input.policy.push.remotes.join(", ")})`)

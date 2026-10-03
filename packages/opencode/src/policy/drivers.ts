@@ -137,6 +137,8 @@ export interface MergeEvidence {
     readonly verdict: "LGTM" | "NEEDS_WORK"
     readonly sha: string
     readonly independence?: "independent" | "same-model"
+    /** Who wrote the verdict, as the record claims. Compared with the author's session by `mayMerge`. */
+    readonly reviewerSessionID?: string
   }
   /** The merge base of target and head, as the caller computed it. The executor recomputes it. */
   readonly mergeBase?: string
@@ -180,6 +182,14 @@ export function mayMerge(input: {
   target: string
   actor: string
   evidence: MergeEvidence
+  /**
+   * The session that wrote the change. When given, the verdict must name a
+   * different reviewer session: the record sits in the author's working tree, so
+   * without this an author's own LGTM would be indistinguishable from a review.
+   */
+  authorSessionID?: string
+  /** Refuse a verdict whose `independence` is not "independent" (a same-model review). */
+  requireIndependent?: boolean
 }): Refusal {
   if (!input.policy.merge.by.includes(input.actor))
     return { ok: false, reason: `"${input.actor}" may not merge (${input.policy.merge.by.join(", ")})` }
@@ -207,6 +217,15 @@ export function mayMerge(input: {
       ok: false,
       reason: `the verdict covers ${input.evidence.reviewVerdict.sha} but the head is ${input.evidence.headSHA}`,
     }
+  const verdict = input.evidence.reviewVerdict
+  if (input.authorSessionID !== undefined) {
+    if (!verdict.reviewerSessionID)
+      return { ok: false, reason: "the verdict does not say which session reviewed it, so it cannot be told apart from the author's own" }
+    if (verdict.reviewerSessionID === input.authorSessionID)
+      return { ok: false, reason: "the verdict was written by the author's own session, not by a reviewer" }
+  }
+  if (input.requireIndependent && verdict.independence !== "independent")
+    return { ok: false, reason: `the review is ${verdict.independence ?? "of unrecorded independence"}, and an independent review is required` }
   for (const kind of input.policy.merge.requires) {
     if (kind === "review") continue // checked above, unconditionally: a merge never goes without a verdict
     const item = kind === "gates" ? input.evidence.gates : input.evidence.ci
