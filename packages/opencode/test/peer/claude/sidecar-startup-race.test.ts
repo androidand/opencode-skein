@@ -17,91 +17,61 @@ import { spawn } from "child_process"
 
 const ENTRY = join(import.meta.dir, "../../../src/peer/claude/sidecar-entry.ts")
 
-/**
- * Spawns a sidecar whose parent exits immediately, without waiting for the
- * sidecar to register — so the child is very likely already reparented by the
- * time it evaluates process.ppid. `killAfterMs: 0` makes the race as tight as
- * possible.
- */
-async function spawnWithParentExitingAt(opts: { killAfterMs: number; stdin: "pipe" | "ignore" }) {
-  const claudeConfigDir = await mkdtemp(join(tmpdir(), "sidecar-race-claude-"))
-  await Bun.write(join(claudeConfigDir, "placeholder"), "")
-  const socketDir = await mkdtemp(join(tmpdir(), "sidecar-race-sock-"))
-  const fakeParent = join(await mkdtemp(join(tmpdir(), "sidecar-race-parent-")), "spawn-and-exit.ts")
-
-  await Bun.write(
-    fakeParent,
-    `
-    import { spawn } from "child_process"
-    const child = spawn("bun", ["run", ${JSON.stringify(ENTRY)}], {
-      env: { ...process.env },
-      stdio: [${JSON.stringify(opts.stdin)}, "pipe", "ignore"],
-    })
-    child.stdout.on("data", () => {})
-    // Expire without signalling: no SIGTERM to the sidecar, so nothing but the
-    // sidecar's own detection can end it.
-    setTimeout(() => process.exit(0), ${opts.killAfterMs})
-    `,
-  )
-
-  const proc = spawn("bun", ["run", fakeParent], {
-    env: {
-      ...process.env,
-      CLAUDE_CONFIG_DIR: claudeConfigDir,
-      OPENCODE_SIDECAR_OWNER_SESSION_ID: "ses_race_test",
-      OPENCODE_SIDECAR_CWD: "/repo",
-      OPENCODE_SIDECAR_NAME: "opencode-race-test",
-      OPENCODE_SIDECAR_SOCKET_DIR: socketDir,
-    },
-    stdio: "ignore",
-  })
-  await new Promise<void>((resolve) => proc.once("exit", () => resolve()))
-  return { claudeConfigDir, socketDir }
-}
-
 describe("sidecar startup race", () => {
-  test("a sidecar whose parent exits before its first ppid read still terminates", async () => {
-    // Timing-dependent by nature: to hit the race the parent must die before the
-    // child reads its own ppid, and bun's own startup time decides whether that
-    // happened. So this retries, and — crucially — only concludes when it has
-    // actually OBSERVED the sidecar register and then clean up. An attempt where
-    // the sidecar never registered proves nothing and is retried, so this cannot
-    // pass by never exercising the race at all.
-    const ATTEMPTS = 4
-    let sawRegistration = false
-    let leaked = false
+  test("stdin EOF alone terminates the sidecar while its parent is alive", async () => {
+    // This is the test that makes the EOF guard *provable*, and it exists because
+    // the timing test above cannot: if the parent dies after the child reads
+    // process.ppid, the pre-existing ppid guard terminates the sidecar anyway, so
+    // "the sidecar terminated" does not imply "the EOF guard terminated it".
+    //
+    // Here the parent — this test process — stays alive for the whole test, so
+    // `process.ppid` never changes and the ppid guard cannot fire. Closing only
+    // the stdin pipe gives the child EOF and nothing else. If the sidecar exits
+    // and unregisters, the EOF guard is the only possible cause.
+    const claudeConfigDir = await mkdtemp(join(tmpdir(), "sidecar-eof-claude-"))
+    const socketDir = await mkdtemp(join(tmpdir(), "sidecar-eof-sock-"))
 
-    for (let attempt = 0; attempt < ATTEMPTS && !leaked; attempt++) {
-      const { claudeConfigDir } = await spawnWithParentExitingAt({ killAfterMs: 0, stdin: "pipe" })
-      const sessionsDir = join(claudeConfigDir, "sessions")
-      const appeared = Date.now() + 8_000
-      let registered = false
-      while (Date.now() < appeared && !registered) {
-        const entries = await readdir(sessionsDir).catch(() => [])
-        registered = entries.some((e) => e.endsWith(".json"))
-        if (!registered) await new Promise((r) => setTimeout(r, 100))
-      }
-      if (!registered) {
-        await rm(claudeConfigDir, { recursive: true, force: true })
-        continue // inconclusive: the race window was not reached this time
-      }
-      sawRegistration = true
+    const child = spawn("bun", ["run", ENTRY], {
+      env: {
+        ...process.env,
+        CLAUDE_CONFIG_DIR: claudeConfigDir,
+        OPENCODE_SIDECAR_OWNER_SESSION_ID: "ses_eof_test",
+        OPENCODE_SIDECAR_CWD: "/repo",
+        OPENCODE_SIDECAR_NAME: "opencode-eof-test",
+        OPENCODE_SIDECAR_SOCKET_DIR: socketDir,
+      },
+      stdio: ["pipe", "pipe", "ignore"],
+    })
+    let out = ""
+    child.stdout?.on("data", (c: Buffer) => (out += c.toString("utf8")))
 
-      const gone = Date.now() + 12_000
-      let stillThere = true
-      while (Date.now() < gone && stillThere) {
-        const entries = await readdir(sessionsDir).catch(() => [])
-        stillThere = entries.some((e) => e.endsWith(".json"))
-        if (stillThere) await new Promise((r) => setTimeout(r, 150))
-      }
-      leaked = stillThere
-      await rm(claudeConfigDir, { recursive: true, force: true })
+    const ready = Date.now() + 15_000
+    while (Date.now() < ready && !out.includes('"type":"ready"')) {
+      await new Promise((r) => setTimeout(r, 100))
     }
+    expect(out).toContain('"type":"ready"')
+    expect(child.exitCode).toBeNull()
 
-    // Guard the guard: if no attempt ever registered, the test proved nothing.
-    expect(sawRegistration).toBe(true)
-    expect(leaked).toBe(false)
-  }, 120_000)
+    // The only signal the child will get. Its parent is this process and stays
+    // right here, alive, so no reparenting can occur.
+    child.stdin?.end()
+
+    const exited = new Promise<number | null>((resolve) => child.once("exit", (code) => resolve(code)))
+    const won = await Promise.race([
+      exited,
+      new Promise<null>((resolve) => setTimeout(() => resolve(null), 15_000)),
+    ])
+    expect(won).not.toBeNull()
+    expect(child.exitCode).not.toBeNull()
+
+    // Unregisters on the way out, so the next boot's sweep finds nothing to do.
+    const entries = await readdir(join(claudeConfigDir, "sessions")).catch(() => [])
+    expect(entries.some((e) => e.endsWith(".json"))).toBe(false)
+
+    child.kill("SIGKILL")
+    await rm(claudeConfigDir, { recursive: true, force: true })
+    await rm(socketDir, { recursive: true, force: true })
+  }, 45_000)
 
   test("stdin: ignore does not kill a sidecar on startup", async () => {
     // Regression guard for the fix itself. With stdio "ignore" the child's stdin
