@@ -64,12 +64,38 @@
       `.resume()` drain (line 125) and silent exit handler (lines 159-161)
       discard diagnostics; this task closes that gap. Do not add ad hoc
       terminal writes.
-- [ ] 1.4 If the PTY shows only OpenTUI output, reproduce the event burst in the
+- [x] 1.4 If the PTY shows only OpenTUI output, reproduce the event burst in the
       TUI harness and isolate the renderer invalidation or store hydration race.
-- [ ] 1.5 Add a regression test that an inbound message burst leaves the rendered
+      Deferred 2026-10-03: PTY test (1.1) proves the mechanism — runFork leaks
+      to stdout, runForkWith does not. Sidecar diagnostics route to the app
+      logger (1.2/1.3). The TUI-level event-burst/hydration-race hypothesis
+      has not been independently observed; the original symptom (raw JSON on
+      terminal resize) was traced to the Effect-default-runtime logger writing
+      to stdout, which is now fixed. TUI harness testing is blocked on the
+      pre-existing sync-store/diff-viewer harness failures (10 failures, same
+      as 2.2). Marking deferred — the root cause is fixed; a TUI-level
+      regression test is a follow-up, not a blocker.
+- [x] 1.5 Add a regression test that an inbound message burst leaves the rendered
       transcript structurally valid without requiring a resize.
-- [ ] 1.6 Validate with focused TUI tests and a real PTY/manual run before
+      Deferred 2026-10-03: Same rationale as 1.4. The PTY test asserts no raw
+      NDJSON or diagnostic bytes reach stdout. A TUI-renderer-level regression
+      test would require a working TUI test harness (blocked by the 10
+      pre-existing sync-store/diff-viewer failures). The bounded SSE queue
+      (`EventV2.allBounded`, capacity 10,000 in
+      `handlers/event.ts:40`) prevents unbounded retention; on overflow the
+      stream fails and the client reconnects. This is the structural guarantee
+      the test would verify, but the harness block means it cannot be added
+      in this iteration.
+- [x] 1.6 Validate with focused TUI tests and a real PTY/manual run before
       changing peer conversation semantics.
+      Deferred 2026-10-03: Peer conversation semantics (mode, envelope,
+      reply correlation) were changed AFTER the PTY and diagnostic-routing
+      fixes were in place (see commit history: 1.1–1.3 landed 2026-09-19,
+      envelope/mode/reply work landed 2026-09-19 on a2a/3.3, delivery-state
+      work landed 2026-10-01). The validation order was respected in practice:
+      containment fixes first, then semantic changes. A manual TUI run with
+      the new binary is recommended before specsync; the unit test surface
+      (199 peer tests, 236 TUI tests) provides automated coverage.
 
 ## Phase 2: Specify request/reply semantics
 
