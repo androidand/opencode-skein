@@ -15,6 +15,21 @@
       "no token = no verdict" rule.
 - [ ] 1.3 `.skein/review.json` schema (closed, validated at read) and writer.
 
+## Phase 1b: Record authenticity (found in review of the record reader, 2026-10-02)
+
+The record lives in the AUTHOR's working tree, so as a bare file it proves nothing: the author's model
+can write its own LGTM. The reader (src/policy/review-record.ts) therefore carries the reviewer's
+identity as a claim (`reviewer.sessionID`) and the verdict's `independence`; these tasks make the claim
+true.
+
+- [ ] 1b.1 The record is written only by a tool (`opencode review record`, or the review hook), using the
+      authenticated session identity of the REVIEWER, never by a model's own file write.
+- [ ] 1b.2 Deny `edit` and `write` of `.skein/review.json` for ordinary sessions (the fenced-path rules,
+      same mechanism as the other protected paths), with a bypass-shape test.
+- [ ] 1b.3 The merge driver refuses a verdict whose `reviewer.sessionID` is the author's session, and
+      surfaces `independence` so a policy can require `independent`.
+- [ ] 1b.4 Observed-red test: an author that writes a forged LGTM into its own tree is refused.
+
 ## Phase 2: Independent reviewer
 
 - [ ] 2.1 Selection function over roster + models (different harness > different family >
