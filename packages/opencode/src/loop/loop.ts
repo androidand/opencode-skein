@@ -1679,8 +1679,10 @@ export const layer = Layer.effect(
              }
            })
 
-         let outcomes: Array<{ repo: string; change: string; outcome: string; cause?: string }> = []
-         const processedChanges = new Set<string>()
+          let outcomes: Array<{ repo: string; change: string; outcome: string; cause?: string }> = []
+          const processedChanges = new Set<string>()
+          let consecutiveHalts = 0
+          let anyGatePassed = false
 
          try {
             const deadline = Date.now() + 30_000
@@ -1709,8 +1711,9 @@ export const layer = Layer.effect(
                 yield* Effect.sleep("250 millis")
                 continue
               }
-               let processedThisPass = 0
-               const runningRepos = new Set<string>()
+                let processedThisPass = 0
+                let haltsThisPass = 0
+                const runningRepos = new Set<string>()
 
                // Capacity-bounded concurrency (Phase 3.4): at most `capacity`
                // items run at once, re-evaluated as each item starts. One repo
@@ -1781,13 +1784,13 @@ export const layer = Layer.effect(
                          })
 
                        switch (gate) {
-                         case "implement": {
-                           const check = evaluateImplement(change)
-                           if (check.passed) {
-                             failCounts.implement = 0
-                             gate = "test"
-                             continue
-                           }
+                          case "implement": {
+                            const check = evaluateImplement(change)
+                            if (check.passed) {
+                              failCounts.implement = 0
+                              gate = "test"
+                              continue
+                            }
                            iterations += 1
                            // For the cross-repo auto run, we do not have an LLM turn
                            // available here — the driver is not session-owned. A change
@@ -1796,32 +1799,35 @@ export const layer = Layer.effect(
                            if (yield* fail("implement", check.output)) break change
                            continue
                          }
-                         case "test": {
-                           const testResult = yield* Effect.promise(() => evaluateTest(itemExec, itemOptions))
-                           if (testResult.passed) {
-                             failCounts.test = 0
-                             gate = "verify"
-                             continue
-                           }
+                          case "test": {
+                            const testResult = yield* Effect.promise(() => evaluateTest(itemExec, itemOptions))
+                            if (testResult.passed) {
+                              failCounts.test = 0
+                              anyGatePassed = true
+                              gate = "verify"
+                              continue
+                            }
                            if (yield* fail("test", testResult.output)) break change
                            continue
                          }
-                         case "verify": {
-                           const verifyResult = yield* Effect.promise(() => evaluateVerify(itemExec, change, itemOptions))
-                           if (verifyResult.passed) {
-                             failCounts.verify = 0
-                             gate = "commit"
-                             continue
-                           }
+                          case "verify": {
+                            const verifyResult = yield* Effect.promise(() => evaluateVerify(itemExec, change, itemOptions))
+                            if (verifyResult.passed) {
+                              failCounts.verify = 0
+                              anyGatePassed = true
+                              gate = "commit"
+                              continue
+                            }
                            if (yield* fail("verify", verifyResult.output)) break change
                            continue
                          }
-                         case "commit": {
-                           const commitResult = yield* Effect.promise(() => evaluateCommit(itemExec, change, itemOptions))
-                           if (commitResult.passed) {
-                             ending.outcome = "completed"
-                             break change
-                           }
+                          case "commit": {
+                            const commitResult = yield* Effect.promise(() => evaluateCommit(itemExec, change, itemOptions))
+                            if (commitResult.passed) {
+                              ending.outcome = "completed"
+                              anyGatePassed = true
+                              break change
+                            }
                            iterations += 1
                            if (yield* fail("commit", commitResult.output)) break change
                            continue
@@ -1829,14 +1835,15 @@ export const layer = Layer.effect(
                        }
                      }
 
-                     outcomes.push({
-                       repo: item.repo,
-                       change: item.change,
-                       outcome: ending.outcome,
-                       cause: ending.cause,
-                     })
-                     processedChanges.add(key)
-                     processedThisPass += 1
+                      outcomes.push({
+                        repo: item.repo,
+                        change: item.change,
+                        outcome: ending.outcome,
+                        cause: ending.cause,
+                      })
+                      processedChanges.add(key)
+                      processedThisPass += 1
+                      if (ending.outcome === "quarantined") haltsThisPass += 1
                    } finally {
                      runningRepos.delete(item.repo)
                    }
@@ -1851,12 +1858,35 @@ export const layer = Layer.effect(
                    yield* processItem(result.items[idx])
                  }
                })
-               const cap = yield* capacity()
-               yield* Effect.forEach(Array.from({ length: Math.min(cap, result.items.length) }), () => worker, {
-                 concurrency: "unbounded",
-               })
+                const cap = yield* capacity()
+                yield* Effect.forEach(Array.from({ length: Math.min(cap, result.items.length) }), () => worker, {
+                  concurrency: "unbounded",
+                })
 
-               if (processedThisPass === 0) {
+                // Environmental guard (Phase 3.5): several consecutive halts
+                // with no gate passing anywhere means the environment is
+                // broken, not the individual items. Stop the run and report
+                // a suspected environmental cause.
+
+                if (haltsThisPass > 0) {
+                  if (anyGatePassed) {
+                    consecutiveHalts = 0
+                  } else {
+                    consecutiveHalts += haltsThisPass
+                  }
+                } else {
+                  consecutiveHalts = 0
+                }
+                if (consecutiveHalts >= 3) {
+                  yield* patch(id, (current) => ({
+                    ...current,
+                    info: { ...current.info, report: `suspected environmental cause — ${consecutiveHalts} consecutive halts with no gate passing` },
+                  }))
+                  yield* finalize(id, "stalled")
+                  return
+                }
+
+                if (processedThisPass === 0) {
                  yield* patch(id, (current) => ({
                    ...current,
                    info: { ...current.info, report: "auto drained — all changes processed" },

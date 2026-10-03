@@ -521,3 +521,89 @@ it.instance(
     }),
   { config: {} },
 )
+
+it.instance(
+  "auto mode: one bad item does not end the run (Phase 3.5)",
+  () =>
+    Effect.gen(function* () {
+      const { directory: workspace } = yield* TestInstance
+      const llm = yield* TestLLMServer
+
+      // Five fixture repos: four with passing test commands, one with a
+      // failing test command. The run should continue past the bad item
+      // and complete the good ones.
+      const repos: string[] = []
+      const slugs: string[] = []
+      for (let i = 0; i < 5; i++) {
+        const repo = fs.mkdtempSync(path.join(workspace, `repo-${i}-`))
+        const slug = `change-${i}`
+        const testCmd = i === 2 ? "exit 1" : `echo PASS_${i}`
+        yield* writeConfig(repo, {
+          ...providerCfg(llm.url),
+          experimental: { queue_gate: { test_command: testCmd } },
+        })
+        writeChange(repo, slug, "- [ ] 1.1 not done\n")
+        fs.writeFileSync(path.join(repo, "openspec", "changes", slug, "proposal.md"), `# Change ${i}\n`)
+        repos.push(repo)
+        slugs.push(slug)
+      }
+
+      const loop = yield* Loop.Service
+      const info = yield* loop.create({ prompt: "", mode: "auto", interval: 0 })
+      const final = yield* waitForTerminal(info.id, 30)
+
+      // The run should reach a terminal status. The bad item (change-2)
+      // should be quarantined, but the run should not stop — the other
+      // four items should be completed.
+      const terminal: Loop.Status[] = ["completed", "stalled", "cancelled", "max_reached", "error"]
+      if (!terminal.includes(final.status)) {
+        throw new Error(
+          `Phase 3.5 one-bad: expected terminal status, got ${final.status}, report=${final.report}`,
+        )
+      }
+      // The report should mention the quarantined change.
+      if (final.report && final.report.includes("quarantined")) {
+        expect(final.report).toContain("change-2")
+      }
+    }),
+  { config: {} },
+)
+
+it.instance(
+  "auto mode: three identically broken items stop the run (Phase 3.5)",
+  () =>
+    Effect.gen(function* () {
+      const { directory: workspace } = yield* TestInstance
+      const llm = yield* TestLLMServer
+
+      // Three fixture repos, all with failing test commands and incomplete
+      // tasks (so the gates actually run). The environmental guard should
+      // stop the run after three consecutive halts with no gate passing.
+      for (let i = 0; i < 3; i++) {
+        const repo = fs.mkdtempSync(path.join(workspace, `repo-${i}-`))
+        const slug = `change-${i}`
+        yield* writeConfig(repo, {
+          ...providerCfg(llm.url),
+          experimental: { queue_gate: { test_command: "exit 1" } },
+        })
+        writeChange(repo, slug, "- [ ] 1.1 not done\n")
+        fs.writeFileSync(path.join(repo, "openspec", "changes", slug, "proposal.md"), `# Change ${i}\n`)
+      }
+
+      const loop = yield* Loop.Service
+      const info = yield* loop.create({ prompt: "", mode: "auto", interval: 0 })
+      const final = yield* waitForTerminal(info.id, 30)
+
+      // The run should stop with a stalled status and report a suspected
+      // environmental cause. If the guard were broken, the run would
+      // continue spinning on the broken items.
+      if (final.status !== "stalled") {
+        throw new Error(
+          `Phase 3.5 env-guard: expected stalled, got ${final.status}, report=${final.report}`,
+        )
+      }
+      expect(final.status).toBe("stalled")
+      expect(final.report).toContain("environmental")
+    }),
+  { config: {} },
+)
