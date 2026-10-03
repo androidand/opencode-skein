@@ -17,9 +17,15 @@ import type {
   CreateModelOperationData,
   CreateModelOperationErrors,
   CreateModelOperationResponses,
+  CreateSlotLeaseData,
+  CreateSlotLeaseErrors,
+  CreateSlotLeaseResponses,
   DeleteModelData,
   DeleteModelErrors,
   DeleteModelResponses,
+  DeleteSlotLeaseData,
+  DeleteSlotLeaseErrors,
+  DeleteSlotLeaseResponses,
   GetApiModelsData,
   GetApiModelsResponses,
   GetConfigHistoryData,
@@ -707,6 +713,34 @@ export class LlamaSkeinClient extends HeyApiClient {
   public getModelArtifact<ThrowOnError extends boolean = false>(options: Options<GetModelArtifactData, ThrowOnError>) {
     return (options.client ?? this.client).get<GetModelArtifactResponses, GetModelArtifactErrors, ThrowOnError>({
       url: "/api/models/artifacts/{model}/{path}",
+      ...options,
+    })
+  }
+
+  /**
+   * Create a slot lease
+   *
+   * Reserve a slot for an external caller (e.g. opencode subagent placement). Returns 409 when no free slots remain.
+   */
+  public createSlotLease<ThrowOnError extends boolean = false>(options?: Options<CreateSlotLeaseData, ThrowOnError>) {
+    return (options?.client ?? this.client).post<CreateSlotLeaseResponses, CreateSlotLeaseErrors, ThrowOnError>({
+      url: "/api/slots/lease",
+      ...options,
+      headers: {
+        "Content-Type": "application/json",
+        ...options?.headers,
+      },
+    })
+  }
+
+  /**
+   * Delete a slot lease
+   *
+   * Release a previously created slot lease.
+   */
+  public deleteSlotLease<ThrowOnError extends boolean = false>(options: Options<DeleteSlotLeaseData, ThrowOnError>) {
+    return (options.client ?? this.client).delete<DeleteSlotLeaseResponses, DeleteSlotLeaseErrors, ThrowOnError>({
+      url: "/api/slots/lease/{id}",
       ...options,
     })
   }

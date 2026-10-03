@@ -75,6 +75,14 @@ export type InferenceInfo = {
    * True when every slot of every running model is occupied (in_flight >= slots_total > 0) — a new request would queue. False when no model is running: the host is idle, it just needs a swap-in.
    */
   busy?: boolean
+  /**
+   * Number of slot leases currently held by external callers. They count against free slots like in-flight requests.
+   */
+  leased?: number
+  /**
+   * Holder names for each active lease.
+   */
+  holders?: Array<string>
 }
 
 export type LoadedModelInfo = {
@@ -211,10 +219,11 @@ export type Model = {
    * True if the model emits reasoning/thinking output (reasoning_content) before its answer. Resolved from the model config; omitted when not declared. Clients use it to enable reasoning-stream rendering.
    */
   reasoning?: boolean
+  capabilities?: ModelCapabilities
   /**
-   * What this model can do. Follows Ollama's capabilities pattern. Derived from the model config; empty when not declared.
+   * True when the model can be relied on to emit a requested structure directly, false when it forces reasoning first. false when capabilities.reasoning is true; null when capabilities is null.
    */
-  capabilities?: Array<ModelCapability>
+  prefers_structured_output?: boolean
   last_error?: LastError
   /**
    * Whether the model's primary weights file currently exists on disk. Distinct from being configured (present in this list at all) — a configured model's weight file can be missing (deleted, moved, or never finished installing). Omitted when it cannot be determined (e.g. no -m/--model path in the command).
@@ -1151,6 +1160,45 @@ export type ArtifactRole = "weights" | "projector" | "draft" | "tokenizer" | "co
  */
 export type ModelCapability = "completion" | "vision" | "reasoning" | "tool-use"
 
+/**
+ * Engine-sourced capability report for a model. Sourced from /props at load time; null when unknown (never loaded or backend has no probe).
+ */
+export type ModelCapabilities = {
+  /**
+   * True when the model emits reasoning/thinking output (reasoning_content) before its answer. Sourced from chat_template_caps.supports_preserve_reasoning.
+   */
+  reasoning?: boolean
+  /**
+   * True when the model supports tool/function calling. Sourced from chat_template_caps.supports_tool_calls.
+   */
+  tool_calls?: boolean
+  /**
+   * True when the model supports parallel tool calls. Sourced from chat_template_caps.supports_parallel_tool_calls.
+   */
+  parallel_tool_calls?: boolean
+  /**
+   * True when the model supports the system role in chat templates. Sourced from chat_template_caps.supports_system_role.
+   */
+  system_role?: boolean
+  /**
+   * Multimodal capabilities. Sourced from /props.modalities.
+   */
+  modalities?: {
+    /**
+     * True when the model accepts images.
+     */
+    vision?: boolean
+    /**
+     * True when the model accepts audio input.
+     */
+    audio?: boolean
+    /**
+     * True when the model accepts video input.
+     */
+    video?: boolean
+  }
+} | null
+
 export type InstallArtifact = {
   /**
    * Repository-relative source path, e.g. "model-Q4_K_M-00001-of-00002.gguf". Never a full URL or a path outside the pinned repository/revision — resolved against source_repository/source_revision at plan-validation time.
@@ -1405,7 +1453,7 @@ export type ModelLoadFailure = {
  */
 export type PeerSource = {
   /**
-   * Control-plane base URL of the llama-skein host to import from, e.g. http://192.0.2.239:8080. Must resolve to a private or loopback address unless allowPublicPeers is set.
+   * Control-plane base URL of the llama-skein host to import from, e.g. http://192.168.1.239:8080. Must resolve to a private or loopback address unless allowPublicPeers is set.
    */
   base_url: string
   /**
@@ -2510,3 +2558,60 @@ export type GetModelArtifactResponses = {
 }
 
 export type GetModelArtifactResponse = GetModelArtifactResponses[keyof GetModelArtifactResponses]
+
+export type CreateSlotLeaseData = {
+  body?: {
+    /**
+     * Who holds this lease (e.g. opencode session id)
+     */
+    holder: string
+    /**
+     * TTL in seconds (defaults to server config)
+     */
+    ttl_s?: number
+  }
+  path?: never
+  query?: never
+  url: "/api/slots/lease"
+}
+
+export type CreateSlotLeaseErrors = {
+  /**
+   * Bad request
+   */
+  400: unknown
+  /**
+   * No free slots
+   */
+  409: unknown
+}
+
+export type CreateSlotLeaseResponses = {
+  /**
+   * Lease created
+   */
+  201: unknown
+}
+
+export type DeleteSlotLeaseData = {
+  body?: never
+  path: {
+    id: string
+  }
+  query?: never
+  url: "/api/slots/lease/{id}"
+}
+
+export type DeleteSlotLeaseErrors = {
+  /**
+   * Lease not found
+   */
+  404: unknown
+}
+
+export type DeleteSlotLeaseResponses = {
+  /**
+   * Lease released
+   */
+  200: unknown
+}

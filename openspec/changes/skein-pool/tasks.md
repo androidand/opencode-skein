@@ -58,8 +58,15 @@
 
 ## Phase 3: Leases on the host (llama-skein)
 
-- [ ] 3.1 llama-skein: `POST/DELETE /api/slots/lease`, TTL expiry, leases counted in
+- [x] 3.1 llama-skein: `POST/DELETE /api/slots/lease`, TTL expiry, leases counted in
       `inference.free`; `leased`/`holders` in `/api/hardware`; OpenAPI + tests
+      Done 2026-10-03: Added `internal/server/apisleasing.go` with `leaseTracker`,
+      `handleAPISlotsLeaseCreate`, `handleAPISlotsLeaseDelete`, and `slotTotal()`.
+      Config gains `SlotLeaseTTL` (default 300s). `/api/hardware` response includes
+      `inference.leased` (count) and `inference.holders` (names). OpenAPI spec updated
+      and client regenerated (`bun run build:llama-skein-client`). 482 server tests
+      pass; `bun run typecheck` clean in opencode (only pre-existing auto-mode.test.ts
+      errors).
 - [ ] 3.2 opencode: acquire a lease when placing on a host that supports it, release with
       the existing handle; fall back silently on 404
 - [ ] 3.3 Live: two opencode processes fan out onto one single-slot host — exactly one
