@@ -31,6 +31,7 @@ import {
   type TaskReplyResult,
 } from "@/peer/delegate"
 import { deliverToOpencodeSession, foreignRoster } from "@/peer/route"
+import { route } from "@/loop/crew/route"
 
 export interface TaskPromptOps {
   cancel(sessionID: SessionID): Effect.Effect<void>
@@ -497,6 +498,77 @@ export const TaskTool = Tool.define(
         return { peer, reply }
       })
       if (willInherit && placementRan) {
+        // Promote the pool-overflow path to the normal route when a warm
+        // member is idle, behind the existing `experimental.peer_delegation`
+        // switch. The routing decision (design.md): warm member > cloud
+        // member > free host > skip. Delegation is tried before the
+        // subagent is inherited, so an idle warm colleague is preferred
+        // over taking a slot on the already-busy parent host.
+           if (cfg.experimental?.peer_delegation !== false) {
+             if (sessionStatus && permission) {
+               const [all, statuses, permissions, providers, foreign] = yield* Effect.all([
+                 sessions.list(),
+                 sessionStatus.list(),
+                 permission.list(),
+                 provider ? provider.list() : Effect.succeed({} as Record<string, Provider.Info>),
+                 Effect.promise(() => foreignRoster()),
+               ])
+               const localProviderIDs = new Set(
+                 Object.values(providers)
+                   .filter((info) => LocalPlacement.baseURLOf(info))
+                   .map((info) => info.id as string),
+               )
+               const opencodePeers = resolveMessageTargets({
+                 sessions: foreign.merge(all.map((item) => ({
+                   id: item.id,
+                   parentID: item.parentID,
+                   directory: item.directory,
+                   title: item.title,
+                   agent: item.agent,
+                   model: item.model ? { providerID: item.model.providerID, id: item.model.id } : undefined,
+                   updatedAt: item.time.updated,
+                 }))),
+                 statuses,
+                 pendingPermission: new Set(permissions.map((item) => item.sessionID)),
+                 loops: [],
+                 callerID: ctx.sessionID,
+                 foreign: foreign.statuses,
+                 now: Date.now(),
+               }).map(
+                 (peer): PeerCandidate => ({
+                   owner: "opencode-skein",
+                   id: peer.sessionID,
+                   name: peer.title,
+                   status: peer.status,
+                   provider: peer.provider,
+                   idleForMs: peer.idleForMs,
+                 }),
+               )
+               // A Claude peer can only reply to a session Claude can see — one with
+               // a sidecar of its own. A nested subagent has none.
+               const replyName = sidecarNameFor(ctx.sessionID)
+               const claudePeers =
+                 replyName && !flags.disableClaudeCodePeerMessaging
+                   ? (yield* Effect.promise(() =>
+                       fetchClaudeAgentRecords({ enabled: !flags.disableClaudeCodePeerSource }),
+                     )).map(
+                       (record): PeerCandidate => ({
+                         owner: "claude-code",
+                         id: String(record.pid),
+                         name: record.name ?? `pid ${record.pid}`,
+                         status: record.status ?? "busy",
+                       }),
+                     )
+                   : []
+               const model = next.model?.modelID ?? inherited.modelID
+               const decision = route([...claudePeers, ...opencodePeers], localProviderIDs, model)
+               if (decision.kind === "warm" || decision.kind === "cloud") {
+                 delegated = yield* delegate()
+               }
+             }
+           }
+        // Capacity probe: if delegation was not taken (or not configured) and
+        // the parent host is full, either try delegation as fallback or refuse.
         const capacity = yield* provider
           .list()
           .pipe(
@@ -512,16 +584,16 @@ export const TaskTool = Tool.define(
         // real single-slot server that is really busy, and "no-slot" is what
         // says so.
         //
-        // However, "unknown" still ranks below a visible peer (design.md): if
-        // we can reach an idle peer agent, that is a better fallback than
-        // inheriting onto a parent whose slot state we cannot read. Try
-        // delegation for both "no-slot" and "unknown"; only fail when
-        // "no-slot" and delegation is unavailable.
+        // "unknown" still ranks below a visible peer (design.md): if we can
+        // reach an idle peer agent, that is a better fallback than inheriting
+        // onto a parent whose slot state we cannot read. Try delegation for
+        // both "no-slot" and "unknown"; only fail when "no-slot" and
+        // delegation is unavailable.
         if (capacity === "unknown")
           yield* Effect.logWarning("subagent capacity probe unreachable, trying peer delegation before inheriting", {
             provider: inherited.providerID,
           })
-        if (capacity === "no-slot" || capacity === "unknown") {
+        if ((capacity === "no-slot" || capacity === "unknown") && !delegated) {
           if (cfg.experimental?.peer_delegation !== false) delegated = yield* delegate()
           if (!delegated && capacity === "no-slot")
             return yield* Effect.fail(

@@ -106,7 +106,7 @@
       decision branches plus edge cases (unreachable host, most-free-first).
 - [x] 2a.2 Make the crew brief state the routing order explicitly, with the
       current fleet join inlined so a member sees who holds what.
-- [ ] 2a.3 Promote the pool-overflow path in `task.ts` from "every host full"
+- [x] 2a.3 Promote the pool-overflow path in `task.ts` from "every host full"
       fallback to the normal route when a warm member is idle, behind the
       existing `experimental.peer_delegation` switch.
 - [ ] 2a.4 Verify on the real fleet that a crew of N members on N hosts does
