@@ -48,6 +48,7 @@ import {
   unquarantine,
   type QueueChange,
 } from "./spec-queue/queue"
+import { getWorkItems } from "./spec-queue/work-source"
 import { QueueAuthority, QueueDenyRules, withoutCredentials } from "./spec-queue/authority"
 import { AgentGates, readVerdict, resolvePersonas, type PersonaBindings } from "./spec-queue/personas"
 
@@ -123,7 +124,7 @@ export const IterationInfo = Schema.Struct({
 })
 export type IterationInfo = Schema.Schema.Type<typeof IterationInfo>
 
-export const Mode = Schema.Literals(["prompt", "queue"])
+export const Mode = Schema.Literals(["prompt", "queue", "auto"])
 export type Mode = Schema.Schema.Type<typeof Mode>
 
 export const Info = Schema.Struct({
@@ -1601,8 +1602,199 @@ export const layer = Layer.effect(
     // loop started directly in queue mode (QueueDenyRules: no push/tag/deploy
     // from the model) — an eternal plain loop must never end up with MORE
     // authority than a queue loop has today just because it started as a
-    // single prompt.
-    const runPromptThenMaybeQueue = (id: LoopID): Effect.Effect<void> =>
+     // single prompt.
+      const runAuto = (id: LoopID): Effect.Effect<void> =>
+       Effect.gen(function* () {
+         const initial = (yield* Ref.get(state)).get(id)
+         if (!initial) return
+
+         const directory = initial.info.directory
+         const exec = execIn(directory)
+         const options = yield* gateOptions(exec, initial.queue?.options)
+
+         const autoRunning = () =>
+           Effect.gen(function* () {
+             while (true) {
+               const record = (yield* Ref.get(state)).get(id)
+               if (!record) return undefined
+               if (record.info.status === "paused") {
+                 if (record.pauseGate) yield* Deferred.await(record.pauseGate)
+                 else yield* Effect.sleep("500 millis")
+                 continue
+               }
+               if (record.info.status !== "running") return undefined
+               return record
+             }
+           })
+
+         let outcomes: Array<{ repo: string; change: string; outcome: string; cause?: string }> = []
+         const processedChanges = new Set<string>()
+
+         try {
+            const deadline = Date.now() + 30_000
+            while (Date.now() < deadline) {
+              const record = yield* autoRunning()
+              if (!record) return
+              if (record.info.status !== "running") return
+
+              const result = yield* Effect.promise(() =>
+               new Promise<{ items: import("./spec-queue/work-source").WorkItem[]; scanned: string[]; errors: string[] }>((resolve) => {
+                 const timer = setTimeout(() => resolve({ items: [], scanned: [], errors: [] }), 5000)
+                 Effect.runPromise(getWorkItems(directory)).then(
+                   (r) => {
+                     clearTimeout(timer)
+                     resolve(r)
+                   },
+                   () => {
+                     clearTimeout(timer)
+                     resolve({ items: [], scanned: [], errors: [] })
+                   },
+                 )
+               }),
+             )
+
+              if (result.items.length === 0) {
+                yield* Effect.sleep("250 millis")
+                continue
+              }
+              let processedThisPass = 0
+
+              for (const item of result.items) {
+                const live = yield* autoRunning()
+                if (!live || live.info.status !== "running") return
+
+                const key = `${item.repo}:${item.change}`
+                if (processedChanges.has(key)) continue
+
+                // Resolve the queue for this item's repo to check if it's already complete.
+                const resolved = resolveQueue(item.repo, [item.change])
+                const change = cursor(resolved)
+
+                if (!change) {
+                  // Change is complete or has no eligible tasks.
+                  outcomes.push({ repo: item.repo, change: item.change, outcome: "completed" })
+                  processedChanges.add(key)
+                  processedThisPass += 1
+                  continue
+                }
+
+               // Run the change through the queue gates inline.
+               let gate: Gate = "implement"
+               let failCounts: Partial<Record<Gate, number>> = {}
+               let iterations = 0
+               const ending: { outcome: "completed" | "quarantined"; cause?: string; gate?: Gate } = {
+                 outcome: "quarantined",
+               }
+
+               change: while (iterations < record.info.maxIterations) {
+                 const runRecord = yield* autoRunning()
+                 if (!runRecord || runRecord.info.status !== "running") break change
+
+                 const fail = (which: Gate, output: string) =>
+                   Effect.gen(function* () {
+                     failCounts[which] = (failCounts[which] ?? 0) + 1
+                     if ((failCounts[which] ?? 0) >= GateFailureLimit) {
+                       ending.outcome = "quarantined"
+                       ending.cause = `${which} gate failed ${GateFailureLimit}x consecutively`
+                       ending.gate = which
+                       return true
+                     }
+                     gate = "implement"
+                     return false
+                   })
+
+                 switch (gate) {
+                   case "implement": {
+                     const check = evaluateImplement(change)
+                     if (check.passed) {
+                       failCounts.implement = 0
+                       gate = "test"
+                       continue
+                     }
+                     iterations += 1
+                     // For the cross-repo auto run, we do not have an LLM turn
+                     // available here — the driver is not session-owned. A change
+                     // that needs work is quarantined after the failure limit so
+                     // the run makes forward progress instead of spinning.
+                     if (yield* fail("implement", check.output)) break change
+                     continue
+                   }
+                   case "test": {
+                     const testResult = yield* Effect.promise(() => evaluateTest(exec, options))
+                     if (testResult.passed) {
+                       failCounts.test = 0
+                       gate = "verify"
+                       continue
+                     }
+                     if (yield* fail("test", testResult.output)) break change
+                     continue
+                   }
+                   case "verify": {
+                     const verifyResult = yield* Effect.promise(() => evaluateVerify(exec, change, options))
+                     if (verifyResult.passed) {
+                       failCounts.verify = 0
+                       gate = "commit"
+                       continue
+                     }
+                     if (yield* fail("verify", verifyResult.output)) break change
+                     continue
+                   }
+                   case "commit": {
+                     const commitResult = yield* Effect.promise(() => evaluateCommit(exec, change, options))
+                     if (commitResult.passed) {
+                       ending.outcome = "completed"
+                       break change
+                     }
+                     iterations += 1
+                     if (yield* fail("commit", commitResult.output)) break change
+                     continue
+                   }
+                 }
+               }
+
+               outcomes.push({
+                 repo: item.repo,
+                 change: item.change,
+                 outcome: ending.outcome,
+                 cause: ending.cause,
+               })
+                 processedChanges.add(key)
+               }
+
+               if (processedThisPass === 0) {
+                 yield* patch(id, (current) => ({
+                   ...current,
+                   info: { ...current.info, report: "auto drained — all changes processed" },
+                 }))
+                 yield* finalize(id, "completed")
+                 return
+               }
+
+              yield* patch(id, (current) => ({
+                ...current,
+                queue: current.queue
+                  ? {
+                      ...current.queue,
+                      outcomes: [
+                        ...current.queue.outcomes,
+                        ...outcomes.map((r) => ({ slug: r.change, outcome: r.outcome as "completed" | "quarantined", cause: r.cause, gate: "commit" as Gate, iterations: 0 })),
+                      ] as ChangeOutcome[],
+                    }
+                  : undefined,
+              }))
+              yield* emit(id)
+
+              yield* waitBetween(id, (record.info.interval ?? DefaultIntervalSeconds) * 1000)
+            }
+          } catch (err) {
+           yield* Effect.logError("runAuto error", { error: String(err) })
+           yield* finishQueue(id, "error", `auto mode error: ${err}`)
+           return
+         }
+
+         yield* finishQueue(id, "completed", "auto drained — all changes processed")
+       })
+     const runPromptThenMaybeQueue = (id: LoopID): Effect.Effect<void> =>
       Effect.gen(function* () {
         yield* run(id)
         const record = (yield* Ref.get(state)).get(id)
@@ -1781,7 +1973,7 @@ export const layer = Layer.effect(
             .pipe(Effect.ignore)
         }
 
-        const driver = mode === "queue" ? runQueue(id) : runPromptThenMaybeQueue(id)
+        const driver = mode === "queue" ? runQueue(id) : mode === "auto" ? runAuto(id) : runPromptThenMaybeQueue(id)
         yield* driver
           .pipe(
             Effect.catchCause((cause) =>
