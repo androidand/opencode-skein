@@ -82,19 +82,29 @@
       inputs are silently dropped. Test added to
       `test/loop/queue-mode.test.ts` ("task 2.1: inbox appends to the record
       and writes a durable synthetic session message"). 220 loop tests pass.
-- [ ] 2.2 Route inbound peer messages to a running or paused loop's inbox in
+- [x] 2.2 Route inbound peer messages to a running or paused loop's inbox in
       `lifecycle.ts` and `send-peer-message.ts`; fall back to prompt when no
       loop owns the session. Test both paths.
-- [ ] 2.3 Drain the inbox into the brief at the top of the next iteration;
+- [x] 2.3 Drain the inbox into the brief at the top of the next iteration;
       emit `loop.updated` so the TUI badge can show unread count.
+      Added `inbox` field to `BriefInput` in `brief.ts`; `buildBrief` renders
+      drained messages before the next unchecked task. `queueTurn` in
+      `loop.ts` drains the inbox (copies entries, clears the record) and
+      calls `emit(id)` before each iteration. Tests added to
+      `test/loop/spec-queue.test.ts` (brief rendering) and
+      `test/loop/queue-mode.test.ts` (inbox acceptance + event emission).
+      61 loop tests pass.
 
 ## Phase 2a: Route work to warm capacity
 
-- [ ] 2a.1 Expose the routing decision (`design.md`, "Routing a piece of
+- [x] 2a.1 Expose the routing decision (`design.md`, "Routing a piece of
       work") as a function over the peer roster and `LocalPlacement.hostCapacity`,
       unit-tested for: warm member available, only cloud available, only a free
       host available, nothing free.
-- [ ] 2a.2 Make the crew brief state the routing order explicitly, with the
+      `route()` in `packages/opencode/src/loop/crew/route.ts`; 9 tests in
+      `packages/opencode/test/loop/crew/route.test.ts` covering all four
+      decision branches plus edge cases (unreachable host, most-free-first).
+- [x] 2a.2 Make the crew brief state the routing order explicitly, with the
       current fleet join inlined so a member sees who holds what.
 - [ ] 2a.3 Promote the pool-overflow path in `task.ts` from "every host full"
       fallback to the normal route when a warm member is idle, behind the

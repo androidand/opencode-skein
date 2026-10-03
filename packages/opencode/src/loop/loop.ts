@@ -22,13 +22,13 @@ import { Agent as AgentSvc } from "@/agent/agent"
 import { deriveSubagentSessionPermission } from "@/agent/subagent-permissions"
 import { Permission } from "@/permission"
 import { describePeer, resolvePeers } from "@/session/peers"
-import { baseURLOf, parentCapacity } from "@/local/placement"
+import { baseURLOf, hostCapacity as hostCapacityFn, parentCapacity } from "@/local/placement"
 import { PermissionV1 } from "@opencode-ai/core/v1/permission"
 import { ModelV2 } from "@opencode-ai/core/model"
 import { ProviderV2 } from "@opencode-ai/core/provider"
 import { ProjectV2 } from "@opencode-ai/core/project"
 
-import { buildBrief, type Gate } from "./spec-queue/brief"
+import { buildBrief, type FleetJoin, type Gate } from "./spec-queue/brief"
 import {
   evaluateCommit,
   evaluateImplement,
@@ -813,30 +813,46 @@ export const layer = Layer.effect(
         }).map(describePeer)
       }).pipe(Effect.orElseSucceed(() => [] as string[]))
 
-    // Idle local peers for the brief's fan-out nudge (design D9). Only
-    // providers with a local baseURL are probed; errors read as "not idle".
-    const idlePeers = Effect.gen(function* () {
+    // Fleet join for the brief's routing order and fleet display (task 2a.2).
+    // Only providers with a local baseURL are probed; errors read as unreachable.
+    const fleetJoin = Effect.gen(function* () {
       const cfg = yield* config.get().pipe(Effect.orElseSucceed(() => ({}) as never))
       if (
         (cfg as { experimental?: { local_subagent_placement?: boolean } }).experimental?.local_subagent_placement ===
         false
       )
-        return [] as string[]
+        return undefined as FleetJoin | undefined
       const providers = yield* provider.list().pipe(Effect.orElseSucceed(() => ({}) as Record<string, Provider.Info>))
-      const local = Object.entries(providers).filter(([, info]) => baseURLOf(info) !== undefined)
-      const idle: string[] = []
-      for (const [id] of local) {
-        const capacity = yield* Effect.promise(() =>
-          parentCapacity({
-            parent: { providerID: ProviderV2.ID.make(id), modelID: ModelV2.ID.make("probe") },
-            providers,
-            timeoutMs: 1_000,
-          }),
-        ).pipe(Effect.orElseSucceed(() => "unknown" as const))
-        if (capacity === "free") idle.push(id)
-      }
-      return idle
-    })
+      const hosts = yield* Effect.promise(() => hostCapacityFn(providers)).pipe(Effect.orElseSucceed(() => []))
+      // Collect peers bound to each host from the roster.
+      // resolvePeers is a pure function, not an Effect.
+      const allPeers = resolvePeers({
+        sessions: [],
+        statuses: new Map(),
+        pendingPermission: new Set(),
+        loops: [],
+        callerID: "",
+        foreign: new Map(),
+        live: new Set(),
+        now: Date.now(),
+      })
+      const fleetPeers = allPeers
+        .filter((p): p is typeof p & { provider: string } => p.provider !== undefined)
+        .map((p) => ({
+          sessionID: p.sessionID,
+          title: p.title,
+          status: p.status,
+          provider: p.provider,
+          model: p.model,
+        }))
+      return { hosts, peers: fleetPeers } as FleetJoin
+    }).pipe(Effect.orElseSucceed(() => undefined as FleetJoin | undefined))
+
+    // Idle local peers for the brief's fan-out nudge (design D9). Derived from
+    // the fleet join above; empty → no fan-out nudge.
+    const idlePeers = Effect.map(fleetJoin, (fleet) =>
+      fleet ? fleet.hosts.filter((h) => h.reachable && h.free > 0).map((h) => h.providerID) : [],
+    )
 
     const buildReport = (queue: QueueState, ending: string) => {
       const lines: string[] = [`# Queue run report`, "", `Ending: ${ending}`, ""]
@@ -898,7 +914,16 @@ export const layer = Layer.effect(
         while (true) {
           const record = (yield* Ref.get(state)).get(id)
           if (!record) return undefined
+          // Drain the inbox: extract pending messages and clear them so the
+          // next iteration starts with an empty inbox. Emit loop.updated so
+          // the TUI badge can reflect the unread count.
+          const inbox = record.inbox.length > 0 ? [...record.inbox] : undefined
+          if (inbox) {
+            yield* patch(id, (current) => ({ ...current, inbox: [] }))
+            yield* emit(id)
+          }
           const peers = yield* idlePeers
+          const fleet = yield* fleetJoin
           const neighbours = yield* activePeers(changeSessionID, record.info.directory)
           const brief = buildBrief({
             root: record.info.directory,
@@ -910,6 +935,8 @@ export const layer = Layer.effect(
             guidance: record.queue?.guidance,
             steers: record.steers,
             persona,
+            inbox,
+            fleet,
           })
           const result = yield* runIteration(record, { promptText: brief, sessionID: changeSessionID })
 

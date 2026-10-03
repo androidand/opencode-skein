@@ -7,8 +7,35 @@ import path from "path"
 import { uncheckedTasks } from "./tasks-md"
 import { readChangeFile } from "./branch-read"
 import type { QueueChange } from "./queue"
+import type { InboxEntry } from "../loop"
 
 export type Gate = "implement" | "test" | "verify" | "commit"
+
+/** A local inference host, as `LocalPlacement.hostCapacity` reports it. */
+export interface FleetHost {
+  providerID: string
+  reachable: boolean
+  /** Concurrent requests the host accepts; local llama.cpp hosts are usually 1. */
+  slotsTotal?: number
+  free: number
+  reserved: number
+  loadedModel?: string
+}
+
+/** A peer session that is bound to a host (or cloud-backed, no host). */
+export interface FleetPeer {
+  sessionID: string
+  title: string
+  status: string
+  provider?: string
+  model?: string
+}
+
+/** The fleet join: which sessions hold which hosts, for the routing order. */
+export interface FleetJoin {
+  hosts: FleetHost[]
+  peers: FleetPeer[]
+}
 
 export interface BriefInput {
   /** repo root, used to resolve the change's branch via `git show` */
@@ -47,6 +74,18 @@ export interface BriefInput {
    * derived from the checkboxes on disk and must stay that way.
    */
   guidance?: string
+  /**
+   * Inbound peer messages delivered while the loop was running, drained from
+   * the inbox at the top of this iteration. Empty when no messages arrived.
+   */
+  inbox?: readonly InboxEntry[]
+  /**
+   * Fleet join: which sessions hold which hosts. When present the brief
+   * states the routing order explicitly and inlines the join so a member
+   * sees who holds what. Absent means no fleet data is available and the
+   * brief falls back to the simple idle-peer nudge.
+   */
+  fleet?: FleetJoin
 }
 
 function readIfExists(file: string): string | undefined {
@@ -67,6 +106,69 @@ function specFiles(changeDir: string): string[] {
   }
   walk(specsDir)
   return out.sort()
+}
+
+/** Renders the routing order and fleet join as brief text. */
+function describeFleetJoin(fleet: FleetJoin, persona?: string): string {
+  const lines: string[] = []
+
+  // Routing order: the explicit priority a crew member should follow.
+  lines.push(
+    [
+      "Crew routing order — route work in this priority:",
+      "1. Ask an idle colleague already on a host with the needed model (warm — costs the fleet nothing).",
+      "2. Ask a cloud-backed colleague (costs the fleet nothing).",
+      "3. Spawn a subagent on a free host.",
+      "4. If nothing is free, leave the item on the board — do not spawn into a queue.",
+    ].join("\n"),
+  )
+
+  // Fleet join: which hosts are held by whom.
+  if (fleet.hosts.length > 0) {
+    lines.push("Fleet join:")
+    for (const host of fleet.hosts) {
+      if (!host.reachable) {
+        lines.push(`- ${host.providerID}: unreachable`)
+        continue
+      }
+      const slots =
+        host.slotsTotal !== undefined
+          ? `${host.free}/${host.slotsTotal} slot${host.slotsTotal === 1 ? "" : "s"} free`
+          : host.free > 0
+            ? "idle"
+            : "busy"
+      const held = host.reserved > 0 ? `, ${host.reserved} reserved by this instance` : ""
+      const loaded = host.loadedModel ? `, ${host.loadedModel} loaded` : ", no model loaded"
+      const on = fleet.peers.filter((p) => p.provider === host.providerID)
+      const who = on.length === 0 ? "" : ` — bound here: ${on.map((p) => `${p.sessionID} ("${p.title}")`).join(", ")}`
+      lines.push(`- ${host.providerID}: ${slots}${held}${loaded}${who}`)
+    }
+
+    const warm = fleet.peers.filter((p) => p.provider !== undefined).length
+    const freeHosts = fleet.hosts.filter((h) => h.reachable && h.free > 0).length
+    const note =
+      warm > 0 && freeHosts === 0
+        ? "Every reachable host is occupied. A new subagent would queue behind one of these; a message to the session already on that host costs nothing extra."
+        : warm > 0
+          ? "A session already on a host has its model loaded and its cache warm — giving it work is cheaper than spawning a subagent, which takes a slot and may force a model load."
+          : "No session is holding a host right now."
+    lines.push(note)
+  }
+
+  // Legacy idle-peer nudge, when persona is set.
+  if (fleet.hosts.length === 0 && persona) {
+    lines.push(
+      [
+        `Fleet capacity: ${fleet.peers.length} idle local provider${fleet.peers.length === 1 ? "" : "s"}`,
+        `(${fleet.peers.map((p) => p.provider ?? "?").join(", ")}) can take delegated work right now. Where this change's`,
+        `tasks are independent of each other, delegate them with the task tool using`,
+        `subagent_type "${persona}" — one call per independent slice, and placement will`,
+        "put them on idle peers automatically. Keep work that shares a file in one call.",
+      ].join(" "),
+    )
+  }
+
+  return lines.join("\n")
 }
 
 const GATE_INSTRUCTIONS: Record<Gate, string> = {
@@ -136,6 +238,14 @@ export function buildBrief(input: BriefInput): string {
     )
   }
 
+  if (input.inbox && input.inbox.length > 0) {
+    const lines = input.inbox.map((entry) => {
+      const from = entry.from.name ?? entry.from.id
+      return `[${entry.mode}] from ${from}: ${entry.text}`
+    })
+    parts.push(["Inbound peer messages since last iteration:", "", ...lines].join("\n"))
+  }
+
   const next = uncheckedTasks(change.tasks)[0]
   if (next) {
     parts.push(`Next unchecked task: ${next.id ? `${next.id} ` : ""}${next.text}`)
@@ -166,7 +276,9 @@ export function buildBrief(input: BriefInput): string {
     )
   }
 
-  if (input.idlePeers.length > 0 && input.persona) {
+  if (input.fleet) {
+    parts.push(describeFleetJoin(input.fleet, input.persona))
+  } else if (input.idlePeers.length > 0 && input.persona) {
     parts.push(
       [
         `Fleet capacity: ${input.idlePeers.length} idle local provider${input.idlePeers.length === 1 ? "" : "s"}`,

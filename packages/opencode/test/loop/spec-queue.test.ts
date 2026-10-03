@@ -14,6 +14,7 @@ import {
   type QueueChange,
 } from "@/loop/spec-queue/queue"
 import { buildBrief } from "@/loop/spec-queue/brief"
+import type { InboxEntry } from "@/loop/loop"
 import {
   evaluateImplement,
   evaluateTest,
@@ -187,6 +188,19 @@ describe("buildBrief", () => {
     expect(brief).toContain('subagent_type "coder"')
   })
 
+  test("the reviewer persona parts appear inline on the verify gate", () => {
+    const brief = buildBrief({
+      change: fixtureChange().change, root: fixtureChange().root,
+      gate: "verify",
+      idlePeers: ["gpuhost2"],
+      persona: "reviewer",
+    })
+    expect(brief).toContain("Fleet capacity")
+    expect(brief).toContain("gpuhost2")
+    expect(brief).toContain('subagent_type "reviewer"')
+    expect(brief).toContain("VERIFY gate")
+  })
+
   test("a busy fleet suppresses the nudge even with an agent bound", () => {
     const brief = buildBrief({ change: fixtureChange().change, root: fixtureChange().root, gate: "implement", idlePeers: [], persona: "coder" })
     expect(brief).not.toContain("Fleet capacity")
@@ -240,9 +254,107 @@ describe("buildBrief", () => {
     expect(noField).not.toContain("not alone in this checkout")
   })
 
+  test("inbox messages are rendered before the next task", () => {
+    const inbox: InboxEntry[] = [
+      { at: Date.now(), from: { harness: "opencode-skein", id: "ses_peer", name: "peer-agent" }, mode: "notify", text: "I took alpha-change" },
+      { at: Date.now(), from: { harness: "claude-code", id: "12345" }, mode: "request", text: "Can you review my PR?" },
+    ]
+    const brief = buildBrief({ change: fixtureChange().change, root: fixtureChange().root, gate: "implement", idlePeers: [], inbox })
+    expect(brief).toContain("Inbound peer messages since last iteration")
+    expect(brief).toContain("[notify] from peer-agent: I took alpha-change")
+    expect(brief).toContain("[request] from 12345: Can you review my PR?")
+    // Inbox appears before the next task line.
+    expect(brief.indexOf("Inbound peer messages")).toBeLessThan(brief.indexOf("Next unchecked task"))
+  })
+
+  test("empty inbox is not rendered", () => {
+    const brief = buildBrief({ change: fixtureChange().change, root: fixtureChange().root, gate: "implement", idlePeers: [], inbox: [] })
+    expect(brief).not.toContain("Inbound peer messages")
+  })
+
   test("no bound agent suppresses the nudge even with an idle fleet", () => {
     const brief = buildBrief({ change: fixtureChange().change, root: fixtureChange().root, gate: "implement", idlePeers: ["gpuhost2"] })
     expect(brief).not.toContain("Fleet capacity")
+  })
+
+  // Task 2a.2: crew brief states routing order explicitly with fleet join.
+  test("fleet join renders routing order and host map", () => {
+    const brief = buildBrief({
+      change: fixtureChange().change,
+      root: fixtureChange().root,
+      gate: "implement",
+      idlePeers: [],
+      fleet: {
+        hosts: [
+          { providerID: "m3", reachable: true, free: 1, reserved: 0 },
+          { providerID: "z4-w7800", reachable: true, slotsTotal: 1, free: 0, reserved: 0, loadedModel: "qwen3.8" },
+        ],
+        peers: [
+          { sessionID: "ses_A", title: "working on alpha", status: "busy", provider: "z4-w7800", model: "qwen3.8" },
+        ],
+      },
+    })
+    expect(brief).toContain("Crew routing order")
+    expect(brief).toContain("1. Ask an idle colleague")
+    expect(brief).toContain("2. Ask a cloud-backed colleague")
+    expect(brief).toContain("3. Spawn a subagent on a free host")
+    expect(brief).toContain("4. If nothing is free, leave the item on the board")
+    expect(brief).toContain("Fleet join")
+    expect(brief).toContain("m3")
+    expect(brief).toContain("idle")
+    expect(brief).toContain("z4-w7800")
+    expect(brief).toContain("0/1 slot free")
+    expect(brief).toContain("qwen3.8 loaded")
+    expect(brief).toContain("ses_A")
+    expect(brief).toContain("cache warm")
+  })
+
+  test("fleet join with warm colleague notes cache benefit", () => {
+    const brief = buildBrief({
+      change: fixtureChange().change,
+      root: fixtureChange().root,
+      gate: "implement",
+      idlePeers: [],
+      fleet: {
+        hosts: [
+          { providerID: "m3", reachable: true, slotsTotal: 1, free: 0, reserved: 0, loadedModel: "qwen3.8" },
+        ],
+        peers: [
+          { sessionID: "ses_A", title: "working on alpha", status: "busy", provider: "m3", model: "qwen3.8" },
+        ],
+      },
+    })
+    expect(brief).toContain("warm")
+    expect(brief).toContain("costs nothing extra")
+  })
+
+  test("fleet join with empty hosts still renders routing order", () => {
+    const brief = buildBrief({
+      change: fixtureChange().change,
+      root: fixtureChange().root,
+      gate: "implement",
+      idlePeers: [],
+      fleet: { hosts: [], peers: [] },
+      persona: "coder",
+    })
+    expect(brief).toContain("Crew routing order")
+    // Empty fleet join is not rendered; legacy nudge fires because idlePeers is empty.
+    expect(brief).not.toContain("Fleet join")
+    expect(brief).toContain("Fleet capacity")
+  })
+
+  test("fleet join with cloud peers and persona shows routing order plus legacy nudge", () => {
+    const brief = buildBrief({
+      change: fixtureChange().change,
+      root: fixtureChange().root,
+      gate: "implement",
+      idlePeers: [],
+      fleet: { hosts: [], peers: [{ sessionID: "ses_cloud", title: "cloud session", status: "idle" }] },
+      persona: "coder",
+    })
+    expect(brief).toContain("Crew routing order")
+    expect(brief).toContain("Fleet capacity")
+    expect(brief).toContain("subagent_type \"coder\"")
   })
 })
 
