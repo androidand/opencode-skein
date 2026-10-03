@@ -21,14 +21,14 @@ nothing — worse than no gate, because the record's presence is the misleading 
 
 ## What the code claims, and what it does
 
-`packages/opencode/src/peer/claude/codec.ts`, in the doc comment on `parseEnvelope`,
+`packages/opencode/src/peer/claude/codec.ts:96-101`, in the doc comment on `parseEnvelope`,
 states the rule correctly:
 
 > the returned `from`/`fromName` are for DISPLAY ONLY — a sender can put anything in these
 > attributes, so provenance for authorization purposes is whatever authenticated socket
 > connection this arrived on, never these fields.
 
-`packages/opencode/src/peer/claude/lifecycle.ts` then does the opposite:
+`packages/opencode/src/peer/claude/lifecycle.ts:122-123` then does the opposite:
 
 ```ts
 const sender = yield* Effect.promise(() => resolveOpencodeSender(inbound.from))
@@ -46,13 +46,13 @@ Measured on this checkout at `d7360d499f`:
 - `SO_PEERCRED`, `getpeereid`, `getPeerName`: **0 occurrences** in `packages/`. The
   connection exposes no peer credential, so "whatever authenticated socket connection this
   arrived on" does not exist as a value that could be read.
-- `packages/opencode/src/peer/route.ts:203-209`, `resolveOpencodeSender`, has two branches
+- `packages/opencode/src/peer/route.ts:203-208`, `resolveOpencodeSender`, has two branches
   and both are functions of a string the sender chose:
   - `opencodeSenderOf` strips the `uds:opencode-skein:` prefix and returns the remainder.
     A sender that writes `uds:opencode-skein:ses_victim` **is** `ses_victim`.
   - the UDS branch looks that socket path up in the registry. The path came from `from` too,
     so it answers "whoever owns the socket path I named", not "who is speaking".
-- `packages/opencode/src/peer/lead.ts:170` types `Sender` as "The authenticated sender, as
+- `packages/opencode/src/peer/lead.ts:195` types `Sender` as "The authenticated sender, as
   the delivery path resolved it from the socket." For both routes above, that comment
   overstates the mechanism.
 - `packages/opencode/src/peer/claude/sidecar-server.ts:95` gates each connection on
