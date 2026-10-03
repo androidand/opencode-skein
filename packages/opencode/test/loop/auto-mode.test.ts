@@ -812,3 +812,49 @@ it.instance(
     }),
   { config: {} },
 )
+
+it.instance(
+  "auto mode: halt path end-to-end (Phase 6.2)",
+  () =>
+    Effect.gen(function* () {
+      const { directory: workspace } = yield* TestInstance
+      const llm = yield* TestLLMServer
+
+      // Create two fixture repos: one halts on a misconfigured gate, the other completes.
+      const repo1 = fs.mkdtempSync(path.join(workspace, "repo1-"))
+      yield* writeConfig(repo1, {
+        ...providerCfg(llm.url),
+        experimental: { queue_gate: { test_command: "exit 1" } },
+      })
+      writeChange(repo1, "change-bad", "- [ ] 1.1 not done\n")
+      fs.writeFileSync(path.join(repo1, "openspec", "changes", "change-bad", "proposal.md"), "# Bad\n")
+
+      const repo2 = fs.mkdtempSync(path.join(workspace, "repo2-"))
+      yield* writeConfig(repo2, {
+        ...providerCfg(llm.url),
+        experimental: { queue_gate: { test_command: "echo PASS" } },
+      })
+      writeChange(repo2, "change-good", "- [ ] 1.1 not done\n")
+      fs.writeFileSync(path.join(repo2, "openspec", "changes", "change-good", "proposal.md"), "# Good\n")
+
+      const loop = yield* Loop.Service
+      const info = yield* loop.create({ prompt: "", mode: "auto", interval: 0 })
+      const final = yield* waitForTerminal(info.id, 30)
+
+      // The run should reach a terminal status.
+      const terminal: Loop.Status[] = ["completed", "stalled", "cancelled", "max_reached", "error"]
+      if (!terminal.includes(final.status)) {
+        throw new Error(
+          `Phase 6.2: expected terminal status, got ${final.status}, report=${final.report}`,
+        )
+      }
+
+      // The report should name both changes: one halted, one completed.
+      if (final.report) {
+        expect(final.report).toContain("change-bad")
+        expect(final.report).toContain("change-good")
+        expect(final.report).toContain("HALTED")
+      }
+    }),
+  { config: {} },
+)
