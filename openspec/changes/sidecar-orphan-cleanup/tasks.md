@@ -2,11 +2,11 @@
 
 ## Phase 0: confirm the mechanism before fixing it
 
-- [ ] 0.1 Reproduce the startup race. Spawn a sidecar from a process that exits immediately, so
+- [x] 0.1 Reproduce the startup race. Spawn a sidecar from a process that exits immediately, so
       the child is already reparented when it reads `process.ppid`. Confirm it survives past the
       2s interval. The existing test at `test/peer/claude/sidecar-e2e.test.ts:222` deliberately
       waits for registration before killing the parent, so it cannot catch this.
-- [ ] 0.2 Determine how a running sidecar ends up with no registration: parent exit inside the
+- [x] 0.2 Determine how a running sidecar ends up with no registration: parent exit inside the
       `Process.spawn` → `writeSidecarRegistration` window (`sidecar-manager.ts:121`), a failed
       write, or both. Instrument rather than assume.
 - [ ] 0.3 Census the machine for other shapes of leak beyond the 44 observed on 2026-10-03, so the
@@ -14,7 +14,19 @@
 - [ ] 0.4 Decide whether the fix must also reclaim sidecars already leaked elsewhere. A fix that
       only prevents future leaks leaves existing ones running until someone sweeps by hand.
 
-## Phase 1: make orphaning detectable from the sidecar
+## Phase 1: make orphaning detectable from the sidecar  (DONE — 7efff559d0)
+
+- [x] 1.0 Exit on stdin EOF from the parent's pipe. The pipe closes at any point in the
+      sidecar's life, so this covers both sub-windows of the blind spot, including the
+      one where `originalPpid` is captured already-reparented.
+- [x] 1.0a Bound `sidecar.stop()` in `shutdown()` with a timer. `shuttingDown` was set
+      before the await, so a stop that never settled left the process alive with every
+      later SIGTERM swallowed.
+- [x] 1.0b The discriminator is `isSocket()`, NOT `isFIFO()`. Measured on Bun 1.3.14:
+      `stdio: ["pipe"]` gives the child a socketpair end (mode 140000, isFIFO false),
+      while `stdio: "ignore"` gives /dev/null (isCharacterDevice true). An isFIFO check
+      silently disables the guard in production — it was caught by the failing test.
+
 
 - [ ] 1.1 Choose the liveness signal: pass the owning session's pid explicitly and treat
       "absent or not alive at startup" as orphanhood, or have the parent hold the socket so the

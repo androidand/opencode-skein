@@ -57,6 +57,35 @@ already gone when the sidecar begins running. No test covers either, and the gua
 structure means the already-orphaned case is not merely untested but undetectable by the
 guard as written.
 
+## The mechanism, confirmed and narrowed
+
+Two peer sessions reproduced the race independently on Bun 1.3.14/macOS. The second
+investigation narrowed the window, and the narrowing matters because it corrects this
+document's original description.
+
+The window is **not** "the parent dies before the child reads `process.ppid`" in the
+abstract. In execution order:
+
+1. `sidecar-entry.ts:37` — `await startSidecar(...)`, which is async and writes the
+   registration from inside `sidecar-server.ts:156`.
+2. `sidecar-entry.ts:93` — `originalPpid = process.ppid`.
+3. `sidecar-entry.ts:94` — the poll interval starts.
+
+So the blind window is the duration of `startSidecar`: from spawn until line 93. A parent
+that dies anywhere inside it leaves `originalPpid` reading as 1, the comparison
+`1 !== 1` false forever, and a sidecar that never self-terminates.
+
+That window has two sub-cases, distinguished by whether the registration reached disk:
+
+- parent dies **before** `writeSidecarRegistration` completes → alive, **unregistered**,
+  invisible to the sweep and unroutable;
+- parent dies **after** it, before line 93 → alive, **registered**, still skipped by the
+  sweep because the sweep only removes registrations whose pid is *dead*.
+
+All 44 observed instances were in the first sub-case (no registration), but both are real
+and one fix covers both: the parent's stdin pipe closes at any point in the sidecar's
+life, so EOF on a real pipe cannot be missed by any of these windows.
+
 ## Why this is a change and not a patch
 
 The guard needs to know its spawner was real, not infer it from a ppid read that may already
