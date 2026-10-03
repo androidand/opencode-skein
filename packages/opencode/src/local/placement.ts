@@ -383,6 +383,41 @@ export function hostRankFor(prefer: "inherit" | "local" | readonly string[] | un
 }
 
 /**
+ * Which live sessions are bound to which providers, for ownership scoring.
+ * A host is "owned" when any listed session points at it; the model field
+ * tells whether the bound session serves the model we would place or a
+ * different one. Both fields are best-effort — a session's provider is its
+ * configuration, not proof it is mid-request.
+ */
+export interface SessionOwnership {
+  providerID: string
+  modelID?: string
+}
+
+// A bound session serving the same model shares the slot but does not force
+// a reload. A bound session on a different model would evict the resident
+// weights and pay a multi-second swap cost both ways.
+// Ownership dominates residency in the ranking: an unowned host always beats
+// an owned one regardless of whether the model is resident. The penalties are
+// larger than the maximum model-score spread (residency 100k + default 20k +
+// parent 5k + speed ~500 = 125_500) so that any unowned candidate outranks any
+// owned candidate, with residency re-establishing its tie-breaking role within
+// the same ownership tier.
+const OWNED_SAME_MODEL_PENALTY = 150_000
+const OWNED_DIFFERENT_MODEL_PENALTY = 200_000
+
+export function ownershipPenalty(input: {
+  providerID: string
+  ownership?: readonly SessionOwnership[]
+  modelID?: string
+}): number {
+  const owner = input.ownership?.find((o) => o.providerID === input.providerID)
+  if (!owner) return 0
+  if (owner.modelID && input.modelID && owner.modelID !== input.modelID) return OWNED_DIFFERENT_MODEL_PENALTY
+  return OWNED_SAME_MODEL_PENALTY
+}
+
+/**
  * Why an outcome rather than `| null`: placement diagnostics belong in the
  * Effect layer that calls this, not in here. `pick` stays plain so its slot
  * reservation stays synchronous (see below), and the caller does the logging.
@@ -399,6 +434,8 @@ export interface CandidateScore {
   eligible: boolean
   modelID?: string
   maxSafeCtx?: number
+  /** Why this candidate was ranked this way, for explainability. */
+  ownership?: "unowned" | "owned-same-model" | "owned-different-model"
 }
 
 export type PickOutcome =
@@ -435,6 +472,12 @@ export async function pick(input: {
    * A host list is a preference, never a requirement — see the ordering below.
    */
   prefer?: "inherit" | "local" | readonly string[]
+  /**
+   * Live sessions and the providers they are configured for. Used to rank
+   * hosts that already have a bound session below unowned ones, and to penalize
+   * hosts whose bound session serves a different model (which forces a swap).
+   */
+  ownership?: readonly SessionOwnership[]
 }): Promise<PickOutcome> {
   try {
     const requiredCtx = input.requiredCtx ?? estimateRequiredCtx(input.promptText)
@@ -511,12 +554,23 @@ export async function pick(input: {
       // preference is honoured among ELIGIBLE candidates — eligibility (slot,
       // context, fit, allowlist) is still enforced above and a named host that
       // fails it simply never gets here.
+      const ownership = input.ownership
+      const ownershipPenalty_ = ownershipPenalty({ providerID: result.providerID, ownership, modelID: model.modelID })
+      const ownershipLabel: "unowned" | "owned-same-model" | "owned-different-model" | undefined = !ownership
+        ? undefined
+        : (() => {
+            const o = ownership.find((x) => x.providerID === result.providerID)
+            if (!o) return "unowned" as const
+            if (o.modelID && model.modelID && o.modelID !== model.modelID) return "owned-different-model" as const
+            return "owned-same-model" as const
+          })()
       const score =
         hostRankFor(input.prefer, result.providerID) +
         model.score +
         Math.min(freeMb, 65_536) / 1_000 -
-        (recent ? RECENT_PLACEMENT_PENALTY : 0)
-      scored.push({ providerID, score, eligible: true, modelID: model.modelID, maxSafeCtx: model.maxSafeCtx })
+        (recent ? RECENT_PLACEMENT_PENALTY : 0) -
+        ownershipPenalty_
+      scored.push({ providerID, score, eligible: true, modelID: model.modelID, maxSafeCtx: model.maxSafeCtx, ownership: ownershipLabel })
       if (!best || score > best.score) {
         best = { placement: { providerID: result.providerID, modelID: model.modelID }, score, maxSafeCtx: model.maxSafeCtx }
       }

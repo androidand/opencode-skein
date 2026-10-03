@@ -277,16 +277,26 @@ export const TaskTool = Tool.define(
       const outcome =
         !provider || next.model || session || (cfg.experimental?.local_subagent_placement === false && !params.provider)
           ? null
-          : yield* provider.list().pipe(
-              Effect.flatMap((providers) =>
-                Effect.promise(() =>
-                  LocalPlacement.pick({
-                    parent: inherited,
-                    providers,
-                    promptText: params.prompt,
-                    target: params.provider,
-                    prefer: rolePlacement,
-                  }),
+          : yield* sessions.list().pipe(
+              Effect.flatMap((all) =>
+                provider.list().pipe(
+                  Effect.flatMap((providers) =>
+                    Effect.promise(() =>
+                      LocalPlacement.pick({
+                        parent: inherited,
+                        providers,
+                        promptText: params.prompt,
+                        target: params.provider,
+                        prefer: rolePlacement,
+                        ownership: all
+                          .flatMap((item) =>
+                            item.model?.providerID
+                              ? [{ providerID: item.model.providerID as string, modelID: item.model.id as string | undefined }]
+                              : [],
+                          ),
+                      }),
+                    ),
+                  ),
                 ),
               ),
             )
@@ -494,20 +504,26 @@ export const TaskTool = Tool.define(
               Effect.promise(() => LocalPlacement.parentCapacity({ parent: inherited, providers })),
             ),
           )
-        // Block inheritance only when the parent is KNOWN busy. A probe failure
-        // returns "unknown", and an unreachable probe is not evidence of a full
-        // queue: failing closed there turns any transient probe blip — or a
-        // provider that simply does not answer /api/fit, like a test mock or a
-        // non-llama-skein openai-compatible endpoint — into a hard subagent
-        // failure. The hang this guard protects against needs a real single-slot
-        // server that is really busy, and "no-slot" is what says so.
+        // A probe failure returns "unknown". An unreachable probe is not
+        // evidence of a full queue, so failing closed would turn any transient
+        // probe blip — or a provider that simply does not answer /api/fit, like
+        // a test mock or a non-llama-skein openai-compatible endpoint — into a
+        // hard subagent failure. The hang this guard protects against needs a
+        // real single-slot server that is really busy, and "no-slot" is what
+        // says so.
+        //
+        // However, "unknown" still ranks below a visible peer (design.md): if
+        // we can reach an idle peer agent, that is a better fallback than
+        // inheriting onto a parent whose slot state we cannot read. Try
+        // delegation for both "no-slot" and "unknown"; only fail when
+        // "no-slot" and delegation is unavailable.
         if (capacity === "unknown")
-          yield* Effect.logWarning("subagent capacity probe unreachable, inheriting parent anyway", {
+          yield* Effect.logWarning("subagent capacity probe unreachable, trying peer delegation before inheriting", {
             provider: inherited.providerID,
           })
-        if (capacity === "no-slot") {
+        if (capacity === "no-slot" || capacity === "unknown") {
           if (cfg.experimental?.peer_delegation !== false) delegated = yield* delegate()
-          if (!delegated)
+          if (!delegated && capacity === "no-slot")
             return yield* Effect.fail(
               new Error(
                 `No capacity for subagent: local provider "${inherited.providerID}" has no free slot, ` +
