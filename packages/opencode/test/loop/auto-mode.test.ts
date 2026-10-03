@@ -396,7 +396,8 @@ it.instance(
       // Repo A should have completed; repo B should have been quarantined.
       // If gate options were resolved from the instance config (not per-repo),
       // both repos would use the same test command and both would fail.
-      if (final.status !== "completed" && final.status !== "failed") {
+      const terminal: Loop.Status[] = ["completed", "stalled", "cancelled", "max_reached", "error"]
+      if (!terminal.includes(final.status)) {
         throw new Error(
           `D5 failure proof: expected terminal status, got ${final.status}, report=${final.report}`,
         )
