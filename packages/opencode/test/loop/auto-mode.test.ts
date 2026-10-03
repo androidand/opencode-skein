@@ -767,3 +767,48 @@ it.instance(
     }),
   { config: {} },
 )
+
+it.instance(
+  "auto mode: two-repository fixture drains to completion (Phase 6.1)",
+  () =>
+    Effect.gen(function* () {
+      const { directory: workspace } = yield* TestInstance
+      const llm = yield* TestLLMServer
+
+      // Create two fixture repos, each with a change that will complete.
+      const repo1 = fs.mkdtempSync(path.join(workspace, "repo1-"))
+      yield* writeConfig(repo1, {
+        ...providerCfg(llm.url),
+        experimental: { queue_gate: { test_command: "echo PASS" } },
+      })
+      writeChange(repo1, "change-one", "- [ ] 1.1 not done\n")
+      fs.writeFileSync(path.join(repo1, "openspec", "changes", "change-one", "proposal.md"), "# One\n")
+
+      const repo2 = fs.mkdtempSync(path.join(workspace, "repo2-"))
+      yield* writeConfig(repo2, {
+        ...providerCfg(llm.url),
+        experimental: { queue_gate: { test_command: "echo PASS" } },
+      })
+      writeChange(repo2, "change-two", "- [ ] 1.1 not done\n")
+      fs.writeFileSync(path.join(repo2, "openspec", "changes", "change-two", "proposal.md"), "# Two\n")
+
+      const loop = yield* Loop.Service
+      const info = yield* loop.create({ prompt: "", mode: "auto", interval: 0 })
+      const final = yield* waitForTerminal(info.id, 30)
+
+      // Both repos should complete.
+      if (final.status !== "completed") {
+        throw new Error(
+          `Phase 6.1: expected completed, got ${final.status}, report=${final.report}`,
+        )
+      }
+      expect(final.status).toBe("completed")
+
+      // The report should mention both changes.
+      if (final.report) {
+        expect(final.report).toContain("change-one")
+        expect(final.report).toContain("change-two")
+      }
+    }),
+  { config: {} },
+)
