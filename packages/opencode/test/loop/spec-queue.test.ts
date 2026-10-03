@@ -356,6 +356,68 @@ describe("buildBrief", () => {
     expect(brief).toContain("Fleet capacity")
     expect(brief).toContain("subagent_type \"coder\"")
   })
+
+  // Task 3.2: crew brief composition with charter.
+  test("crew mode includes the charter at the top", () => {
+    const brief = buildBrief({
+      change: fixtureChange().change,
+      root: fixtureChange().root,
+      gate: "implement",
+      idlePeers: [],
+      crewMode: true,
+    })
+    expect(brief).toContain("## Crew charter")
+    expect(brief).toContain("You are one member of a crew")
+    expect(brief).toContain("Unblock others before starting new work")
+    expect(brief).toContain("Claim before you touch a change")
+    expect(brief).toContain("Do not create changes; propose them as intake")
+    // Charter comes before the change-specific content.
+    expect(brief.indexOf("## Crew charter")).toBeLessThan(brief.indexOf("You are working the openspec change"))
+  })
+
+  test("non-crew mode does not include the charter", () => {
+    const brief = buildBrief({
+      change: fixtureChange().change,
+      root: fixtureChange().root,
+      gate: "implement",
+      idlePeers: [],
+      crewMode: false,
+    })
+    expect(brief).not.toContain("## Crew charter")
+    expect(brief).not.toContain("You are one member of a crew")
+  })
+
+  test("crew brief structure: charter, gate, next task, documents", () => {
+    const root = fixtureTree({ demo: { tasks: "- [ ] 1.1 open task\n" } })
+    const dir = path.join(root, "openspec", "changes", "demo")
+    fs.writeFileSync(path.join(dir, "proposal.md"), "# Demo proposal body")
+    fs.mkdirSync(path.join(dir, "specs", "demo"), { recursive: true })
+    fs.writeFileSync(path.join(dir, "specs", "demo", "spec.md"), "## ADDED Requirements demo-spec-body")
+    const change = cursor(resolveQueue(root))!
+    const brief = buildBrief({
+      root,
+      change,
+      gate: "implement",
+      idlePeers: [],
+      crewMode: true,
+      fleet: { hosts: [], peers: [] },
+      persona: "coder",
+    })
+    // Charter is first.
+    expect(brief.indexOf("## Crew charter")).toBeLessThan(brief.indexOf("You are working the openspec change"))
+    // Gate instruction follows.
+    expect(brief).toContain("IMPLEMENT gate")
+    // Next task appears.
+    expect(brief).toContain("Next unchecked task: 1.1 open task")
+    // Change documents appear.
+    expect(brief).toContain("## proposal.md")
+    expect(brief).toContain("Demo proposal body")
+    expect(brief).toContain("## specs/demo/spec.md")
+    expect(brief).toContain("demo-spec-body")
+    // Routing order from fleet join.
+    expect(brief).toContain("Crew routing order")
+    expect(brief).toContain("1. Ask an idle colleague")
+  })
 })
 
 const OPTIONS: GateOptions = { testCommand: "run-tests", verifyCommand: "run-typecheck", defaultBranch: "dev" }

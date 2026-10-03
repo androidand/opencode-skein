@@ -116,7 +116,7 @@
 
 - [x] 3.1 `/loop --crew` and `/crew` in the TUI and CLI arg parser; crew mode
       implies queue mode plus claims and inbox.
-- [ ] 3.2 Crew brief composition per `design.md`, with the charter; snapshot
+- [x] 3.2 Crew brief composition per `design.md`, with the charter; snapshot
       tests of the brief for a fixture board.
 - [ ] 3.3 Empty-board outcome with interval backoff; not counted as a stall.
 - [ ] 3.4 Claim, handoff, and blocker announcements sent as `notify` to live

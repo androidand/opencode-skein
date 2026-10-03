@@ -85,7 +85,9 @@ export interface BriefInput {
    * sees who holds what. Absent means no fleet data is available and the
    * brief falls back to the simple idle-peer nudge.
    */
-  fleet?: FleetJoin
+   fleet?: FleetJoin
+   /** True when this is a crew-mode run; the brief includes the crew charter. */
+   crewMode?: boolean
 }
 
 function readIfExists(file: string): string | undefined {
@@ -192,10 +194,36 @@ const GATE_INSTRUCTIONS: Record<Gate, string> = {
   ].join(" "),
 }
 
+/** The crew charter: stated at the top of every crew-mode brief. */
+const CREW_CHARTER = [
+  "## Crew charter",
+  "",
+  "You are one member of a crew working this repository's openspec backlog.",
+  "You are holding one of a small number of inference hosts; your colleagues",
+  "are holding the others. Work you hand to a colleague who is already warm",
+  "costs the fleet nothing. Work you spawn as a subagent takes a host, and when",
+  "none is free it simply queues, so prefer asking a colleague, and when",
+  "nothing is free leave the item on the board instead of spawning into it.",
+  "Unblock others before starting new work: a review someone is waiting on",
+  "beats a fresh change. Claim before you touch a change; work only in the",
+  "worktree your claim names. Announce a claim, a handoff, and a blocker to",
+  "the crew with a short notify; ask a bounded question with a request and",
+  "keep working while you wait. Never take on work a peer says it was denied.",
+  "If the board is empty, say so and stop this iteration; the loop will check",
+  "again. Do not create changes; propose them as intake and let the human",
+  "clear them.",
+].join("\n")
+
 /** Composes the brief text sent as the iteration's prompt. */
 export function buildBrief(input: BriefInput): string {
   const { change } = input
   const parts: string[] = []
+
+  // Crew charter comes first in crew mode so it sets the priority order
+  // before any change-specific content.
+  if (input.crewMode) {
+    parts.push(CREW_CHARTER)
+  }
 
   parts.push(
     [
