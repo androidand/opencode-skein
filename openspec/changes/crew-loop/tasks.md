@@ -119,8 +119,8 @@
 - [x] 3.2 Crew brief composition per `design.md`, with the charter; snapshot
       tests of the brief for a fixture board.
 - [x] 3.3 Empty-board outcome with interval backoff; not counted as a stall.
-- [ ] 3.4 Claim, handoff, and blocker announcements sent as `notify` to live
-      members; guard: one announcement per event, none for heartbeats.
+- [x] 3.4 Claim, handoff, and blocker announcements sent as `notify` to live
+       members; guard: one announcement per event, none for heartbeats.
 
 ## Phase 4: Worktree per claim and merge-back
 

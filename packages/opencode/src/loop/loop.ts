@@ -51,6 +51,7 @@ import { QueueDenyRules, withoutCredentials } from "./spec-queue/authority"
 import { AgentGates, readVerdict, resolvePersonas, type PersonaBindings } from "./spec-queue/personas"
 import { Claim } from "./crew/claims"
 import { Project } from "@/project/project"
+import { deliverToOpencodeSession, foreignRoster, returnAddressFor } from "@/peer/route"
 
 import { contractPart, DEFAULT_COMPLETION_TOKEN, matchesCompletion, promptDisablesCompletion } from "./completion"
 
@@ -1313,18 +1314,76 @@ export const layer = Layer.effect(
                 return Effect.fail(err)
               }),
             )
-          currentClaimID = claimResult?.id
-          if (!currentClaimID) {
-            // Lost the claim race; re-resolve and try the next eligible change.
-            continue
-          }
+           currentClaimID = claimResult?.id
+           if (!currentClaimID) {
+             // Lost the claim race; re-resolve and try the next eligible change.
+             continue
+           }
 
-          // Work this change through its gates until it completes, is
-          // quarantined, or the loop leaves "running".
-          let gate: Gate = "implement"
-          let failure: { gate: Gate; output: string } | undefined
-          const failCounts: Partial<Record<Gate, number>> = {}
-          let iterations = 0
+           // Announce the claim to other live crew members (task 3.4).
+           if (record.info.mode === "crew") {
+             const roster = yield* Effect.promise(() => foreignRoster())
+             for (const peer of roster.peers) {
+               if (peer.sessionID === record.info.sessionID) continue
+               Effect.gen(function* () {
+                 const outcome = yield* deliverToOpencodeSession({
+                   targetSessionID: peer.sessionID,
+                   fromSessionID: record.info.sessionID,
+                   fromName: record.info.sessionID,
+                   text: `I took ${change.slug} (implement)`,
+                   owned: false,
+                   local: () => Effect.void,
+                 })
+                 if (outcome.via !== "unaddressable") yield* Effect.logDebug("crew claim announced", { peer: peer.sessionID })
+               }).pipe(Effect.forkIn(scope, { startImmediately: true }), Effect.ignore)
+             }
+           }
+
+           // Announce a blocker to other live crew members (task 3.4).
+           // Guard: one announcement per quarantine event, none for heartbeats.
+           const announceBlocker = (slug: string, cause: string) => {
+             if (record.info.mode !== "crew") return
+             Effect.gen(function* () {
+               const roster = yield* Effect.promise(() => foreignRoster())
+               for (const peer of roster.peers) {
+                 if (peer.sessionID === record.info.sessionID) continue
+                 yield* deliverToOpencodeSession({
+                   targetSessionID: peer.sessionID,
+                   fromSessionID: record.info.sessionID,
+                   fromName: record.info.sessionID,
+                   text: `Blocked ${slug}: ${cause}`,
+                   owned: false,
+                   local: () => Effect.void,
+                 }).pipe(Effect.ignore)
+               }
+             }).pipe(Effect.forkIn(scope, { startImmediately: true }), Effect.ignore)
+           }
+
+           // Announce a handoff to other live crew members (task 3.4).
+           const announceHandoff = (slug: string, reason: string) => {
+             if (record.info.mode !== "crew") return
+             Effect.gen(function* () {
+               const roster = yield* Effect.promise(() => foreignRoster())
+               for (const peer of roster.peers) {
+                 if (peer.sessionID === record.info.sessionID) continue
+                 yield* deliverToOpencodeSession({
+                   targetSessionID: peer.sessionID,
+                   fromSessionID: record.info.sessionID,
+                   fromName: record.info.sessionID,
+                   text: `Released ${slug} (${reason})`,
+                   owned: false,
+                   local: () => Effect.void,
+                 }).pipe(Effect.ignore)
+               }
+             }).pipe(Effect.forkIn(scope, { startImmediately: true }), Effect.ignore)
+           }
+
+           // Work this change through its gates until it completes, is
+           // quarantined, or the loop leaves "running".
+           let gate: Gate = "implement"
+           let failure: { gate: Gate; output: string } | undefined
+           const failCounts: Partial<Record<Gate, number>> = {}
+           let iterations = 0
           // Object property rather than a let: quarantineNow mutates it from
           // inside an Effect closure, which TS flow narrowing cannot see.
           const ending: {
@@ -1360,13 +1419,14 @@ export const layer = Layer.effect(
             const live = yield* running()
             if (!live) return
 
-            if (iterations >= live.info.maxIterations) {
-              yield* quarantineNow(
-                `max_reached: ${live.info.maxIterations} iterations without completing`,
-                failure?.output ?? "",
-              )
-              break change
-            }
+             if (iterations >= live.info.maxIterations) {
+               yield* quarantineNow(
+                 `max_reached: ${live.info.maxIterations} iterations without completing`,
+                 failure?.output ?? "",
+               )
+               announceBlocker(change.slug, `max_reached: ${live.info.maxIterations} iterations`)
+               break change
+             }
 
             yield* patch(id, (current) => ({
               ...current,
@@ -1408,6 +1468,7 @@ export const layer = Layer.effect(
                   }
                   if (matchesCompletion(attempt.output, BLOCKED_TOKEN, "")) {
                     yield* quarantineNow("model signalled BLOCKED", attempt.output.slice(-2_000))
+                    announceBlocker(change.slug, "model signalled BLOCKED")
                     break change
                   }
                   // Re-run the gate that failed; its own strike counter decides
@@ -1432,13 +1493,14 @@ export const layer = Layer.effect(
                   return
                 }
                 if (result.error) {
-                  if (yield* fail("implement", "iteration failed: the model turn ended in an error")) break change
+                  if (yield* fail("implement", "iteration failed: the model turn ended in an error")) { announceBlocker(change.slug, failure!.output); break change }
                   continue
                 }
-                if (matchesCompletion(result.output, BLOCKED_TOKEN, "")) {
-                  yield* quarantineNow("model signalled BLOCKED", result.output.slice(-2_000))
-                  break change
-                }
+                  if (matchesCompletion(result.output, BLOCKED_TOKEN, "")) {
+                    yield* quarantineNow("model signalled BLOCKED", result.output.slice(-2_000))
+                    announceBlocker(change.slug, "model signalled BLOCKED")
+                    break change
+                  }
                 const after = evaluateImplement(change)
                 if (after.passed) {
                   failCounts.implement = 0
@@ -1453,7 +1515,7 @@ export const layer = Layer.effect(
                   const detail = claimed
                     ? `You signalled completion, but verification failed: ${after.output}`
                     : after.output
-                  if (yield* fail("implement", detail)) break change
+                  if (yield* fail("implement", detail)) { announceBlocker(change.slug, failure!.output); break change }
                 }
                 continue
               }
@@ -1466,7 +1528,7 @@ export const layer = Layer.effect(
                   queueState.gatesPassed.add("test")
                   continue
                 }
-                if (yield* fail("test", result.output)) break change
+                if (yield* fail("test", result.output)) { announceBlocker(change.slug, failure!.output); break change }
                 continue
               }
               case "verify": {
@@ -1484,7 +1546,7 @@ export const layer = Layer.effect(
                   queueState.gatesPassed.add("verify")
                   continue
                 }
-                if (yield* fail("verify", result.output)) break change
+                if (yield* fail("verify", result.output)) { announceBlocker(change.slug, failure!.output); break change }
                 continue
               }
               case "commit": {
@@ -1505,7 +1567,7 @@ export const layer = Layer.effect(
                   ending.outcome = "completed"
                   break change
                 }
-                if (yield* fail("commit", after.output)) break change
+                if (yield* fail("commit", after.output)) { announceBlocker(change.slug, failure!.output); break change }
                 continue
               }
             }
@@ -1555,6 +1617,11 @@ export const layer = Layer.effect(
               Effect.catch((err: unknown) => Effect.logWarning("queue claim release failed", { "claim.id": currentClaimID, error: err })),
             )
             currentClaimID = undefined
+          }
+          // Announce the handoff to other live crew members (task 3.4).
+          if (record.info.mode === "crew") {
+            const reason = ending.outcome === "completed" ? "completed" : `quarantined: ${ending.cause ?? "unknown"}`
+            announceHandoff(change.slug, reason)
           }
           // Push the completed change's branch. The commit gate has already
           // established that a commit exists, that it touches this change, that
