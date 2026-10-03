@@ -230,6 +230,7 @@
     "packages/opencode/test/peer/claude/probe-deliver-runtime.mts",
     "packages/opencode/test/peer/claude/sidecar-diagnostic-routing.test.ts",
     "packages/opencode/test/peer/claude/sidecar-server-name.test.ts",
+    "packages/opencode/test/peer/claude/sidecar-startup-race.test.ts",
     "packages/opencode/src/local/model-gallery/search.ts",
     "packages/opencode/src/local/model-gallery/install.ts",
     "packages/opencode/src/local/model-gallery/operations.ts",

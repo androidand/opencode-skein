@@ -6,7 +6,11 @@
 // peer. Never touches the opencode server's HTTP API or any credential for
 // it — the parent process does the actual session injection, this process's
 // only job is being a real, Claude-compatible peer.
+import { fstatSync } from "fs"
 import { startSidecar } from "./sidecar-server"
+
+/** Upper bound on how long a sidecar may stay alive after it decides to stop. */
+const STOP_TIMEOUT_MS = 5_000
 
 export async function runSidecarEntry() {
   const ownerSessionID = process.env.OPENCODE_SIDECAR_OWNER_SESSION_ID
@@ -66,11 +70,37 @@ export async function runSidecarEntry() {
   })
   process.stdin.on("error", () => undefined)
 
+  // Whether stdin is a real pipe from the parent, or /dev/null because the
+  // spawner passed stdio: "ignore". Decided once, before any listener can fire,
+  // so a misdetection cannot kill a live sidecar.
+  //
+  // Not `isFIFO()`. Measured on Bun 1.3.14/macOS: a child spawned with
+  // stdio: ["pipe"] reports isSocket()=true, isFIFO()=false (mode 140000), while
+  // stdio: "ignore" reports isCharacterDevice()=true (mode 20000, /dev/null).
+  // Bun gives the child a socketpair end, not a FIFO, so checking isFIFO()
+  // silently disables this guard in production and only ever matches nothing.
+  const stdinIsPipe = (() => {
+    try {
+      const s = fstatSync(process.stdin.fd ?? 0)
+      return s.isSocket() || s.isFIFO()
+    } catch {
+      return false
+    }
+  })()
+
   let shuttingDown = false
   const shutdown = () => {
     if (shuttingDown) return
     shuttingDown = true
     clearInterval(orphanCheck)
+    // Bound the stop. `sidecar.stop()` closes the listening socket and removes
+    // the registration; if that never settles (a hung close), the original
+    // `.finally(process.exit)` never fires — and because `shuttingDown` is now
+    // true, every later SIGTERM is swallowed and the process is unkillable
+    // except by SIGKILL. So the exit is guaranteed on a timer rather than on
+    // stop() settling.
+    const bail = setTimeout(() => process.exit(0), STOP_TIMEOUT_MS)
+    bail.unref()
     sidecar
       .stop()
       .catch(() => undefined)
@@ -95,6 +125,27 @@ export async function runSidecarEntry() {
     if (process.ppid !== originalPpid) shutdown()
   }, 2_000)
   orphanCheck.unref()
+
+  // The ppid guard above has a startup blind spot: it can only see a parent that
+  // dies AFTER this line runs. If the parent is already gone by the time we read
+  // `process.ppid`, the value captured here is the reparented one, the comparison
+  // is false forever, and the sidecar survives indefinitely. Reproduced on
+  // Bun 1.3.14/macOS: SIGKILL the parent before the child's first ppid read and
+  // the child records ppid 1 and never notices.
+  //
+  // The parent's stdin pipe closes when the parent dies, at ANY point in our
+  // lifetime, so EOF on a real pipe is a signal that cannot be missed by a
+  // startup race. Registered after `orphanCheck` exists so `shutdown`'s
+  // `clearInterval(orphanCheck)` cannot hit the temporal dead zone.
+  //
+  // Only when stdin is genuinely a pipe. `sidecar-manager.ts` spawns us with
+  // `stdin: "pipe"`, but tests spawn with `stdio: "ignore"`, which hands us
+  // /dev/null — that reads EOF immediately and would kill a perfectly healthy
+  // sidecar on startup. A FIFO is the discriminator.
+  if (stdinIsPipe) {
+    process.stdin.on("end", shutdown)
+    process.stdin.on("close", shutdown)
+  }
 
   // Never resolve on its own: when run as `debug claude-sidecar-entry`,
   // returning here would let `index.ts`'s `cli.parse()` complete, which
