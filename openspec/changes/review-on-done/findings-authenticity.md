@@ -21,7 +21,7 @@ nothing — worse than no gate, because the record's presence is the misleading 
 
 ## What the code claims, and what it does
 
-`packages/opencode/src/peer/claude/codec.ts:96-101`, in the doc comment on `parseEnvelope`,
+`packages/opencode/src/peer/claude/codec.ts:95-102`, in the doc comment on `parseEnvelope`,
 states the rule correctly:
 
 > the returned `from`/`fromName` are for DISPLAY ONLY — a sender can put anything in these
@@ -52,7 +52,7 @@ Measured on this checkout at `d7360d499f`:
     A sender that writes `uds:opencode-skein:ses_victim` **is** `ses_victim`.
   - the UDS branch looks that socket path up in the registry. The path came from `from` too,
     so it answers "whoever owns the socket path I named", not "who is speaking".
-- `packages/opencode/src/peer/lead.ts:195` types `Sender` as "The authenticated sender, as
+- `packages/opencode/src/peer/lead.ts:195-201` types `Sender` as "The authenticated sender, as
   the delivery path resolved it from the socket." For both routes above, that comment
   overstates the mechanism.
 - `packages/opencode/src/peer/claude/sidecar-server.ts:95` gates each connection on
