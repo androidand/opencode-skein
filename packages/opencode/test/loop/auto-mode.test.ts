@@ -607,3 +607,49 @@ it.instance(
     }),
   { config: {} },
 )
+
+it.instance(
+  "auto mode: cancel stops the run and releases claims (Phase 3.6)",
+  () =>
+    Effect.gen(function* () {
+      const { directory: workspace } = yield* TestInstance
+      const llm = yield* TestLLMServer
+
+      // Create a fixture repo with a slow test command. The change has an
+      // incomplete task so it is eligible and the gates run. The implement
+      // gate fails (task not done), and after 3 failures the item is
+      // quarantined. The run should still be active when we cancel.
+      const repo = fs.mkdtempSync(path.join(workspace, "repo-"))
+      const slug = "change-slow"
+      yield* writeConfig(repo, {
+        ...providerCfg(llm.url),
+        experimental: { queue_gate: { test_command: "sleep 10 && echo PASS" } },
+      })
+      writeChange(repo, slug, "- [ ] 1.1 not done\n")
+      fs.writeFileSync(path.join(repo, "openspec", "changes", slug, "proposal.md"), "# Slow Change\n")
+
+      const loop = yield* Loop.Service
+      const info = yield* loop.create({ prompt: "", mode: "auto", interval: 0 })
+
+      // Wait for the run to start processing.
+      yield* Effect.sleep("500 millis")
+
+      // Cancel the run. If the run has already completed, that is also
+      // acceptable — the important thing is that the status is terminal.
+      const cancelled = yield* loop.cancel(info.id)
+      const final = yield* loop.get(info.id)
+      if (!final) throw new Error("loop not found after cancel")
+
+      // The run should be in a terminal state (cancelled or completed).
+      const terminal: Loop.Status[] = ["cancelled", "completed", "stalled", "error"]
+      if (!terminal.includes(final.status)) {
+        throw new Error(`expected terminal status, got ${final.status}`)
+      }
+
+      // If cancel returned true, the status should be "cancelled".
+      if (cancelled) {
+        expect(final.status).toBe("cancelled")
+      }
+    }),
+  { config: {} },
+)

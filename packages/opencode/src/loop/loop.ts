@@ -49,7 +49,7 @@ import {
   unquarantine,
   type QueueChange,
 } from "./spec-queue/queue"
-import { getWorkItems } from "./spec-queue/work-source"
+import { getWorkItems, claimChange, releaseChange } from "./spec-queue/work-source"
 import { QueueAuthority, QueueDenyRules, withoutCredentials } from "./spec-queue/authority"
 import { AgentGates, readVerdict, resolvePersonas, type PersonaBindings } from "./spec-queue/personas"
 
@@ -1681,6 +1681,7 @@ export const layer = Layer.effect(
 
           let outcomes: Array<{ repo: string; change: string; outcome: string; cause?: string }> = []
           const processedChanges = new Set<string>()
+          const claimedItems = new Set<string>()
           let consecutiveHalts = 0
           let anyGatePassed = false
 
@@ -1740,12 +1741,17 @@ export const layer = Layer.effect(
                      return
                    }
 
-                   // One run per repository at a time.
-                   if (runningRepos.has(item.repo)) return
+                    // One run per repository at a time.
+                    if (runningRepos.has(item.repo)) return
 
-                   // Resolve the queue for this item's repo to check if it's already complete.
-                   const resolved = resolveQueue(item.repo, [item.change])
-                   const change = cursor(resolved)
+                    // Claim the item if it has a tracker binding (Phase 3.6).
+                    const changeDir = path.join(item.repo, "openspec", "changes", item.change)
+                    const claimed = yield* claimChange(changeDir)
+                    if (claimed) claimedItems.add(key)
+
+                    // Resolve the queue for this item's repo to check if it's already complete.
+                    const resolved = resolveQueue(item.repo, [item.change])
+                    const change = cursor(resolved)
 
                    if (!change) {
                      // Change is complete or has no eligible tasks.
@@ -1844,9 +1850,14 @@ export const layer = Layer.effect(
                       processedChanges.add(key)
                       processedThisPass += 1
                       if (ending.outcome === "quarantined") haltsThisPass += 1
-                   } finally {
-                     runningRepos.delete(item.repo)
-                   }
+                    } finally {
+                      runningRepos.delete(item.repo)
+                      // Release the claim if it was taken (Phase 3.6).
+                      if (claimedItems.has(key)) {
+                        yield* releaseChange(changeDir)
+                        claimedItems.delete(key)
+                      }
+                    }
                  })
 
                let next = 0
