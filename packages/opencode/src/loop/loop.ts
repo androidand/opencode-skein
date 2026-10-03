@@ -1889,22 +1889,49 @@ export const layer = Layer.effect(
                   consecutiveHalts = 0
                 }
                 if (consecutiveHalts >= 3) {
+                  // Generate aggregated report with environmental cause (Phase 4.1).
+                  const lines: string[] = [
+                    `suspected environmental cause — ${consecutiveHalts} consecutive halts with no gate passing`,
+                    "",
+                  ]
+                  for (const o of outcomes) {
+                    const repoName = path.basename(o.repo)
+                    if (o.outcome === "skipped") {
+                      lines.push(`- ${repoName}/${o.change}: SKIPPED (${o.cause})`)
+                    } else if (o.outcome === "quarantined") {
+                      lines.push(`- ${repoName}/${o.change}: HALTED (${o.cause})`)
+                    } else {
+                      lines.push(`- ${repoName}/${o.change}: completed`)
+                    }
+                  }
                   yield* patch(id, (current) => ({
                     ...current,
-                    info: { ...current.info, report: `suspected environmental cause — ${consecutiveHalts} consecutive halts with no gate passing` },
+                    info: { ...current.info, report: lines.join("\n") },
                   }))
                   yield* finalize(id, "stalled")
                   return
                 }
 
                 if (processedThisPass === 0) {
-                 yield* patch(id, (current) => ({
-                   ...current,
-                   info: { ...current.info, report: "auto drained — all changes processed" },
-                 }))
-                 yield* finalize(id, "completed")
-                 return
-               }
+                  // Generate aggregated report (Phase 4.1).
+                  const lines: string[] = ["auto drained — all changes processed", ""]
+                  for (const o of outcomes) {
+                    const repoName = path.basename(o.repo)
+                    if (o.outcome === "skipped") {
+                      lines.push(`- ${repoName}/${o.change}: SKIPPED (${o.cause})`)
+                    } else if (o.outcome === "quarantined") {
+                      lines.push(`- ${repoName}/${o.change}: HALTED (${o.cause})`)
+                    } else {
+                      lines.push(`- ${repoName}/${o.change}: completed`)
+                    }
+                  }
+                  yield* patch(id, (current) => ({
+                    ...current,
+                    info: { ...current.info, report: lines.join("\n") },
+                  }))
+                  yield* finalize(id, "completed")
+                  return
+                }
 
               yield* patch(id, (current) => ({
                 ...current,

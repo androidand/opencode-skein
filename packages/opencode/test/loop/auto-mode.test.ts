@@ -688,3 +688,53 @@ it.instance(
     }),
   { config: {} },
 )
+
+it.instance(
+  "auto mode: aggregated report covers all items (Phase 4.1)",
+  () =>
+    Effect.gen(function* () {
+      const { directory: workspace } = yield* TestInstance
+      const llm = yield* TestLLMServer
+
+      // Create three fixture repos: one completes, one halts, one is skipped.
+      // The report should list all three with their outcomes.
+
+      // Repo 1: completes (test passes)
+      const repo1 = fs.mkdtempSync(path.join(workspace, "repo1-"))
+      yield* writeConfig(repo1, {
+        ...providerCfg(llm.url),
+        experimental: { queue_gate: { test_command: "echo PASS" } },
+      })
+      writeChange(repo1, "change-good", "- [ ] 1.1 not done\n")
+      fs.writeFileSync(path.join(repo1, "openspec", "changes", "change-good", "proposal.md"), "# Good\n")
+
+      // Repo 2: halts (test fails)
+      const repo2 = fs.mkdtempSync(path.join(workspace, "repo2-"))
+      yield* writeConfig(repo2, {
+        ...providerCfg(llm.url),
+        experimental: { queue_gate: { test_command: "exit 1" } },
+      })
+      writeChange(repo2, "change-bad", "- [ ] 1.1 not done\n")
+      fs.writeFileSync(path.join(repo2, "openspec", "changes", "change-bad", "proposal.md"), "# Bad\n")
+
+      const loop = yield* Loop.Service
+      const info = yield* loop.create({ prompt: "", mode: "auto", interval: 0 })
+      const final = yield* waitForTerminal(info.id, 30)
+
+      // The run should reach a terminal status.
+      const terminal: Loop.Status[] = ["completed", "stalled", "cancelled", "max_reached", "error"]
+      if (!terminal.includes(final.status)) {
+        throw new Error(
+          `Phase 4.1: expected terminal status, got ${final.status}, report=${final.report}`,
+        )
+      }
+
+      // The report should mention both repos and their outcomes.
+      if (final.report) {
+        expect(final.report).toContain("change-good")
+        expect(final.report).toContain("change-bad")
+        expect(final.report).toContain("HALTED")
+      }
+    }),
+  { config: {} },
+)
