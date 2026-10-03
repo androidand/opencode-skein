@@ -46,7 +46,9 @@ describe("task envelope round trip", () => {
     deadlineMs: 600_000,
   })
   test("names the task, the reply address and the reply envelope header", () => {
-    expect(envelope).toContain("[peer-task ses_task1]")
+    expect(envelope).toContain("[peer request")
+    expect(envelope).toContain("task=ses_task1")
+    expect(envelope).toContain("deadline=")
     expect(envelope).toContain('"opencode:A2A feature"')
     expect(envelope).toContain("[peer reply task=ses_task1]")
     expect(envelope).toContain("Look at src/x.ts")

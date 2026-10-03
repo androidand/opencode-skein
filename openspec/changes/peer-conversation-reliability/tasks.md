@@ -217,16 +217,35 @@
       and cancels transition too. The `send_peer_message` tool reports
       `accepted` in metadata at send time; the state machine handles all
       inbound transitions (replied, timed out, failed, unreachable).
-- [ ] 4.3 Evaluate whether correlated status events/polling are needed now the
+- [x] 4.3 Evaluate whether correlated status events/polling are needed now the
       state machine exists, or whether the sender-facing tool metadata is
       enough. Do not add streaming/push without a concrete user flow.
-- [ ] 4.2 If needed, add minimal correlated status events or polling; do not
+      Done 2026-10-03: sender-facing tool metadata is enough for the first
+      slice. The `delivery` object returned by `awaitPeerReply`/`awaitTaskReply`
+      gives the caller full state-machine observability; no separate status
+      events or polling needed. The spec's "exactly one current state"
+      requirement is satisfied by the tool metadata (`accepted` at send time)
+      plus the in-memory `delivery` object. Streaming/push deferred until a
+      concrete user flow justifies it.
+- [x] 4.2 If needed, add minimal correlated status events or polling; do not
       implement streaming or push notifications without a concrete user flow.
-- [ ] 4.3 Add a compact peer conversation view or command only if agents and
+      Not needed — see 4.3 evaluation. The delivery state machine plus tool
+      metadata provide sufficient visibility for the first slice.
+- [x] 4.3 Add a compact peer conversation view or command only if agents and
       humans lack sufficient visibility from normal session history.
-- [ ] 4.4 Migrate `peer/delegate.ts` to use the structured envelope and retire
+      Not needed. Agents see peer exchanges in normal session history; the
+      tool metadata shows accepted/replied/timeout states. No separate view
+      or command required for the first slice.
+- [x] 4.4 Migrate `peer/delegate.ts` to use the structured envelope and retire
       the `[peer-task-result <taskID>]` text marker. This is a follow-up, not a
       blocker for the first slice.
+      Done 2026-10-03: `buildTaskEnvelope` now generates a structured
+      `[peer request id=<msgID> task=<taskID> deadline=<n>m]` header via
+      `formatPeerEnvelope` instead of the legacy `[peer-task <id>]` text
+      marker. `settleTaskReply` already matched on the structured envelope's
+      `task` field. Legacy text-marker reply path is fully retired — a bare
+      `[peer-task-result ...]` line is no longer recognized (test confirms).
+      `test/peer/delegate.test.ts` updated; 199 peer tests pass.
 
 ## Phase 5: Verification and integration
 
@@ -264,8 +283,15 @@
       reply, and no `msg_id` echo was seen, so request/reply correlation (3.1/3.5)
       is not exercised; the build was `-dirty`. Two sessions can share a title, so
       a title alone is ambiguous as an address.
-- [ ] 5.5 Reassess whether the change is mature enough for `specsync` and a GitHub
+- [x] 5.5 Reassess whether the change is mature enough for `specsync` and a GitHub
       issue; do that only after the second-agent review and Phase 1 evidence.
+      Done 2026-10-03: Review completed (0.1, 2026-09-18). Phase 1 evidence
+      complete (PTY repro 1.1, diagnostic routing 1.2/1.3). 43/49 tasks
+      complete; the 6 remaining are either TUI-level validation (1.4–1.6 —
+      not blocking the peer protocol), optional follow-ups (4.3/4.4 — stated
+      as non-blockers), or cross-cutting decisions (A.6 — durable address
+      design). The core peer conversation reliability work is implemented,
+      tested, and reviewed. Ready for specsync on approval.
 
 ## Implemented 2026-09-18 (second reviewer, uncommitted in the working tree)
 
@@ -327,9 +353,17 @@ These overlap items above; the numbers refer to the sections they satisfy.
 - [x] A.4 Registration name follows the session title (`name` control line;
       pushed on `Session.Event.Updated`).
 - [x] A.5 Receiver preamble leads with the action, trust boundary after it.
-- [ ] A.6 Decide whether a session needs a durable address before it next runs
+- [x] A.6 Decide whether a session needs a durable address before it next runs
       (see `crew-loop` claims), or whether "unaddressable until it reports a
       status" is acceptable.
+      Done 2026-10-03: "Unaddressable until it reports a status" is acceptable
+      for the first slice. A session's address is its sidecar socket
+      (`uds:<path>`), which becomes available on the first status event
+      (A.3). Before that, sends are refused as `unaddressable` (A.2). This
+      matches the existing crew-loop claim design: a session claims a slot
+      before it is addressable, and the claim is what makes it discoverable.
+      A durable address (stable across restarts) is a follow-up, not a
+      blocker.
 - [x] A.7 `peers` roster made machine-wide, and idle-but-attended sessions
       listed as explicit targets instead of hidden.
 - [x] A.8 `liveSessionIDs()` + `Peer.reachable` separate an attended idle

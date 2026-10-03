@@ -12,7 +12,7 @@
 // Pure formatting/parsing plus an in-memory registry; no transport.
 
 import { InvalidTransition, PeerDelivery } from "./delivery-state"
-import { parsePeerEnvelope } from "./envelope"
+import { formatPeerEnvelope, newMessageID, parsePeerEnvelope, type PeerEnvelope } from "./envelope"
 
 export interface PeerCandidate {
   owner: "opencode-skein" | "claude-code"
@@ -58,16 +58,17 @@ export interface TaskEnvelopeInput {
 }
 
 export function buildTaskEnvelope(input: TaskEnvelopeInput): string {
-  const minutes = Math.max(1, Math.round(input.deadlineMs / 60_000))
-  return [
-    `[peer-task ${input.taskID}] ${input.description}`,
+  const messageID = newMessageID()
+  const envelope: PeerEnvelope = { mode: "request", messageID, taskID: input.taskID, deadlineMinutes: Math.max(1, Math.round(input.deadlineMs / 60_000)) }
+  return formatPeerEnvelope(envelope, [
     `Delegated by another agent session because it has no free local capacity. Work in ${input.cwd}.`,
+    `Description: ${input.description}.`,
     `When done, reply with ${input.replyTool} to "${input.replyTo}" using a structured peer envelope whose header starts with:`,
     `[peer reply task=${input.taskID}]`,
-    `then your result. Reply within ${minutes} min or the task is reassigned. Normal tool permissions apply.`,
+    `then your result. Reply within ${envelope.deadlineMinutes} min or the task is reassigned. Normal tool permissions apply.`,
     "",
     input.prompt,
-  ].join("\n")
+  ].join("\n"))
 }
 
 type TaskEntry = {
