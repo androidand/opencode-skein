@@ -315,3 +315,49 @@ it.instance(
     }),
   { config: {} },
 )
+
+it.instance(
+  "auto mode resolves per-repo gate options from each repo's opencode.json (D5 fallback)",
+  () =>
+    Effect.gen(function* () {
+      const { directory: workspace } = yield* TestInstance
+      const llm = yield* TestLLMServer
+
+      // Two fixture repos, each declaring a different test command.
+      // If gate options were resolved from the instance (loop) config instead
+      // of per-repo, one repo would inherit the other's test command and the
+      // run would halt on the wrong gate.
+      const repoA = fs.mkdtempSync(path.join(workspace, "repo-a-"))
+      const repoB = fs.mkdtempSync(path.join(workspace, "repo-b-"))
+
+      // Repo A: test command that passes.
+      yield* writeConfig(repoA, {
+        ...providerCfg(llm.url),
+        experimental: { queue_gate: { test_command: "echo PASS_A" } },
+      })
+      // Repo B: test command that passes.
+      yield* writeConfig(repoB, {
+        ...providerCfg(llm.url),
+        experimental: { queue_gate: { test_command: "echo PASS_B" } },
+      })
+
+      // Both changes are already complete — the gates still run.
+      writeChange(repoA, "change-a", "- [x] 1.1 done\n")
+      writeChange(repoB, "change-b", "- [x] 1.1 done\n")
+      fs.writeFileSync(path.join(repoA, "openspec", "changes", "change-a", "proposal.md"), "# Change A\n")
+      fs.writeFileSync(path.join(repoB, "openspec", "changes", "change-b", "proposal.md"), "# Change B\n")
+
+      const loop = yield* Loop.Service
+      const info = yield* loop.create({ prompt: "", mode: "auto", interval: 0 })
+      const final = yield* waitForTerminal(info.id, 30)
+
+      if (final.status !== "completed") {
+        throw new Error(
+          `per-repo gate resolution failed: status=${final.status}, report=${final.report}`,
+        )
+      }
+      expect(final.status).toBe("completed")
+      expect(final.report).toContain("auto drained")
+    }),
+  { config: {} },
+)
