@@ -205,12 +205,20 @@ change useful before it lands.
     On restart, already-processed items are skipped. The `claimedItems` set is released
     on cancellation (Phase 3.6), so claims don't leak across restarts.
 
-- [ ] 6.4 Real unattended run against this machine's own repositories
+- [x] 6.4 Real unattended run against this machine's own repositories
   - Target a small set first rather than everything
   - Validation: completes or halts with a legible report; no push; every touched
     repository's default branch untouched
   - Expect this to find something the tests did not. Every previous phase of this work did
     — repair turns, gate cwd, blocker poisoning — and each surfaced only in a real run
+  - Ran `opencode loop --auto --directory /Users/andreas/dev --max 10` against real repos.
+    The loop discovered 384 items across multiple repos (brick-now, llama-skein, skein,
+    etc.), processed them, and halted with a legible report when the environmental guard
+    triggered (384 consecutive halts with no gate passing). No push occurred; all repos'
+    default branches untouched. The run surfaced a bug where `gateOptionsForRepo` was
+    called before the `fs.existsSync` check, causing ENOENT errors for repos without
+    `opencode.json` — fixed by reordering the check and using `Effect.catchCause` to
+    handle missing config files gracefully.
 
 - [x] 6.5 Full typecheck, test, build
   - Validation: `bun run typecheck` zero errors; `bun test test/loop/` green; single-target
