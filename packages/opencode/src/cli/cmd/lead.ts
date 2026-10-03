@@ -8,7 +8,7 @@ import type { Argv } from "yargs"
 import { cmd } from "./cmd"
 import { UI } from "../ui"
 import { LEAD_SCOPES, readGrantFile, verifyLead, type Sender } from "@/peer/lead"
-import { grantPath } from "@/peer/lead-runtime"
+import { grantPath, processStartTime } from "@/peer/lead-runtime"
 import {
   buildGrant,
   identifyCaller,
@@ -16,6 +16,7 @@ import {
   parseScopes,
   parseTtl,
   removeGrantFile,
+  SESSION_TTL,
   writeGrantFile,
   type SessionCandidate,
 } from "@/peer/lead-issue"
@@ -89,7 +90,7 @@ const SetCommand = cmd({
   builder: (yargs: Argv) =>
     yargs
       .option("scope", { type: "string", describe: `comma list of: ${LEAD_SCOPES.join(", ")} (default: all)` })
-      .option("ttl", { type: "string", describe: "lifetime, e.g. 30m or 8h (default 8h, max 24h)" })
+      .option("ttl", { type: "string", describe: "`session` (default): until the lead session ends, bound to its process; or a time such as 30m or 8h (max 24h)" })
       .option("session", {
         type: "string",
         describe: "exact session id or pid to designate (required for opencode sessions; Claude Code is found automatically)",
@@ -102,7 +103,7 @@ const SetCommand = cmd({
     const scopes = parseScopes(args.scope)
     if ("error" in scopes) return fail(scopes.error)
     const ttlMs = parseTtl(args.ttl)
-    if (typeof ttlMs !== "number") return fail(ttlMs.error)
+    if (typeof ttlMs === "object") return fail(ttlMs.error)
     const sessions = await knownSessions()
     const lead = args.session ? selectSession(sessions, String(args.session)) : identifyCaller(ancestry(process.ppid), sessions)
     if (args.session && !lead) return fail(`no live session matches "${args.session}" by exact id or pid (see \`opencode agents\`)`)
@@ -112,18 +113,25 @@ const SetCommand = cmd({
           "Run it from the session you want as lead (in Claude Code: `! opencode lead set`), or name an opencode session with --session <id>.",
       )
     }
+    // A session-length grant is only as good as the identity it is bound to, so a start time that cannot
+    // be read refuses the grant rather than issuing one that could outlive its session.
+    const procStart = processStartTime(lead.pid)
+    if (ttlMs === SESSION_TTL && procStart === undefined) {
+      return fail("could not read the lead process start time, so a session-length grant cannot be bound to it; use --ttl 8h")
+    }
+    const duration = ttlMs === SESSION_TTL ? "for as long as that session runs" : `for ${Math.round(ttlMs / 60_000)} minutes`
     if (!args.noConfirm) {
       const confirmed = confirmLead(
-        `Make ${lead.harness} session ${lead.sessionID ?? lead.pid} (${lead.name ?? "unnamed"}) your lead for ${scopes.join(", ")}, for ${Math.round(ttlMs / 60_000)} minutes?`,
+        `Make ${lead.harness} session ${lead.sessionID ?? lead.pid} (${lead.name ?? "unnamed"}) your lead for ${scopes.join(", ")}, ${duration}?`,
         realDeps,
       )
       if (!confirmed.ok) return fail(confirmed.reason)
     }
-    const grant = buildGrant({ lead, scopes, ttlMs, now: Date.now(), issuedBy: "user:cli" })
+    const grant = buildGrant({ lead: { ...lead, ...(procStart ? { procStart } : {}) }, scopes, ttlMs, now: Date.now(), issuedBy: "user:cli" })
     writeGrantFile(grantPath(), grant)
     UI.println(
       `lead set: ${lead.harness} session ${lead.sessionID ?? lead.pid} (${lead.name ?? "unnamed"}) — scopes ${scopes.join(", ")}, ` +
-        `expires ${new Date(grant.expiresAt).toISOString()}. Followers need experimental.follow_lead. Revoke: opencode lead off`,
+        `${grant.expiresAt === null ? "lasts until that session ends" : `expires ${new Date(grant.expiresAt).toISOString()}`}. Followers need experimental.follow_lead. Revoke: opencode lead off`,
     )
   },
 })
@@ -140,11 +148,11 @@ const ShowCommand = cmd({
   command: "show",
   describe: "show the current lead grant, or why there is none",
   handler: async () => {
-    const result = readGrantFile(grantPath(), { now: Date.now(), pidAlive, uid: process.getuid?.() ?? -1 })
+    const result = readGrantFile(grantPath(), { now: Date.now(), pidAlive, startTime: processStartTime, uid: process.getuid?.() ?? -1 })
     if (!result.ok) return UI.println(`no active lead grant (${result.reason})`)
     const g = result.grant
     UI.println(
-      `lead ${g.lead.name ?? g.lead.sessionID ?? g.lead.pid} [${g.lead.harness}] grant ${g.id} scopes ${g.scopes.join(", ")} expires ${new Date(g.expiresAt).toISOString()}`,
+      `lead ${g.lead.name ?? g.lead.sessionID ?? g.lead.pid} [${g.lead.harness}] grant ${g.id} scopes ${g.scopes.join(", ")} ${g.expiresAt === null ? "until the lead session ends" : `expires ${new Date(g.expiresAt).toISOString()}`}`,
     )
   },
 })
@@ -160,10 +168,10 @@ const VerifyCommand = cmd({
     const sender: Sender = opencodeSession
       ? { harness: "opencode-skein", sessionID: opencodeSession }
       : { harness: "claude-code", pid: pid ? Number(pid) : undefined, address: from }
-    const result = readGrantFile(grantPath(), { now: Date.now(), pidAlive, uid: process.getuid?.() ?? -1 })
+    const result = readGrantFile(grantPath(), { now: Date.now(), pidAlive, startTime: processStartTime, uid: process.getuid?.() ?? -1 })
     const verdict = result.ok ? verifyLead(result.grant, sender, { follow: true, now: Date.now() }) : { granted: false as const, reason: result.reason }
     if (verdict.granted) {
-      UI.println(`GRANTED scopes=${verdict.scopes.join(",")} grant=${verdict.grantID} expires=${new Date(verdict.expiresAt).toISOString()}`)
+      UI.println(`GRANTED scopes=${verdict.scopes.join(",")} grant=${verdict.grantID} expires=${verdict.expiresAt === null ? "session-end" : new Date(verdict.expiresAt).toISOString()}`)
     } else {
       UI.println(`DENIED ${verdict.reason}`)
       process.exitCode = 1

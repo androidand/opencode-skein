@@ -6,6 +6,9 @@ import { parseGrant, readGrantFile, verifyLead, type LeadGrant } from "../../src
 
 const NOW = 1_790_000_000_000
 const alive = () => true
+// What the OS reports as the lead process's start time. A reused pid has a different one.
+const STARTED = "Thu Oct  2 10:10:00 2026"
+const sameProcess = () => STARTED
 
 function grant(overrides: Record<string, unknown> = {}): Record<string, unknown> {
   return {
@@ -190,5 +193,62 @@ describe("readGrantFile — the file is the authority, so the file is checked", 
     withFile("{not json", 0o600, (path) => {
       expect(readGrantFile(path, deps).ok).toBe(false)
     })
+  })
+})
+
+describe("a grant that lasts until the lead session ends", () => {
+  const session = (over: Record<string, unknown> = {}) =>
+    grant({
+      expiresAt: null,
+      lead: { harness: "claude-code", pid: 4242, address: "uds:/tmp/cc-socks/4242.sock", name: "main", procStart: STARTED },
+      ...over,
+    })
+  const deps = { pidAlive: alive, startTime: sameProcess }
+
+  test("is valid while the same process is alive, however much time has passed", () => {
+    expect(parseGrant(session(), NOW, deps).ok).toBe(true)
+    expect(parseGrant(session(), NOW + 30 * 24 * 3_600_000, deps).ok).toBe(true)
+  })
+
+  test("is refused when the pid now belongs to a DIFFERENT process (pid reuse)", () => {
+    const reused = { pidAlive: alive, startTime: () => "Fri Oct  3 09:00:00 2026" }
+    expect(parseGrant(session(), NOW, reused)).toEqual({ ok: false, reason: expect.stringContaining("not the process") })
+  })
+
+  test("is refused when the process start time cannot be read — fail closed, and says why", () => {
+    // The comparison below it would refuse too; the explicit branch exists so the operator is told the
+    // real cause (unreadable) instead of a misleading "pid was reused".
+    expect(parseGrant(session(), NOW, { pidAlive: alive, startTime: () => undefined })).toEqual({ ok: false, reason: expect.stringContaining("could not read") })
+    expect(parseGrant(session(), NOW, { pidAlive: alive })).toEqual({ ok: false, reason: expect.stringContaining("could not read") })
+  })
+
+  test("is refused when the lead process is gone", () => {
+    expect(parseGrant(session(), NOW, { pidAlive: () => false, startTime: sameProcess }).ok).toBe(false)
+  })
+
+  test("never expires without a process identity: no procStart means it is refused, not trusted", () => {
+    const bare = session({ lead: { harness: "claude-code", pid: 4242, address: "uds:/tmp/cc-socks/4242.sock" } })
+    expect(parseGrant(bare, NOW, deps)).toEqual({ ok: false, reason: expect.stringContaining("process identity") })
+  })
+
+  test("a timed grant that carries a procStart is bound to it too", () => {
+    const timed = grant({ lead: { harness: "claude-code", pid: 4242, procStart: STARTED } })
+    expect(parseGrant(timed, NOW, { pidAlive: alive, startTime: () => "other" }).ok).toBe(false)
+    expect(parseGrant(timed, NOW, deps).ok).toBe(true)
+  })
+
+  test("a timed grant without procStart is unchanged (no process identity demanded)", () => {
+    expect(parseGrant(grant(), NOW, { pidAlive: alive }).ok).toBe(true)
+  })
+
+  test("verifyLead never treats it as expired", () => {
+    const g = (parseGrant(session(), NOW, deps) as { ok: true; grant: LeadGrant }).grant
+    const v = verifyLead(g, { harness: "claude-code", pid: 4242, address: "uds:/tmp/cc-socks/4242.sock" }, { follow: true, now: NOW + 365 * 24 * 3_600_000 })
+    expect(v).toMatchObject({ granted: true, expiresAt: null })
+  })
+
+  test("a non-lead is still denied", () => {
+    const g = (parseGrant(session(), NOW, deps) as { ok: true; grant: LeadGrant }).grant
+    expect(verifyLead(g, { harness: "claude-code", pid: 9999, address: "uds:/tmp/cc-socks/9999.sock" }, { follow: true, now: NOW }).granted).toBe(false)
   })
 })
