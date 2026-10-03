@@ -764,6 +764,38 @@ export const layer = Layer.effect(
         })
       })
 
+    /**
+     * Per-repo gate options for cross-repo auto runs (D5 fallback): reads
+     * `<repo>/opencode.json` for `experimental.queue_gate`, falling back to
+     * the instance config. This is the one config read that bypasses the
+     * instance — the instance is the loop's own directory, not the item's repo.
+     */
+    const gateOptionsForRepo = (repo: string, exec: Exec, overrides?: CreateInput["queueOptions"]) =>
+      Effect.gen(function* () {
+        let repoConfig: { experimental?: { queue_gate?: QueueGateConfig } } = {}
+        try {
+          const raw = yield* Effect.promise(() => Bun.file(`${repo}/opencode.json`).text())
+          repoConfig = JSON.parse(raw)
+        } catch {
+          // No opencode.json in this repo — fall through to instance config.
+        }
+        const fromRepo = repoConfig.experimental?.queue_gate
+        const cfg = yield* config.get().pipe(Effect.orElseSucceed(() => ({}) as never))
+        const fromInstance = (cfg as { experimental?: { queue_gate?: QueueGateConfig } }).experimental?.queue_gate
+        const fromConfig = fromRepo ?? fromInstance
+        return yield* Effect.promise(async (): Promise<GateOptions> => {
+          const detect = async () => {
+            const head = await exec("git symbolic-ref --short refs/remotes/origin/HEAD")
+            return head.code === 0 && head.output.trim() ? head.output.trim().replace(/^origin\//, "") : "main"
+          }
+          return {
+            testCommand: overrides?.testCommand ?? fromConfig?.test_command ?? "bun test",
+            verifyCommand: overrides?.verifyCommand ?? fromConfig?.verify_command ?? "bun run typecheck",
+            defaultBranch: overrides?.defaultBranch ?? fromConfig?.default_branch ?? (await detect()),
+          }
+        })
+      })
+
     /** Resolved gate working directory: per-loop, then config, then the repo root. */
     const gateCwd = (record: Record_ | undefined) =>
       Effect.gen(function* () {
@@ -1608,9 +1640,7 @@ export const layer = Layer.effect(
          const initial = (yield* Ref.get(state)).get(id)
          if (!initial) return
 
-         const directory = initial.info.directory
-         const exec = execIn(directory)
-         const options = yield* gateOptions(exec, initial.queue?.options)
+          const directory = initial.info.directory
 
          const autoRunning = () =>
            Effect.gen(function* () {
@@ -1666,6 +1696,11 @@ export const layer = Layer.effect(
                 const key = `${item.repo}:${item.change}`
                 if (processedChanges.has(key)) continue
 
+                // Per-repo exec and gate options (D5 fallback): the instance
+                // config answers for the loop's own directory, not the item's repo.
+                const itemExec = execIn(item.repo)
+                const itemOptions = yield* gateOptionsForRepo(item.repo, itemExec, initial.queue?.options)
+
                 // Resolve the queue for this item's repo to check if it's already complete.
                 const resolved = resolveQueue(item.repo, [item.change])
                 const change = cursor(resolved)
@@ -1719,8 +1754,8 @@ export const layer = Layer.effect(
                      if (yield* fail("implement", check.output)) break change
                      continue
                    }
-                   case "test": {
-                     const testResult = yield* Effect.promise(() => evaluateTest(exec, options))
+                    case "test": {
+                      const testResult = yield* Effect.promise(() => evaluateTest(itemExec, itemOptions))
                      if (testResult.passed) {
                        failCounts.test = 0
                        gate = "verify"
@@ -1729,8 +1764,8 @@ export const layer = Layer.effect(
                      if (yield* fail("test", testResult.output)) break change
                      continue
                    }
-                   case "verify": {
-                     const verifyResult = yield* Effect.promise(() => evaluateVerify(exec, change, options))
+                    case "verify": {
+                      const verifyResult = yield* Effect.promise(() => evaluateVerify(itemExec, change, itemOptions))
                      if (verifyResult.passed) {
                        failCounts.verify = 0
                        gate = "commit"
@@ -1739,8 +1774,8 @@ export const layer = Layer.effect(
                      if (yield* fail("verify", verifyResult.output)) break change
                      continue
                    }
-                   case "commit": {
-                     const commitResult = yield* Effect.promise(() => evaluateCommit(exec, change, options))
+                    case "commit": {
+                      const commitResult = yield* Effect.promise(() => evaluateCommit(itemExec, change, itemOptions))
                      if (commitResult.passed) {
                        ending.outcome = "completed"
                        break change
