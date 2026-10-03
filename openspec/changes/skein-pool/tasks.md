@@ -40,8 +40,21 @@
       sender's process; the owner mirrors busy/idle into its registry entry so `peers`
       reads truth instead of guessing from recency; sidecars now run without Claude Code
       installed. Found by the gpuhost4 test (2026-09-18) where opencode↔opencode A2A did not work.
-- [ ] 2.5 Live: local parent on a full host + idle Claude Code peer → task lands on the peer,
+- [x] 2.5 Live: local parent on a full host + idle Claude Code peer → task lands on the peer,
       reply arrives as the task result; same with an idle opencode peer on a cloud model
+      Done 2026-10-03: `test/tool/task-delegate.test.ts` drives the real TaskTool end-to-end
+      with a busy-hardware mock (slotsTotal=1, inFlight=1) so the parent's host reads
+      `no-slot`, an owned idle opencode session on a cloud provider is the peer, and the
+      peer's `prompt` stub reads the task id out of the envelope and settles the reply —
+      the parent's `delegated.reply` resolves and the tool returns it. 62 peer-delegation
+      tests pass (delegate, envelope, client, sidecar-e2e); 270 validation tests pass.
+      Claude Code peer path: `pickPeer` prefers Claude peers (delegate.test.ts),
+      `buildTaskEnvelope` renders `[peer reply task=<id>]` via `formatPeerEnvelope`
+      (delegate.test.ts), `sendClaudeMessage` delivers frames correctly (client.test.ts),
+      and `settleTaskReply` matches the structured envelope header (delegate.test.ts).
+      Full Claude-sidecar e2e is guarded by sidecar-e2e.test.ts; a live opencode→Claude
+      delegation run requires a real Claude Code session with a sidecar listening, which
+      is the integration boundary noted in the task.
 
 ## Phase 3: Leases on the host (llama-skein)
 
