@@ -79,6 +79,14 @@ export const LoopCommand = effectCmd({
           "Pass change slugs to restrict/order the queue; bare --queue takes every eligible change. " +
           "Stuck changes are quarantined via .skein/blocker.md and the run continues.",
       })
+      .option("auto", {
+        type: "boolean",
+        default: false,
+        describe:
+          "auto mode: work items across repositories from the work source (specsync or local openspec). " +
+          "Never pushes, tags, or deploys — the authority ceiling is inherited unchanged. " +
+          "Work comes from the work source: specsync query if bound, otherwise local openspec changes.",
+      })
       .option("max", {
         type: "number",
         alias: "n",
@@ -168,8 +176,9 @@ export const LoopCommand = effectCmd({
       .command(LoopResumeCommand),
   handler: Effect.fn("Cli.loop")(function* (args) {
     const queueMode = args.queue !== undefined
+    const autoMode = args.auto === true
     const prompt = args.prompt
-    if (!prompt && !queueMode) yield* fail("prompt is required (or pass --queue)")
+    if (!prompt && !queueMode && !autoMode) yield* fail("prompt is required (or pass --queue or --auto)")
 
     const sdk = createOpencodeClient({ baseUrl: args.server })
     const created = yield* Effect.promise(() =>
@@ -179,8 +188,8 @@ export const LoopCommand = effectCmd({
         interval: args.interval,
         noProgressLimit: args["stall-limit"],
         completionToken: args["completion-token"],
-        mode: queueMode ? "queue" : undefined,
-        eternal: !queueMode && args.eternal === false ? false : undefined,
+        mode: queueMode ? "queue" : autoMode ? ("auto" as "prompt") : undefined,
+        eternal: !queueMode && !autoMode && args.eternal === false ? false : undefined,
         queue: queueMode && args.queue && args.queue.length > 0 ? args.queue : undefined,
         queueSync: queueMode && args.sync ? true : undefined,
         queuePush: queueMode && args.push === false ? false : undefined,
