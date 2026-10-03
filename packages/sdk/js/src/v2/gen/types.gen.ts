@@ -753,7 +753,7 @@ export type Loop = {
     finishedAt: number
   }>
   iterationSessionID?: string
-  mode?: "prompt" | "queue"
+  mode?: "prompt" | "queue" | "crew"
   currentChange?: string
   currentGate?: string
   report?: string
@@ -2098,7 +2098,6 @@ export type Config = {
     mcp_timeout?: number
     mcp_protocol_mode?: McpProtocolMode
     local_subagent_placement?: boolean
-    local_subagent_placement_models?: Array<string>
     peer_delegation?: boolean
     queue_gate?: {
       cwd?: string
@@ -9461,7 +9460,7 @@ export type LoopCreateData = {
     noProgressLimit?: number
     completionToken?: string
     eternal?: boolean
-    mode?: "prompt" | "queue"
+    mode?: "prompt" | "queue" | "crew"
     queue?: Array<string>
     queueGuidance?: string
     queueSync?: boolean

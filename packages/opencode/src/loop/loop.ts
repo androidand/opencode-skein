@@ -120,8 +120,11 @@ export const IterationInfo = Schema.Struct({
 })
 export type IterationInfo = Schema.Schema.Type<typeof IterationInfo>
 
-export const Mode = Schema.Literals(["prompt", "queue"])
+export const Mode = Schema.Literals(["prompt", "queue", "crew"])
 export type Mode = Schema.Schema.Type<typeof Mode>
+
+/** True when the loop drives the openspec backlog rather than a free-form prompt. */
+export const isQueueMode = (mode: Mode | undefined): mode is "queue" | "crew" => mode === "queue" || mode === "crew"
 
 export const Info = Schema.Struct({
   id: LoopID,
@@ -1651,7 +1654,7 @@ export const layer = Layer.effect(
         const activeQueue = Array.from((yield* Ref.get(state)).values()).find(
           (other) =>
             other.info.id !== id &&
-            other.info.mode === "queue" &&
+            isQueueMode(other.info.mode) &&
             other.info.directory === record.info.directory &&
             !isTerminal(other.info.status),
         )
@@ -1675,7 +1678,7 @@ export const layer = Layer.effect(
         yield* patch(id, (current) => ({
           ...current,
           queue: defaultQueueState(),
-          info: { ...current.info, status: "running", mode: "queue", finishedAt: undefined },
+          info: { ...current.info, status: "running", mode: "crew", finishedAt: undefined },
         }))
         yield* emit(id)
 
@@ -1705,18 +1708,18 @@ export const layer = Layer.effect(
           directory = existing?.directory ?? ""
         } else {
           const parent = yield* session.create({
-            title: mode === "queue" ? "auto: openspec backlog" : `loop: ${promptHead(prompt)}`,
+            title: isQueueMode(mode) ? "auto: openspec backlog" : `loop: ${promptHead(prompt)}`,
           })
           sessionID = parent.id
           parentSessionID = undefined
           directory = parent.directory
         }
-        if (mode === "queue") {
-          // Two queue loops over one directory would fight over the same
+        if (isQueueMode(mode)) {
+          // Two queue-shaped loops over one directory would fight over the same
           // derived cursor and working tree (design D1) — refuse the second.
           const active = Array.from((yield* Ref.get(state)).values()).find(
             (record) =>
-              record.info.mode === "queue" && record.info.directory === directory && !isTerminal(record.info.status),
+              isQueueMode(record.info.mode) && record.info.directory === directory && !isTerminal(record.info.status),
           )
           if (active) {
             return yield* Effect.fail(new QueueActiveError({ activeLoopID: active.info.id, directory }))
@@ -1758,7 +1761,7 @@ export const layer = Layer.effect(
             steers: [],
             inbox: [],
             queue:
-              mode === "queue"
+              isQueueMode(mode)
                 ? {
                     only: input.queue?.length ? [...input.queue] : undefined,
                     guidance: input.queueGuidance,
@@ -1791,16 +1794,16 @@ export const layer = Layer.effect(
         // this deeper inside the driver would leave the return paths to be
         // audited one by one.
         const priorPermission =
-          mode === "queue"
+          isQueueMode(mode)
             ? ((yield* session.get(sessionID).pipe(Effect.orElseSucceed(() => undefined)))?.permission ?? [])
             : []
-        if (mode === "queue") {
+        if (isQueueMode(mode)) {
           yield* session
             .setPermission({ sessionID, permission: [...priorPermission, ...QueueDenyRules] })
             .pipe(Effect.ignore)
         }
 
-        const driver = mode === "queue" ? runQueue(id) : runPromptThenMaybeQueue(id)
+        const driver = isQueueMode(mode) ? runQueue(id) : runPromptThenMaybeQueue(id)
         yield* driver
           .pipe(
             Effect.catchCause((cause) =>
@@ -1813,7 +1816,7 @@ export const layer = Layer.effect(
               }),
             ),
             Effect.ensuring(
-              mode === "queue"
+              isQueueMode(mode)
                 ? session.setPermission({ sessionID, permission: [...priorPermission] }).pipe(Effect.ignore)
                 : Effect.void,
             ),

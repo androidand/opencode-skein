@@ -3082,7 +3082,7 @@ export class Loop extends HeyApiClient {
       noProgressLimit?: number
       completionToken?: string
       eternal?: boolean
-      mode?: "prompt" | "queue"
+      mode?: "prompt" | "queue" | "crew"
       queue?: Array<string>
       queueGuidance?: string
       queueSync?: boolean

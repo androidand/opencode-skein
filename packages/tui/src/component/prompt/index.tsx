@@ -1252,51 +1252,56 @@ function isRunControlInput(input: string): boolean {
       // `/loop --queue` still works so nothing that already exists breaks.
       const firstLineEnd = inputText.indexOf("\n")
       const firstLine = firstLineEnd === -1 ? inputText : inputText.slice(0, firstLineEnd)
-      const verb = firstLine.startsWith("/backlog")
-        ? "/backlog"
-        : firstLine.startsWith("/queue")
-          ? "/queue"
-          : "/loop"
-      const rest = firstLine.slice(verb.length).trim()
-      try {
-        const parsedArgs = parseLoopArgs(rest)
-        // `/backlog …` (and its `/queue` alias) means "find the planned work
-        // yourself" even without the flag.
-        const parsed = verb === "/loop" ? parsedArgs : { ...parsedArgs, queue: true }
-        if (!parsed.prompt && !parsed.queue) {
-          dialog.replace(() => <DialogLoopList />)
-        } else {
-          move.startSubmit()
-          sdk.client.loop
-            .create({
-              prompt: parsed.queue ? "" : parsed.prompt,
-              // Runs in the session you are looking at, including /backlog:
-              // work you cannot see is work you cannot supervise.
-              sessionID: props.sessionID,
-              interval: parsed.interval,
-              maxIterations: parsed.max,
-              noProgressLimit: parsed.noProgressLimit,
-              completionToken: parsed.completionToken,
-              mode: parsed.queue ? "queue" : undefined,
-              eternal: !parsed.queue && !parsed.eternal ? false : undefined,
-              queue: parsed.queue && parsed.prompt ? parsed.prompt.split(/\s+/) : undefined,
-              queueSync: parsed.queue && parsed.sync ? true : undefined,
-              queuePush: parsed.queue && !parsed.push ? false : undefined,
-              queueGuidance: parsed.queue ? parsed.guidance : undefined,
-              queueOptions:
-                parsed.queue && (parsed.gateCwd || parsed.testCommand || parsed.verifyCommand)
-                  ? { cwd: parsed.gateCwd, testCommand: parsed.testCommand, verifyCommand: parsed.verifyCommand }
-                  : undefined,
-            })
-            .then((result) => {
-              if (result.error || !result.data) {
-                toast.show({ title: "Failed to start loop", message: errorMessage(result.error), variant: "error" })
-                return
-              }
-              toast.show({
-                variant: "success",
-                message: parsed.queue
-                  ? `Backlog started (${result.data.id}) — works planned tasks until none are left, pushing each completed branch${parsed.push ? "" : " (push disabled)"}`
+       const verb = firstLine.startsWith("/backlog")
+         ? "/backlog"
+         : firstLine.startsWith("/crew")
+           ? "/crew"
+           : firstLine.startsWith("/queue")
+             ? "/queue"
+             : "/loop"
+       const rest = firstLine.slice(verb.length).trim()
+       try {
+         const parsedArgs = parseLoopArgs(rest)
+         // `/backlog …` (and its `/queue` alias) means "find the planned work
+         // yourself" even without the flag. `/crew` is queue mode plus claims
+         // and inbox — the brief states the routing order explicitly.
+         const parsed = verb === "/loop" ? parsedArgs : { ...parsedArgs, queue: true, crew: verb === "/crew" }
+         if (!parsed.prompt && !parsed.queue && !parsed.crew) {
+           dialog.replace(() => <DialogLoopList />)
+         } else {
+           move.startSubmit()
+           sdk.client.loop
+             .create({
+               prompt: (parsed.queue || parsed.crew) ? "" : parsed.prompt,
+               // Runs in the session you are looking at, including /backlog:
+               // work you cannot see is work you cannot supervise.
+               sessionID: props.sessionID,
+               interval: parsed.interval,
+               maxIterations: parsed.max,
+               noProgressLimit: parsed.noProgressLimit,
+               completionToken: parsed.completionToken,
+               mode: parsed.crew ? "crew" : parsed.queue ? "queue" : undefined,
+               eternal: !parsed.queue && !parsed.crew && !parsed.eternal ? false : undefined,
+               queue: (parsed.queue || parsed.crew) && parsed.prompt ? parsed.prompt.split(/\s+/) : undefined,
+               queueSync: (parsed.queue || parsed.crew) && parsed.sync ? true : undefined,
+               queuePush: (parsed.queue || parsed.crew) && !parsed.push ? false : undefined,
+               queueGuidance: (parsed.queue || parsed.crew) ? parsed.guidance : undefined,
+               queueOptions:
+                 (parsed.queue || parsed.crew) && (parsed.gateCwd || parsed.testCommand || parsed.verifyCommand)
+                   ? { cwd: parsed.gateCwd, testCommand: parsed.testCommand, verifyCommand: parsed.verifyCommand }
+                   : undefined,
+             })
+             .then((result) => {
+               if (result.error || !result.data) {
+                 toast.show({ title: "Failed to start loop", message: errorMessage(result.error), variant: "error" })
+                 return
+               }
+               toast.show({
+                 variant: "success",
+                 message: parsed.crew
+                   ? `Crew loop started (${result.data.id}) — works the openspec backlog with claims and inbox, routing to warm capacity first`
+                   : parsed.queue
+                     ? `Backlog started (${result.data.id}) — works planned tasks until none are left, pushing each completed branch${parsed.push ? "" : " (push disabled)"}`
                   : `Loop ${result.data.id} started (max ${result.data.maxIterations} iterations, stops on ${result.data.completionToken}` +
                     `${parsed.eternal ? "; continues into backlog work on completion if any is planned" : ""})`,
               })

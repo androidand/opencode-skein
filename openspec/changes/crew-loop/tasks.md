@@ -114,7 +114,7 @@
 
 ## Phase 3: Crew brief and command
 
-- [ ] 3.1 `/loop --crew` and `/crew` in the TUI and CLI arg parser; crew mode
+- [x] 3.1 `/loop --crew` and `/crew` in the TUI and CLI arg parser; crew mode
       implies queue mode plus claims and inbox.
 - [ ] 3.2 Crew brief composition per `design.md`, with the charter; snapshot
       tests of the brief for a fixture board.

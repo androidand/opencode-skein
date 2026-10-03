@@ -79,6 +79,13 @@ export const LoopCommand = effectCmd({
           "Pass change slugs to restrict/order the queue; bare --queue takes every eligible change. " +
           "Stuck changes are quarantined via .skein/blocker.md and the run continues.",
       })
+      .option("crew", {
+        type: "boolean",
+        describe:
+          "crew mode: queue mode plus claims and inbox. The brief states the routing order explicitly " +
+          "(warm member > cloud > free host > skip) and inlines the fleet join so a member sees who holds what. " +
+          "Implies --queue; --queue and --crew are mutually exclusive.",
+      })
       .option("max", {
         type: "number",
         alias: "n",
@@ -161,8 +168,10 @@ export const LoopCommand = effectCmd({
       .command(LoopResumeCommand),
   handler: Effect.fn("Cli.loop")(function* (args) {
     const queueMode = args.queue !== undefined
+    const crewMode = args.crew === true
+    if (queueMode && crewMode) yield* fail("--queue and --crew are mutually exclusive")
     const prompt = args.prompt
-    if (!prompt && !queueMode) yield* fail("prompt is required (or pass --queue)")
+    if (!prompt && !queueMode && !crewMode) yield* fail("prompt is required (or pass --queue or --crew)")
 
     const sdk = createOpencodeClient({ baseUrl: args.server })
     const created = yield* Effect.promise(() =>
@@ -172,14 +181,14 @@ export const LoopCommand = effectCmd({
         interval: args.interval,
         noProgressLimit: args["stall-limit"],
         completionToken: args["completion-token"],
-        mode: queueMode ? "queue" : undefined,
-        eternal: !queueMode && args.eternal === false ? false : undefined,
-        queue: queueMode && args.queue && args.queue.length > 0 ? args.queue : undefined,
-        queueSync: queueMode && args.sync ? true : undefined,
-        queuePush: queueMode && args.push === false ? false : undefined,
-        queueGuidance: queueMode ? args.guidance : undefined,
+        mode: crewMode ? "crew" : queueMode ? "queue" : undefined,
+        eternal: !queueMode && !crewMode && args.eternal === false ? false : undefined,
+        queue: (queueMode || crewMode) && args.queue && args.queue.length > 0 ? args.queue : undefined,
+        queueSync: (queueMode || crewMode) && args.sync ? true : undefined,
+        queuePush: (queueMode || crewMode) && args.push === false ? false : undefined,
+        queueGuidance: (queueMode || crewMode) ? args.guidance : undefined,
         queueOptions:
-          queueMode && (args["gate-cwd"] || args["test-command"] || args["verify-command"])
+          (queueMode || crewMode) && (args["gate-cwd"] || args["test-command"] || args["verify-command"])
             ? {
                 cwd: args["gate-cwd"],
                 testCommand: args["test-command"],
