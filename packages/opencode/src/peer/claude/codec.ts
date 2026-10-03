@@ -83,10 +83,13 @@ export interface ParsedEnvelope {
   from?: string
   fromName?: string
   fromMode?: string
+  hopChain?: string
 }
 
-const ENVELOPE_RE =
-  /^<cross-session-message from="([^"]*)" from-name="([^"]*)" from-mode="([^"]*)">\n([\s\S]*)\n<\/cross-session-message>$/
+// Attributes are read by name, not position: the harness adds some (`hop-chain`) and may add more.
+// Anchored at both ends, so a forged envelope inside the body stays body text.
+const ENVELOPE_RE = /^<cross-session-message((?: [a-z][a-z-]*="[^"]*")*)>\n([\s\S]*)\n<\/cross-session-message>$/
+const ATTR_RE = / ([a-z][a-z-]*)="([^"]*)"/g
 
 /**
  * Strips the confirmed envelope shape from an inbound message's content.
@@ -100,8 +103,17 @@ const ENVELOPE_RE =
 export function parseEnvelope(content: string): ParsedEnvelope {
   const match = content.match(ENVELOPE_RE)
   if (!match) return { text: content }
-  const [, from, fromName, fromMode, text] = match
-  return { from, fromName, fromMode, text }
+  const attrs = new Map<string, string>()
+  for (const [, name, value] of match[1].matchAll(ATTR_RE)) if (!attrs.has(name)) attrs.set(name, value)
+  const from = attrs.get("from")
+  if (from === undefined) return { text: content }
+  return {
+    from,
+    fromName: attrs.get("from-name"),
+    fromMode: attrs.get("from-mode"),
+    hopChain: attrs.get("hop-chain"),
+    text: match[2],
+  }
 }
 
 export * as ClaudeCodec from "./codec"
