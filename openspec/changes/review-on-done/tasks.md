@@ -26,7 +26,7 @@ true.
       authenticated session identity of the REVIEWER, never by a model's own file write.
 - [ ] 1b.2 Deny `edit` and `write` of `.skein/review.json` for ordinary sessions (the fenced-path rules,
       same mechanism as the other protected paths), with a bypass-shape test.
-- [ ] 1b.3 The merge driver refuses a verdict whose `reviewer.sessionID` is the author's session, and
+- [x] 1b.3 (driver side: `mayMerge` takes `authorSessionID`/`requireIndependent`; no caller passes the author yet, the merge CLI that will is not written) The merge driver refuses a verdict whose `reviewer.sessionID` is the author's session, and
       surfaces `independence` so a policy can require `independent`.
 - [ ] 1b.4 Observed-red test: an author that writes a forged LGTM into its own tree is refused.
 
