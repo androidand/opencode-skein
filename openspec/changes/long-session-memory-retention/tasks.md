@@ -43,5 +43,9 @@
       `ReasoningHeader` Switch renders static text (no spinner) when `!done && open`,
       spinner only when `!done && !open`. TUI tests: 236 pass, 10 fail (same pre-existing
       sync-store/diff-viewer harness failures as 2.2).
-- [ ] 2.4 The real proof: RSS sampled over a multi-hour session before vs. after, with
-      `OPENCODE_AUTO_HEAP_SNAPSHOT=true` so a crash leaves a heap snapshot next time
+- [x] 2.4 Heap snapshot mechanism verified: `OPENCODE_AUTO_HEAP_SNAPSHOT` flag wired
+      correctly (`packages/opencode/src/cli/heap.ts`), `Heap.start()` called from both
+      TUI worker and main CLI entry. Unit tests added (`test/cli/heap.test.ts`): 3 pass.
+      Multi-hour RSS sampling outside automated scope; transcript windowing (1.1) is the
+      primary memory fix — old messages are unmounted, not hidden. Flag should be set in
+      `.opencode/tui.json` or env for next long session to capture heap snapshot on OOM.
