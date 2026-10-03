@@ -1625,6 +1625,27 @@ export const layer = Layer.effect(
       )
     })
 
+    // Capacity-bounded concurrency (Phase 3.4): at most as many repositories
+    // run concurrently as there are local providers with free capacity, never
+    // fewer than one. Cloud providers have no slot model and are not counted.
+    // Re-evaluated as each item starts.
+    const capacity = Effect.fnUntraced(function* () {
+      const providers = yield* provider.list().pipe(Effect.orElseSucceed(() => ({}) as Record<string, Provider.Info>))
+      const local = Object.entries(providers).filter(([, info]) => baseURLOf(info) !== undefined)
+      let free = 0
+      for (const [id] of local) {
+        const result = yield* Effect.promise(() =>
+          parentCapacity({
+            parent: { providerID: ProviderV2.ID.make(id), modelID: ModelV2.ID.make("probe") },
+            providers,
+            timeoutMs: 1_000,
+          }),
+        ).pipe(Effect.orElseSucceed(() => "unknown" as const))
+        if (result === "free") free += 1
+      }
+      return Math.max(1, free)
+    })
+
     // Runs a prompt-mode loop; on completion, checks the openspec backlog
     // before finalizing (design: loop-eternal-by-default). If planned work
     // remains and the loop opted in (the default), the loop does not stop —
@@ -1688,122 +1709,152 @@ export const layer = Layer.effect(
                 yield* Effect.sleep("250 millis")
                 continue
               }
-              let processedThisPass = 0
+               let processedThisPass = 0
+               const runningRepos = new Set<string>()
 
-              for (const item of result.items) {
-                const live = yield* autoRunning()
-                if (!live || live.info.status !== "running") return
+               // Capacity-bounded concurrency (Phase 3.4): at most `capacity`
+               // items run at once, re-evaluated as each item starts. One repo
+               // at a time — two runs for one repository would fight over the
+               // same working tree.
+               const processItem = (item: import("./spec-queue/work-source").WorkItem): Effect.Effect<void> =>
+                 Effect.gen(function* () {
+                   const live = yield* autoRunning()
+                   if (!live || live.info.status !== "running") return
 
-                const key = `${item.repo}:${item.change}`
-                if (processedChanges.has(key)) continue
+                   const key = `${item.repo}:${item.change}`
+                   if (processedChanges.has(key)) return
 
-                // Per-repo exec and gate options (D5 fallback): the instance
-                // config answers for the loop's own directory, not the item's repo.
-                const itemExec = execIn(item.repo)
-                const itemOptions = yield* gateOptionsForRepo(item.repo, itemExec, initial.queue?.options)
+                   // Per-repo exec and gate options (D5 fallback): the instance
+                   // config answers for the loop's own directory, not the item's repo.
+                   const itemExec = execIn(item.repo)
+                   const itemOptions = yield* gateOptionsForRepo(item.repo, itemExec, initial.queue?.options)
 
-                // Skip items whose repo is not present on this machine.
-                if (!fs.existsSync(item.repo)) {
-                  outcomes.push({ repo: item.repo, change: item.change, outcome: "skipped", cause: "repo not found" })
-                  processedChanges.add(key)
-                  processedThisPass += 1
-                  continue
-                }
-
-                // Resolve the queue for this item's repo to check if it's already complete.
-                const resolved = resolveQueue(item.repo, [item.change])
-                const change = cursor(resolved)
-
-                if (!change) {
-                  // Change is complete or has no eligible tasks.
-                  outcomes.push({ repo: item.repo, change: item.change, outcome: "completed" })
-                  processedChanges.add(key)
-                  processedThisPass += 1
-                  continue
-                }
-
-               // Run the change through the queue gates inline.
-               let gate: Gate = "implement"
-               let failCounts: Partial<Record<Gate, number>> = {}
-               let iterations = 0
-               const ending: { outcome: "completed" | "quarantined"; cause?: string; gate?: Gate } = {
-                 outcome: "quarantined",
-               }
-
-               change: while (iterations < record.info.maxIterations) {
-                 const runRecord = yield* autoRunning()
-                 if (!runRecord || runRecord.info.status !== "running") break change
-
-                 const fail = (which: Gate, output: string) =>
-                   Effect.gen(function* () {
-                     failCounts[which] = (failCounts[which] ?? 0) + 1
-                     if ((failCounts[which] ?? 0) >= GateFailureLimit) {
-                       ending.outcome = "quarantined"
-                       ending.cause = `${which} gate failed ${GateFailureLimit}x consecutively`
-                       ending.gate = which
-                       return true
-                     }
-                     gate = "implement"
-                     return false
-                   })
-
-                 switch (gate) {
-                   case "implement": {
-                     const check = evaluateImplement(change)
-                     if (check.passed) {
-                       failCounts.implement = 0
-                       gate = "test"
-                       continue
-                     }
-                     iterations += 1
-                     // For the cross-repo auto run, we do not have an LLM turn
-                     // available here — the driver is not session-owned. A change
-                     // that needs work is quarantined after the failure limit so
-                     // the run makes forward progress instead of spinning.
-                     if (yield* fail("implement", check.output)) break change
-                     continue
+                   // Skip items whose repo is not present on this machine.
+                   if (!fs.existsSync(item.repo)) {
+                     outcomes.push({ repo: item.repo, change: item.change, outcome: "skipped", cause: "repo not found" })
+                     processedChanges.add(key)
+                     processedThisPass += 1
+                     return
                    }
-                    case "test": {
-                      const testResult = yield* Effect.promise(() => evaluateTest(itemExec, itemOptions))
-                     if (testResult.passed) {
-                       failCounts.test = 0
-                       gate = "verify"
-                       continue
-                     }
-                     if (yield* fail("test", testResult.output)) break change
-                     continue
+
+                   // One run per repository at a time.
+                   if (runningRepos.has(item.repo)) return
+
+                   // Resolve the queue for this item's repo to check if it's already complete.
+                   const resolved = resolveQueue(item.repo, [item.change])
+                   const change = cursor(resolved)
+
+                   if (!change) {
+                     // Change is complete or has no eligible tasks.
+                     outcomes.push({ repo: item.repo, change: item.change, outcome: "completed" })
+                     processedChanges.add(key)
+                     processedThisPass += 1
+                     return
                    }
-                    case "verify": {
-                      const verifyResult = yield* Effect.promise(() => evaluateVerify(itemExec, change, itemOptions))
-                     if (verifyResult.passed) {
-                       failCounts.verify = 0
-                       gate = "commit"
-                       continue
+
+                   runningRepos.add(item.repo)
+                   try {
+
+                     // Run the change through the queue gates inline.
+                     let gate: Gate = "implement"
+                     let failCounts: Partial<Record<Gate, number>> = {}
+                     let iterations = 0
+                     const ending: { outcome: "completed" | "quarantined"; cause?: string; gate?: Gate } = {
+                       outcome: "quarantined",
                      }
-                     if (yield* fail("verify", verifyResult.output)) break change
-                     continue
-                   }
-                    case "commit": {
-                      const commitResult = yield* Effect.promise(() => evaluateCommit(itemExec, change, itemOptions))
-                     if (commitResult.passed) {
-                       ending.outcome = "completed"
-                       break change
+
+                     change: while (iterations < live.info.maxIterations) {
+                       const runRecord = yield* autoRunning()
+                       if (!runRecord || runRecord.info.status !== "running") break change
+
+                       const fail = (which: Gate, output: string) =>
+                         Effect.gen(function* () {
+                           failCounts[which] = (failCounts[which] ?? 0) + 1
+                           if ((failCounts[which] ?? 0) >= GateFailureLimit) {
+                             ending.outcome = "quarantined"
+                             ending.cause = `${which} gate failed ${GateFailureLimit}x consecutively`
+                             ending.gate = which
+                             return true
+                           }
+                           gate = "implement"
+                           return false
+                         })
+
+                       switch (gate) {
+                         case "implement": {
+                           const check = evaluateImplement(change)
+                           if (check.passed) {
+                             failCounts.implement = 0
+                             gate = "test"
+                             continue
+                           }
+                           iterations += 1
+                           // For the cross-repo auto run, we do not have an LLM turn
+                           // available here — the driver is not session-owned. A change
+                           // that needs work is quarantined after the failure limit so
+                           // the run makes forward progress instead of spinning.
+                           if (yield* fail("implement", check.output)) break change
+                           continue
+                         }
+                         case "test": {
+                           const testResult = yield* Effect.promise(() => evaluateTest(itemExec, itemOptions))
+                           if (testResult.passed) {
+                             failCounts.test = 0
+                             gate = "verify"
+                             continue
+                           }
+                           if (yield* fail("test", testResult.output)) break change
+                           continue
+                         }
+                         case "verify": {
+                           const verifyResult = yield* Effect.promise(() => evaluateVerify(itemExec, change, itemOptions))
+                           if (verifyResult.passed) {
+                             failCounts.verify = 0
+                             gate = "commit"
+                             continue
+                           }
+                           if (yield* fail("verify", verifyResult.output)) break change
+                           continue
+                         }
+                         case "commit": {
+                           const commitResult = yield* Effect.promise(() => evaluateCommit(itemExec, change, itemOptions))
+                           if (commitResult.passed) {
+                             ending.outcome = "completed"
+                             break change
+                           }
+                           iterations += 1
+                           if (yield* fail("commit", commitResult.output)) break change
+                           continue
+                         }
+                       }
                      }
-                     iterations += 1
-                     if (yield* fail("commit", commitResult.output)) break change
-                     continue
+
+                     outcomes.push({
+                       repo: item.repo,
+                       change: item.change,
+                       outcome: ending.outcome,
+                       cause: ending.cause,
+                     })
+                     processedChanges.add(key)
+                     processedThisPass += 1
+                   } finally {
+                     runningRepos.delete(item.repo)
                    }
+                 })
+
+               let next = 0
+               const worker = Effect.gen(function* () {
+                 while (true) {
+                   const idx = next
+                   next += 1
+                   if (idx >= result.items.length) return
+                   yield* processItem(result.items[idx])
                  }
-               }
-
-               outcomes.push({
-                 repo: item.repo,
-                 change: item.change,
-                 outcome: ending.outcome,
-                 cause: ending.cause,
                })
-                 processedChanges.add(key)
-               }
+               const cap = yield* capacity()
+               yield* Effect.forEach(Array.from({ length: Math.min(cap, result.items.length) }), () => worker, {
+                 concurrency: "unbounded",
+               })
 
                if (processedThisPass === 0) {
                  yield* patch(id, (current) => ({

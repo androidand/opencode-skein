@@ -446,3 +446,78 @@ it.instance(
     }),
   { config: {} },
 )
+
+it.instance(
+  "auto mode: concurrency follows the fleet (Phase 3.4)",
+  () =>
+    Effect.gen(function* () {
+      const { directory: workspace } = yield* TestInstance
+      const llm = yield* TestLLMServer
+
+      // Two fixture repos, each with a passing test command.
+      const repoA = fs.mkdtempSync(path.join(workspace, "repo-a-"))
+      const repoB = fs.mkdtempSync(path.join(workspace, "repo-b-"))
+      yield* writeConfig(repoA, {
+        ...providerCfg(llm.url),
+        experimental: { queue_gate: { test_command: "echo PASS_A" } },
+      })
+      yield* writeConfig(repoB, {
+        ...providerCfg(llm.url),
+        experimental: { queue_gate: { test_command: "echo PASS_B" } },
+      })
+      writeChange(repoA, "change-a", "- [x] 1.1 done\n")
+      writeChange(repoB, "change-b", "- [x] 1.1 done\n")
+      fs.writeFileSync(path.join(repoA, "openspec", "changes", "change-a", "proposal.md"), "# Change A\n")
+      fs.writeFileSync(path.join(repoB, "openspec", "changes", "change-b", "proposal.md"), "# Change B\n")
+
+      const loop = yield* Loop.Service
+      const info = yield* loop.create({ prompt: "", mode: "auto", interval: 0 })
+      const final = yield* waitForTerminal(info.id, 30)
+
+      // Both repos should be worked and the run should drain. If the capacity
+      // bound were 0 (no floor), the run would stall and never reach a
+      // terminal status within the timeout.
+      if (final.status !== "completed") {
+        throw new Error(
+          `Phase 3.4 fleet: expected completed, got ${final.status}, report=${final.report}`,
+        )
+      }
+      expect(final.status).toBe("completed")
+      expect(final.report).toContain("auto drained")
+    }),
+  { config: {} },
+)
+
+it.instance(
+  "auto mode: one working tree, one run (Phase 3.4)",
+  () =>
+    Effect.gen(function* () {
+      const { directory: workspace } = yield* TestInstance
+      const llm = yield* TestLLMServer
+
+      // One fixture repo with a passing test command.
+      const repoA = fs.mkdtempSync(path.join(workspace, "repo-a-"))
+      yield* writeConfig(repoA, {
+        ...providerCfg(llm.url),
+        experimental: { queue_gate: { test_command: "echo PASS" } },
+      })
+      writeChange(repoA, "change-a", "- [x] 1.1 done\n")
+      fs.writeFileSync(path.join(repoA, "openspec", "changes", "change-a", "proposal.md"), "# Change A\n")
+
+      const loop = yield* Loop.Service
+      const info = yield* loop.create({ prompt: "", mode: "auto", interval: 0 })
+      const final = yield* waitForTerminal(info.id, 30)
+
+      // The single repo should be worked and the run should drain. If the
+      // per-repo exclusivity guard were broken, two concurrent runs for the
+      // same repo would fight over the working tree and the run would stall.
+      if (final.status !== "completed") {
+        throw new Error(
+          `Phase 3.4 one-repo: expected completed, got ${final.status}, report=${final.report}`,
+        )
+      }
+      expect(final.status).toBe("completed")
+      expect(final.report).toContain("auto drained")
+    }),
+  { config: {} },
+)
