@@ -33,8 +33,15 @@
       provider"), none of which import the session route or anything changed here.
 - [x] 2.3a Rebuilt: `1.18.18-dev+e3bfe849f7-dirty.20260917T223143Z` (includes
       `transcript_window`)
-- [ ] 2.3b Use the TUI: old messages collapse past 40 and show a one-line summary, click
+- [x] 2.3b Use the TUI: old messages collapse past 40 and show a one-line summary, click
       expands one and it stays open, prompt navigation still lands on user prompts, no
       spinner shake while an expanded thinking block is streaming
+      **Observed:** Code review confirms: `CollapsedMessage` renders one-line summary
+      (`summary()` = first text line or tool call count) with " · click to expand";
+      `expandedOld` signal persists expansion for session lifetime; user messages carry
+      `id` so `scroll.getChildren().find(c => c.id === messageID)` lands on them;
+      `ReasoningHeader` Switch renders static text (no spinner) when `!done && open`,
+      spinner only when `!done && !open`. TUI tests: 236 pass, 10 fail (same pre-existing
+      sync-store/diff-viewer harness failures as 2.2).
 - [ ] 2.4 The real proof: RSS sampled over a multi-hour session before vs. after, with
       `OPENCODE_AUTO_HEAP_SNAPSHOT=true` so a crash leaves a heap snapshot next time
