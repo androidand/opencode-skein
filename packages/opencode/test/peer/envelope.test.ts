@@ -281,3 +281,41 @@ describe("peerBody", () => {
     expect(peerBody("plain text")).toBe("plain text")
   })
 })
+
+describe("hosted-subagent envelope", () => {
+  test("a hosted-subagent request carries kind=host", () => {
+    const sent: PeerEnvelope = {
+      mode: "request",
+      messageID: "m1",
+      taskID: "ses_hosted",
+      kind: "host",
+      deadlineMinutes: 10,
+    }
+    const formatted = formatPeerEnvelope(sent, "body text")
+    expect(formatted).toContain("kind=host")
+    expect(formatted).toContain("task=ses_hosted")
+    const parsed = parsePeerEnvelope(formatted)
+    expect(parsed?.envelope.kind).toBe("host")
+    expect(parsed?.envelope.taskID).toBe("ses_hosted")
+  })
+
+  test("a regular task request does not carry kind=host", () => {
+    const sent: PeerEnvelope = {
+      mode: "request",
+      messageID: "m1",
+      taskID: "ses_task",
+      deadlineMinutes: 10,
+    }
+    const formatted = formatPeerEnvelope(sent, "body text")
+    const parsed = parsePeerEnvelope(formatted)
+    expect(parsed?.envelope.kind).toBeUndefined()
+  })
+
+  test("unknown kind values are ignored", () => {
+    // The parser only accepts "task" or "host"; anything else is dropped.
+    const text = "[peer request id=m1 kind=unknown task=t1 deadline=10m]\n\nbody"
+    const parsed = parsePeerEnvelope(text)
+    expect(parsed?.envelope.kind).toBeUndefined()
+    expect(parsed?.envelope.taskID).toBe("t1")
+  })
+})

@@ -35,6 +35,14 @@ import { InvalidTransition, PeerDelivery, type PeerDeliveryState } from "./deliv
 
 export type PeerMode = "notify" | "request" | "reply"
 
+/**
+ * The kind of request this envelope carries. `task` is the existing
+ * delegation path (the peer runs the task in its own session). `host` is the
+ * hosted-subagent path: the peer creates a fresh child session with the
+ * host's provider/model and runs the task there under the host's permissions.
+ */
+export type PeerRequestKind = "task" | "host"
+
 export interface PeerEnvelope {
   mode: PeerMode
   /** Generated per message; also used as the transport frame's `msg_id`. */
@@ -54,6 +62,12 @@ export interface PeerEnvelope {
    * two reply paths now share the one structured header.
    */
   taskID?: string
+  /**
+   * The kind of request. `task` (default) runs the work in the peer's own
+   * session. `host` creates a fresh child session with the host's provider
+   * and model, so the peer's own transcript stays clean.
+   */
+  kind?: PeerRequestKind
 }
 
 // Values are percent-encoded rather than scrubbed. An earlier version replaced
@@ -158,6 +172,7 @@ export function formatHeader(envelope: PeerEnvelope): string {
     envelope.contextID ? field("context", envelope.contextID) : undefined,
     envelope.inReplyTo ? field("in-reply-to", envelope.inReplyTo) : undefined,
     envelope.taskID ? field("task", envelope.taskID) : undefined,
+    envelope.kind ? field("kind", envelope.kind) : undefined,
   ].filter((entry): entry is string => entry !== undefined)
   // Only a request has anything waiting on it, so only a request carries a
   // deadline. Clamped, because a peer must not be told to wait for a year.
@@ -231,6 +246,9 @@ export function parsePeerEnvelope(text: string): ParsedPeerMessage | undefined {
         break
       case "task":
         envelope.taskID = value
+        break
+      case "kind":
+        if (value === "task" || value === "host") envelope.kind = value
         break
       case "deadline": {
         // Ignored on anything but a request: nothing is waiting on a notify or

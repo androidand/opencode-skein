@@ -14,10 +14,13 @@ import { SessionID } from "@/session/schema"
 import { SessionPrompt } from "@/session/prompt"
 import { formatPeerMessage } from "@/session/peers"
 import { settleTaskReply } from "@/peer/delegate"
-import { settlePeerReply } from "@/peer/envelope"
+import { parsePeerEnvelope, settlePeerReply } from "@/peer/envelope"
+import { parseHostedSubagentRequest } from "@/peer/hosted-subagent"
 import { PeerInbox } from "@/peer/inbox"
+import { Loop } from "@/loop/loop"
 import { RecentIDs } from "@/peer/recent-ids"
-import { claudePidOf, resolveOpencodeSender } from "@/peer/route"
+import { claudePidOf, deliverToOpencodeSession, resolveOpencodeSender } from "@/peer/route"
+import { sendClaudeMessage } from "@/peer/claude/client"
 import { SessionStatus } from "@/session/status"
 import {
   ensureSidecar,
@@ -47,6 +50,7 @@ const layer = Layer.effect(
     const promptSvc = yield* SessionPrompt.Service
     const instanceStore = yield* InstanceStore.Service
     const sessionStatus = yield* SessionStatus.Service
+    const loop = yield* Loop.Service
 
     // Everything below runs from plain callbacks (a child process's stdout,
     // an exit handler), outside any Effect fiber. Forking on the DEFAULT
@@ -97,11 +101,139 @@ const layer = Layer.effect(
         )
         return
       }
+      // Hosted-subagent requests (`kind=host`) are handled specially: the host
+      // creates a fresh child session with its own provider/model and runs the
+      // task there under the host's permissions. The host's own session records
+      // one line; the task text never appears in the host's transcript.
+      const hosted = parseHostedSubagentRequest(inbound.text)
+      if (hosted) {
+        runFork(
+          instanceStore
+            .provide(
+              { directory },
+              Effect.gen(function* () {
+                const hostSession = yield* session.get(SessionID.make(inbound.sessionID)).pipe(
+                  Effect.orElseSucceed(() => undefined),
+                )
+                if (!hostSession) {
+                  yield* Effect.logWarning("hosted subagent: host session not found", {
+                    "session.id": inbound.sessionID,
+                    taskID: hosted.taskID,
+                  })
+                  return
+                }
+                // Create a child session and run the task there.
+                const childSession = yield* session.create({
+                  parentID: SessionID.make(inbound.sessionID),
+                  title: `[hosted] ${hosted.description}`,
+                  agent: hostSession.agent,
+                })
+                yield* promptSvc
+                  .prompt({
+                    sessionID: childSession.id,
+                    agent: hostSession.agent,
+                    parts: [{ type: "text", synthetic: true, text: inbound.text }],
+                  })
+                  .pipe(Effect.ignore)
+                // Record one line in the host's session that a task was hosted.
+                yield* promptSvc
+                  .prompt({
+                    sessionID: SessionID.make(inbound.sessionID),
+                    agent: hostSession.agent,
+                    parts: [
+                      {
+                        type: "text",
+                        synthetic: true,
+                        text: `[hosted] Task ${hosted.taskID} for session ${hosted.callerID} completed.`,
+                      },
+                    ],
+                  })
+                  .pipe(Effect.ignore)
+                // Send the result back through the correlation header. The
+                // caller is waiting on a reply with `task=<taskID>`.
+                const replyText = `[peer reply task=${hosted.taskID}]\n\nTask completed in child session ${childSession.id}.`
+                const replyEnvelope = formatPeerMessage(
+                  { sessionID: inbound.sessionID, title: "hosted-subagent", reply: { target: hosted.replyTo } },
+                  replyText,
+                )
+                // Send reply using the same transport the caller used.
+                if (hosted.replyTool === "SendMessage") {
+                  const sent = yield* Effect.promise(() =>
+                    sendClaudeMessage({
+                      targetPid: Number(hosted.replyTo),
+                      fromSessionID: inbound.sessionID,
+                      fromName: "hosted-subagent",
+                      fromMode: "prompting",
+                      text: replyEnvelope,
+                    }),
+                  )
+                  if (!sent.ok) {
+                    yield* Effect.logWarning("hosted subagent: reply send failed", {
+                      taskID: hosted.taskID,
+                      reason: sent.reason,
+                    })
+                  }
+                } else {
+                  const target = yield* session.get(SessionID.make(hosted.replyTo)).pipe(
+                    Effect.orElseSucceed(() => undefined),
+                  )
+                  const deliveryOutcome = yield* deliverToOpencodeSession({
+                    targetSessionID: hosted.replyTo,
+                    fromSessionID: inbound.sessionID,
+                    fromName: "hosted-subagent",
+                    text: replyEnvelope,
+                    owned: true,
+                    local: () =>
+                      promptSvc
+                        .prompt({
+                          sessionID: SessionID.make(hosted.replyTo),
+                          agent: target?.agent ?? hostSession.agent,
+                          parts: [{ type: "text", synthetic: true, text: replyEnvelope }],
+                        })
+                        .pipe(Effect.asVoid),
+                  })
+                  if (deliveryOutcome.via === "socket" && !deliveryOutcome.result.ok) {
+                    yield* Effect.logWarning("hosted subagent: reply send failed", {
+                      taskID: hosted.taskID,
+                      reason: deliveryOutcome.result.reason,
+                    })
+                  }
+                }
+              }),
+            )
+            .pipe(Effect.catchCause((cause) =>
+              Effect.logError("hosted subagent: failed to handle request", {
+                "session.id": inbound.sessionID,
+                msgID: inbound.msgID,
+                cause,
+              }),
+            )),
+        )
+        return
+      }
       runFork(
         instanceStore
           .provide(
             { directory },
             Effect.gen(function* () {
+              // When the target session runs a crew loop, route peer messages
+              // into the loop's inbox so they are surfaced in the next
+              // iteration rather than injected as a raw prompt into the
+              // session turn.
+              const loopInfo = (yield* loop.list()).find((l) => l.sessionID === inbound.sessionID)
+              if (loopInfo) {
+                const mode = (parsePeerEnvelope(inbound.text)?.envelope.mode === "request"
+                  ? "request"
+                  : "notify") as "notify" | "request"
+                const pid = claudePidOf(inbound.from)
+                yield* loop.inbox({
+                  loopID: loopInfo.id,
+                  from: { harness: "claude-code", id: pid ?? "unknown", name: inbound.fromName },
+                  mode,
+                  text: inbound.text,
+                })
+                return
+              }
               const info = yield* session.get(SessionID.make(inbound.sessionID)).pipe(Effect.orElseSucceed(() => undefined))
               if (!info) {
                 yield* Effect.logWarning("claude sidecar: dropping inbound for unknown session", {
@@ -258,7 +390,7 @@ const layer = Layer.effect(
 export const node = LayerNode.make({
   service: Service,
   layer,
-  deps: [EventV2Bridge.node, Session.node, SessionPrompt.node, RuntimeFlags.node, InstanceStore.node, SessionStatus.node],
+  deps: [EventV2Bridge.node, Session.node, SessionPrompt.node, RuntimeFlags.node, InstanceStore.node, SessionStatus.node, Loop.node],
 })
 
 // No standalone `defaultLayer` composition: `InstanceStore` is a "global

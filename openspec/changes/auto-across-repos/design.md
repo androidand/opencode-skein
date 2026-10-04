@@ -30,21 +30,46 @@ way the queue already shells out to `specsync -change <slug>` for `--sync`.
 **Contract** (specified here so both sides can be built independently):
 
 ```
-specsync -ready -json
+specsync query -json [-repo /path1,/path2] [-stage active,in-review]
 ```
 
-emits an ordered array, most claimable first:
+emits an ordered array:
 
 ```json
 [{ "repo": "/abs/path/to/repo", "change": "retire-auto-reply",
-   "item": "androidand/opencode-skein#10", "reason": "status=Ready" }]
+   "title": "Retire the auto-reply", "item": "10", "provider": "github-projects",
+   "reason": "stage=active", "priority": 2, "blocked_by": [] }]
 ```
 
-Ordering is the tracker's. An item appears only if it is claimable: right status, no open
-blocking dependency, not already in progress. Items whose repository cannot be located on
-this machine are omitted rather than guessed at.
+Field semantics:
 
-The runner treats this as an opaque, ordered list. It SHALL NOT re-sort it.
+- `repo` — absolute path to the repository on this machine.
+- `change` — the openspec change slug.
+- `title` — the change's title from `openspec/changes/<slug>/proposal.md`.
+- `item` — the tracker item ID from `.specsync/board.json` (e.g. `"10"` for a GitHub
+  Projects item). Empty when the change has no binding.
+- `provider` — the tracker provider name (`"github-projects"`, `"beads"`). Empty when
+  unbound.
+- `reason` — why the item is in the result set, formatted `stage=<stage>` with
+  ``,blocked_by=<N>`` appended when blockers exist.
+- `priority` — the change's priority (integer, nullable).
+- `blocked_by` — array of blocker URLs. Empty when unblocked.
+
+Ordering is by priority (descending), then stage order, then slug. The runner SHALL NOT
+re-sort.
+
+**Claimability filtering is the runner's job, not specsync's.** specsync returns all
+changes in the requested stages, including blocked and in-progress ones. The runner must:
+
+1. Skip items with non-empty `blocked_by` (open blocking dependency).
+2. Skip items already in progress (checked via the tracker, not the local board state).
+3. Skip items whose `repo` path does not exist on this machine.
+
+This split keeps specsync a pure read path: it reports what exists and what stage each
+change is in, and the runner applies the claimability rules it already owns (D4).
+
+Items whose repository cannot be located on this machine are omitted by the runner rather
+than guessed at.
 
 ## D3 — Degrade to disk, without configuration
 
@@ -88,6 +113,14 @@ config read that bypasses the instance.
 
 Note this is not scheduling configuration. It describes how to run tests in a given
 checkout, which no tracker knows or should know.
+
+**Finding (2026-10-03):** Per-instance creation is impractical for the auto runner. The
+loop service is a single Effect service with one `InstanceState` keyed by the loop's own
+directory; creating a second instance per item's repo would require a parallel service
+graph per repo, which the current architecture does not support. The fallback is taken:
+`gateOptionsForRepo` reads `<repo>/opencode.json` for `experimental.queue_gate` and falls
+back to the instance config. This is the one config read that bypasses the instance —
+it is explicit, scoped to gate options only, and documented here.
 
 ## D6 — Concurrency is derived, not configured
 

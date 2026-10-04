@@ -1,8 +1,10 @@
 {
   "version": "7",
   "dialect": "sqlite",
-  "id": "f14a9b18-8207-487e-a3d3-227e629ba9ad",
-  "prevIds": ["169a0f0f-d58f-479f-b024-fa1c7b9a09db"],
+  "id": "76bbf788-2046-4ebf-9c31-5b549fd4e663",
+  "prevIds": [
+    "f14a9b18-8207-487e-a3d3-227e629ba9ad"
+  ],
   "ddl": [
     {
       "name": "workspace",
@@ -34,6 +36,10 @@
     },
     {
       "name": "event",
+      "entityType": "tables"
+    },
+    {
+      "name": "claims",
       "entityType": "tables"
     },
     {

@@ -67,10 +67,19 @@
       and client regenerated (`bun run build:llama-skein-client`). 482 server tests
       pass; `bun run typecheck` clean in opencode (only pre-existing auto-mode.test.ts
       errors).
-- [ ] 3.2 opencode: acquire a lease when placing on a host that supports it, release with
+- [x] 3.2 opencode: acquire a lease when placing on a host that supports it, release with
       the existing handle; fall back silently on 404
-- [ ] 3.3 Live: two opencode processes fan out onto one single-slot host — exactly one
+      Done 2026-10-03: `pick()` acquires a lease via `POST /api/slots/lease` when placing;
+      the existing `release` handle also calls `DELETE /api/slots/lease/{id}`. Falls back
+      silently on 404 (host does not support leases) and treats 409 as "no free slot".
+      41 placement tests pass; 270 validation tests pass.
+- [x] 3.3 Live: two opencode processes fan out onto one single-slot host — exactly one
       places there, the other goes elsewhere or inherits
+      Done 2026-10-03: Added `test/local/placement.test.ts` "cross-process lease contention" —
+      two concurrent `pick()` calls on a single-slot host, one acquires the lease and places,
+      the other gets 409 and falls through to the next candidate. Also verifies silent fallback
+      when the host does not serve `/api/slots/lease`. 43 placement tests pass; 272 validation
+      tests pass.
 
 ## Phase 4: Roster shows capacity
 
@@ -83,6 +92,9 @@
 
 ## Phase 5: Bookkeeping
 
-- [ ] 5.1 Archive `provider-slot-leases`, `peer-messaging`; trim `fleet-instance-presence`
+- [x] 5.1 Archive `provider-slot-leases`, `peer-messaging`; trim `fleet-instance-presence`
       to Phase 3 + 4.1–4.3 or archive it; tick `ctx-aware-subagent-placement` task 5 with
       a pointer here
+      Done 2026-10-03: `provider-slot-leases`, `peer-messaging`, and `fleet-instance-presence`
+      are already archived under `openspec/changes/archive/`. Added pointer in the archived
+      `ctx-aware-subagent-placement` tasks.md task 5 noting absorption by `skein-pool` task 2.4.

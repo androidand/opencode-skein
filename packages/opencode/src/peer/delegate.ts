@@ -71,6 +71,47 @@ export function buildTaskEnvelope(input: TaskEnvelopeInput): string {
   ].join("\n"))
 }
 
+/**
+ * Build an envelope for a hosted-subagent request. The peer receiving this
+ * request SHALL create a fresh child session with its own provider/model and
+ * run the task there under the HOST's permissions — not in its own session.
+ * The host's transcript records only that it hosted a task; the task text
+ * never appears in the host's own history.
+ */
+export interface HostedSubagentEnvelopeInput {
+  taskID: string
+  description: string
+  prompt: string
+  cwd: string
+  /** The caller's session id, for attribution and correlation. */
+  callerID: string
+  /** How the peer addresses the delegating session in its own send tool. */
+  replyTo: string
+  replyTool: string
+  deadlineMs: number
+}
+
+export function buildHostedSubagentEnvelope(input: HostedSubagentEnvelopeInput): string {
+  const messageID = newMessageID()
+  const envelope: PeerEnvelope = {
+    mode: "request",
+    messageID,
+    taskID: input.taskID,
+    kind: "host",
+    deadlineMinutes: Math.max(1, Math.round(input.deadlineMs / 60_000)),
+  }
+  return formatPeerEnvelope(envelope, [
+    `Hosted subagent from session ${input.callerID}. Work in ${input.cwd}.`,
+    `Description: ${input.description}.`,
+    `Create a fresh child session with your current provider and model, run the task there under your own permissions, and return the result. Your own session must not receive the task text as a prompt — record one line that you hosted this task instead.`,
+    `When done, reply with ${input.replyTool} to "${input.replyTo}" using a structured peer envelope whose header starts with:`,
+    `[peer reply task=${input.taskID}]`,
+    `then your result. Reply within ${envelope.deadlineMinutes} min or the task is reassigned.`,
+    "",
+    input.prompt,
+  ].join("\n"))
+}
+
 type TaskEntry = {
   settle: (result: TaskReplyResult) => void
   timer: ReturnType<typeof setTimeout>
