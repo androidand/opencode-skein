@@ -4,6 +4,7 @@
 // loop and the TUI had no visibility into it at all. This service owns loop
 // state for the life of the server instead, so any client (CLI or TUI) can
 // see and control any loop.
+import fs from "fs"
 import path from "path"
 import { LayerNode } from "@opencode-ai/core/effect/layer-node"
 import { EventV2 } from "@opencode-ai/core/event"
@@ -48,6 +49,7 @@ import {
   unquarantine,
   type QueueChange,
 } from "./spec-queue/queue"
+import { getWorkItems, claimChange, releaseChange } from "./spec-queue/work-source"
 import { QueueAuthority, QueueDenyRules, withoutCredentials } from "./spec-queue/authority"
 import { AgentGates, readVerdict, resolvePersonas, type PersonaBindings } from "./spec-queue/personas"
 
@@ -123,96 +125,112 @@ export const IterationInfo = Schema.Struct({
 })
 export type IterationInfo = Schema.Schema.Type<typeof IterationInfo>
 
-export const Mode = Schema.Literals(["prompt", "queue"])
+export const Mode = Schema.Literals(["prompt", "queue", "auto"])
 export type Mode = Schema.Schema.Type<typeof Mode>
 
-export const Info = Schema.Struct({
-  id: LoopID,
-  directory: Schema.String,
-  sessionID: SessionID,
-  parentSessionID: Schema.optional(SessionID),
-  prompt: Schema.String,
-  status: Status,
-  maxIterations: Schema.Int,
-  interval: Schema.optional(Schema.Finite),
-  noProgressLimit: Schema.Int,
-  completionToken: Schema.String,
-  // loop-eternal-by-default: when true (the default) a plain-mode loop that
-  // completes checks the openspec backlog before finalizing, and continues as
-  // a queue run if planned work remains instead of stopping. false restores
-  // the pre-existing stop-on-completion behavior exactly.
-  eternal: Schema.Boolean,
-  iteration: Schema.Int,
-  iterations: Schema.Array(IterationInfo),
-  // The most recent iteration's child session. Iterations run in fresh child
-  // sessions of `sessionID` so context never accumulates across iterations;
-  // this is the handle a client needs to navigate to (or abort) the turn
-  // that is actually executing.
-  iterationSessionID: Schema.optional(SessionID),
-  mode: Schema.optional(Mode),
-  // Queue mode progress for UI: the change being worked and its gate.
-  currentChange: Schema.optional(Schema.String),
-  currentGate: Schema.optional(Schema.String),
-  // End-of-run report for queue mode (design D7).
-  report: Schema.optional(Schema.String),
-  // loop-done-handoff: the queue drained but the run was asked to keep watching,
-  // so it is alive and quiet rather than finished. Not a stall and not terminal.
-  watching: Schema.optional(Schema.Boolean),
-  startedAt: Schema.Finite,
-  lastRunAt: Schema.optional(Schema.Finite),
-  finishedAt: Schema.optional(Schema.Finite),
-}).annotate({ identifier: "Loop" })
+ export const Info = Schema.Struct({
+   id: LoopID,
+   directory: Schema.String,
+   sessionID: SessionID,
+   parentSessionID: Schema.optional(SessionID),
+   prompt: Schema.String,
+   status: Status,
+   maxIterations: Schema.Int,
+   interval: Schema.optional(Schema.Finite),
+   noProgressLimit: Schema.Int,
+   completionToken: Schema.String,
+   // loop-eternal-by-default: when true (the default) a plain-mode loop that
+   // completes checks the openspec backlog before finalizing, and continues as
+   // a queue run if planned work remains instead of stopping. false restores
+   // the pre-existing stop-on-completion behavior exactly.
+   eternal: Schema.Boolean,
+   iteration: Schema.Int,
+   iterations: Schema.Array(IterationInfo),
+   // The most recent iteration's child session. Iterations run in fresh child
+   // sessions of `sessionID` so context never accumulates across iterations;
+   // this is the handle a client needs to navigate to (or abort) the turn
+   // that is actually executing.
+   iterationSessionID: Schema.optional(SessionID),
+   mode: Schema.optional(Mode),
+   // Queue mode progress for UI: the change being worked and its gate.
+   currentChange: Schema.optional(Schema.String),
+   currentGate: Schema.optional(Schema.String),
+   // End-of-run report for queue mode (design D7).
+   report: Schema.optional(Schema.String),
+   // loop-done-handoff: the queue drained but the run was asked to keep watching,
+   // so it is alive and quiet rather than finished. Not a stall and not terminal.
+   watching: Schema.optional(Schema.Boolean),
+   startedAt: Schema.Finite,
+   lastRunAt: Schema.optional(Schema.Finite),
+   finishedAt: Schema.optional(Schema.Finite),
+   // Auto mode: directory to scan for repositories. Sibling directories of
+   // this path with openspec changes are scanned. Defaults to the loop's
+   // directory (the server's working directory).
+   autoDirectory: Schema.optional(Schema.String),
+   // Auto mode: restrict which repositories to scan. When provided, only
+   // these repositories are scanned; otherwise all sibling directories with
+   // openspec changes are scanned.
+   autoRepos: Schema.optional(Schema.mutable(Schema.Array(Schema.String))),
+ }).annotate({ identifier: "Loop" })
 export type Info = Schema.Schema.Type<typeof Info>
 
-export const CreateInput = Schema.Struct({
-  prompt: Schema.String,
-  sessionID: Schema.optional(SessionID),
-  maxIterations: Schema.optional(Schema.Int),
-  interval: Schema.optional(Schema.Finite),
-  noProgressLimit: Schema.optional(Schema.Int),
-  completionToken: Schema.optional(Schema.String),
-  // Prompt mode only: continue into openspec backlog work on completion
-  // instead of stopping (default: true). Ignored in queue mode, which is
-  // already relentless by construction.
-  eternal: Schema.optional(Schema.Boolean),
-  // Queue mode (loop-spec-queue): the unit of work is an openspec change,
-  // not the prompt string. `queue` restricts and orders the changes; empty
-  // means every eligible change under openspec/changes/.
-  mode: Schema.optional(Mode),
-  queue: Schema.optional(Schema.mutable(Schema.Array(Schema.String))),
-  // Optional standing instruction repeated on every iteration of a queue run.
-  // Steers how the work is done; never what work is chosen.
-  queueGuidance: Schema.optional(Schema.String),
-  // Tracker sync after a change completes. Off by default: writing to
-  // GitHub/beads is an outward-facing side effect an unattended run must not
-  // take unless asked. When on, a dry run is executed and logged first.
-  queueSync: Schema.optional(Schema.Boolean),
-  // Push a completed change's branch. On by default: "done" means the work
-  // left this machine, and a run that stops at a local commit has not finished
-  // the job it was asked to do. Only the branch the commit gate already
-  // enforced is pushed, never the default branch, and the model still cannot
-  // push anything itself — the driver runs the one command.
-  queuePush: Schema.optional(Schema.Boolean),
-  // Keep watching for new work when the queue drains instead of finishing
-  // (loop-done-handoff). Off at the engine so existing callers keep their
-  // contract; the SDK's defaults turn it on for the CLI and TUI, because "done"
-  // should hand over, not halt the agent.
-  queueWatch: Schema.optional(Schema.Boolean),
-  // Gate command overrides. Defaults: `bun test`, `bun run typecheck`, and
-  // the default branch detected from origin/HEAD (fallback "main").
-  queueOptions: Schema.optional(
-    Schema.Struct({
-      testCommand: Schema.optional(Schema.String),
-      verifyCommand: Schema.optional(Schema.String),
-      defaultBranch: Schema.optional(Schema.String),
-      // Directory the gate commands run in. Defaults to the loop's directory
-      // (the repo root), which is wrong for repos whose test runner must be
-      // invoked from a package directory — this repo's root `test` script is
-      // literally `exit 1`, so a root-run gate can never pass here.
-      cwd: Schema.optional(Schema.String),
-    }),
-  ),
-})
+ export const CreateInput = Schema.Struct({
+   prompt: Schema.String,
+   sessionID: Schema.optional(SessionID),
+   maxIterations: Schema.optional(Schema.Int),
+   interval: Schema.optional(Schema.Finite),
+   noProgressLimit: Schema.optional(Schema.Int),
+   completionToken: Schema.optional(Schema.String),
+   // Prompt mode only: continue into openspec backlog work on completion
+   // instead of stopping (default: true). Ignored in queue mode, which is
+   // already relentless by construction.
+   eternal: Schema.optional(Schema.Boolean),
+   // Queue mode (loop-spec-queue): the unit of work is an openspec change,
+   // not the prompt string. `queue` restricts and orders the changes; empty
+   // means every eligible change under openspec/changes/.
+   mode: Schema.optional(Mode),
+   queue: Schema.optional(Schema.mutable(Schema.Array(Schema.String))),
+   // Optional standing instruction repeated on every iteration of a queue run.
+   // Steers how the work is done; never what work is chosen.
+   queueGuidance: Schema.optional(Schema.String),
+   // Tracker sync after a change completes. Off by default: writing to
+   // GitHub/beads is an outward-facing side effect an unattended run must not
+   // take unless asked. When on, a dry run is executed and logged first.
+   queueSync: Schema.optional(Schema.Boolean),
+   // Push a completed change's branch. On by default: "done" means the work
+   // left this machine, and a run that stops at a local commit has not finished
+   // the job it was asked to do. Only the branch the commit gate already
+   // enforced is pushed, never the default branch, and the model still cannot
+   // push anything itself — the driver runs the one command.
+   queuePush: Schema.optional(Schema.Boolean),
+   // Keep watching for new work when the queue drains instead of finishing
+   // (loop-done-handoff). Off at the engine so existing callers keep their
+   // contract; the SDK's defaults turn it on for the CLI and TUI, because "done"
+   // should hand over, not halt the agent.
+   queueWatch: Schema.optional(Schema.Boolean),
+   // Gate command overrides. Defaults: `bun test`, `bun run typecheck`, and
+   // the default branch detected from origin/HEAD (fallback "main").
+   queueOptions: Schema.optional(
+     Schema.Struct({
+       testCommand: Schema.optional(Schema.String),
+       verifyCommand: Schema.optional(Schema.String),
+       defaultBranch: Schema.optional(Schema.String),
+       // Directory the gate commands run in. Defaults to the loop's directory
+       // (the repo root), which is wrong for repos whose test runner must be
+       // invoked from a package directory — this repo's root `test` script is
+       // literally `exit 1`, so a root-run gate can never pass here.
+       cwd: Schema.optional(Schema.String),
+     }),
+   ),
+   // Auto mode: directory to scan for repositories. Sibling directories of
+   // this path with openspec changes are scanned. Defaults to the session's
+   // directory (the server's working directory).
+   autoDirectory: Schema.optional(Schema.String),
+   // Auto mode: restrict which repositories to scan. When provided, only
+   // these repositories are scanned; otherwise all sibling directories with
+   // openspec changes are scanned.
+   autoRepos: Schema.optional(Schema.mutable(Schema.Array(Schema.String))),
+ })
 export type CreateInput = Schema.Schema.Type<typeof CreateInput>
 
 export const Event = {
@@ -750,6 +768,42 @@ export const layer = Layer.effect(
       Effect.gen(function* () {
         const cfg = yield* config.get().pipe(Effect.orElseSucceed(() => ({}) as never))
         const fromConfig = (cfg as { experimental?: { queue_gate?: QueueGateConfig } }).experimental?.queue_gate
+        return yield* Effect.promise(async (): Promise<GateOptions> => {
+          const detect = async () => {
+            const head = await exec("git symbolic-ref --short refs/remotes/origin/HEAD")
+            return head.code === 0 && head.output.trim() ? head.output.trim().replace(/^origin\//, "") : "main"
+          }
+          return {
+            testCommand: overrides?.testCommand ?? fromConfig?.test_command ?? "bun test",
+            verifyCommand: overrides?.verifyCommand ?? fromConfig?.verify_command ?? "bun run typecheck",
+            defaultBranch: overrides?.defaultBranch ?? fromConfig?.default_branch ?? (await detect()),
+          }
+        })
+      })
+
+    /**
+     * Per-repo gate options for cross-repo auto runs (D5 fallback): reads
+     * `<repo>/opencode.json` for `experimental.queue_gate`, falling back to
+     * the instance config. This is the one config read that bypasses the
+     * instance — the instance is the loop's own directory, not the item's repo.
+     */
+    const gateOptionsForRepo = (repo: string, exec: Exec, overrides?: CreateInput["queueOptions"]) =>
+      Effect.gen(function* () {
+        let repoConfig: { experimental?: { queue_gate?: QueueGateConfig } } = {}
+        const raw = yield* Effect.promise(() => Bun.file(`${repo}/opencode.json`).text()).pipe(
+          Effect.catchCause(() => Effect.succeed("")),
+        )
+        if (raw) {
+          try {
+            repoConfig = JSON.parse(raw)
+          } catch {
+            // Invalid JSON — fall through to instance config.
+          }
+        }
+        const fromRepo = repoConfig.experimental?.queue_gate
+        const cfg = yield* config.get().pipe(Effect.orElseSucceed(() => ({}) as never))
+        const fromInstance = (cfg as { experimental?: { queue_gate?: QueueGateConfig } }).experimental?.queue_gate
+        const fromConfig = fromRepo ?? fromInstance
         return yield* Effect.promise(async (): Promise<GateOptions> => {
           const detect = async () => {
             const head = await exec("git symbolic-ref --short refs/remotes/origin/HEAD")
@@ -1591,6 +1645,27 @@ export const layer = Layer.effect(
       )
     })
 
+    // Capacity-bounded concurrency (Phase 3.4): at most as many repositories
+    // run concurrently as there are local providers with free capacity, never
+    // fewer than one. Cloud providers have no slot model and are not counted.
+    // Re-evaluated as each item starts.
+    const capacity = Effect.fnUntraced(function* () {
+      const providers = yield* provider.list().pipe(Effect.orElseSucceed(() => ({}) as Record<string, Provider.Info>))
+      const local = Object.entries(providers).filter(([, info]) => baseURLOf(info) !== undefined)
+      let free = 0
+      for (const [id] of local) {
+        const result = yield* Effect.promise(() =>
+          parentCapacity({
+            parent: { providerID: ProviderV2.ID.make(id), modelID: ModelV2.ID.make("probe") },
+            providers,
+            timeoutMs: 1_000,
+          }),
+        ).pipe(Effect.orElseSucceed(() => "unknown" as const))
+        if (result === "free") free += 1
+      }
+      return Math.max(1, free)
+    })
+
     // Runs a prompt-mode loop; on completion, checks the openspec backlog
     // before finalizing (design: loop-eternal-by-default). If planned work
     // remains and the loop opted in (the default), the loop does not stop —
@@ -1601,8 +1676,323 @@ export const layer = Layer.effect(
     // loop started directly in queue mode (QueueDenyRules: no push/tag/deploy
     // from the model) — an eternal plain loop must never end up with MORE
     // authority than a queue loop has today just because it started as a
-    // single prompt.
-    const runPromptThenMaybeQueue = (id: LoopID): Effect.Effect<void> =>
+     // single prompt.
+      const runAuto = (id: LoopID): Effect.Effect<void> =>
+        Effect.gen(function* () {
+          const initial = (yield* Ref.get(state)).get(id)
+          if (!initial) return
+
+          const directory = initial.info.directory
+
+         const autoRunning = () =>
+           Effect.gen(function* () {
+             while (true) {
+               const record = (yield* Ref.get(state)).get(id)
+               if (!record) return undefined
+               if (record.info.status === "paused") {
+                 if (record.pauseGate) yield* Deferred.await(record.pauseGate)
+                 else yield* Effect.sleep("500 millis")
+                 continue
+               }
+               if (record.info.status !== "running") return undefined
+               return record
+             }
+           })
+
+          let outcomes: Array<{ repo: string; change: string; outcome: string; cause?: string }> = []
+          const processedChanges = new Set<string>()
+          const claimedItems = new Set<string>()
+          let consecutiveHalts = 0
+          let anyGatePassed = false
+          let everFoundItems = false
+
+         try {
+            const deadline = Date.now() + 30_000
+            while (Date.now() < deadline) {
+              const record = yield* autoRunning()
+              if (!record) return
+              if (record.info.status !== "running") return
+
+               const autoDir = initial.info.autoDirectory ?? directory
+               const autoRepos = initial.info.autoRepos
+               const result = yield* Effect.promise(() =>
+                new Promise<{ items: import("./spec-queue/work-source").WorkItem[]; scanned: string[]; errors: string[] }>((resolve) => {
+                  const timer = setTimeout(() => resolve({ items: [], scanned: [], errors: [] }), 5000)
+                  Effect.runPromise(getWorkItems(autoDir, autoRepos)).then(
+                    (r) => {
+                      clearTimeout(timer)
+                      resolve(r)
+                    },
+                    () => {
+                      clearTimeout(timer)
+                      resolve({ items: [], scanned: [], errors: [] })
+                    },
+                  )
+                }),
+              )
+
+               if (result.items.length === 0) {
+                 // Distinguish "drained" from "found nothing" (Phase 4.2).
+                 // If we never found any items, the run ends with "nothing found".
+                 // If we found items but they're all processed, the run ends with "drained".
+                 if (outcomes.length === 0 && !everFoundItems) {
+                   yield* patch(id, (current) => ({
+                     ...current,
+                     info: { ...current.info, report: "nothing found — no work source and no openspec changes in scope" },
+                   }))
+                   yield* finalize(id, "completed")
+                   return
+                 }
+                 yield* Effect.sleep("250 millis")
+                 continue
+               }
+               everFoundItems = true
+                let processedThisPass = 0
+                let haltsThisPass = 0
+                const runningRepos = new Set<string>()
+
+               // Capacity-bounded concurrency (Phase 3.4): at most `capacity`
+               // items run at once, re-evaluated as each item starts. One repo
+               // at a time — two runs for one repository would fight over the
+               // same working tree.
+               const processItem = (item: import("./spec-queue/work-source").WorkItem): Effect.Effect<void> =>
+                 Effect.gen(function* () {
+                   const live = yield* autoRunning()
+                   if (!live || live.info.status !== "running") return
+
+                   const key = `${item.repo}:${item.change}`
+                    if (processedChanges.has(key)) return
+
+                    // Skip items whose repo is not present on this machine.
+                    if (!fs.existsSync(item.repo)) {
+                      outcomes.push({ repo: item.repo, change: item.change, outcome: "skipped", cause: "repo not found" })
+                      processedChanges.add(key)
+                      processedThisPass += 1
+                      return
+                    }
+
+                    // Per-repo exec and gate options (D5 fallback): the instance
+                    // config answers for the loop's own directory, not the item's repo.
+                    const itemExec = execIn(item.repo)
+                    const itemOptions = yield* gateOptionsForRepo(item.repo, itemExec, initial.queue?.options)
+
+                    // One run per repository at a time.
+                    if (runningRepos.has(item.repo)) return
+
+                    // Claim the item if it has a tracker binding (Phase 3.6).
+                    const changeDir = path.join(item.repo, "openspec", "changes", item.change)
+                    const claimed = yield* claimChange(changeDir)
+                    if (claimed) claimedItems.add(key)
+
+                    // Resolve the queue for this item's repo to check if it's already complete.
+                    const resolved = resolveQueue(item.repo, [item.change])
+                    const change = cursor(resolved)
+
+                   if (!change) {
+                     // Change is complete or has no eligible tasks.
+                     outcomes.push({ repo: item.repo, change: item.change, outcome: "completed" })
+                     processedChanges.add(key)
+                     processedThisPass += 1
+                     return
+                   }
+
+                   runningRepos.add(item.repo)
+                   try {
+
+                     // Run the change through the queue gates inline.
+                     let gate: Gate = "implement"
+                     let failCounts: Partial<Record<Gate, number>> = {}
+                     let iterations = 0
+                     const ending: { outcome: "completed" | "quarantined"; cause?: string; gate?: Gate } = {
+                       outcome: "quarantined",
+                     }
+
+                     change: while (iterations < live.info.maxIterations) {
+                       const runRecord = yield* autoRunning()
+                       if (!runRecord || runRecord.info.status !== "running") break change
+
+                       const fail = (which: Gate, output: string) =>
+                         Effect.gen(function* () {
+                           failCounts[which] = (failCounts[which] ?? 0) + 1
+                           if ((failCounts[which] ?? 0) >= GateFailureLimit) {
+                             ending.outcome = "quarantined"
+                             ending.cause = `${which} gate failed ${GateFailureLimit}x consecutively`
+                             ending.gate = which
+                             return true
+                           }
+                           gate = "implement"
+                           return false
+                         })
+
+                       switch (gate) {
+                          case "implement": {
+                            const check = evaluateImplement(change)
+                            if (check.passed) {
+                              failCounts.implement = 0
+                              gate = "test"
+                              continue
+                            }
+                           iterations += 1
+                           // For the cross-repo auto run, we do not have an LLM turn
+                           // available here — the driver is not session-owned. A change
+                           // that needs work is quarantined after the failure limit so
+                           // the run makes forward progress instead of spinning.
+                           if (yield* fail("implement", check.output)) break change
+                           continue
+                         }
+                          case "test": {
+                            const testResult = yield* Effect.promise(() => evaluateTest(itemExec, itemOptions))
+                            if (testResult.passed) {
+                              failCounts.test = 0
+                              anyGatePassed = true
+                              gate = "verify"
+                              continue
+                            }
+                           if (yield* fail("test", testResult.output)) break change
+                           continue
+                         }
+                          case "verify": {
+                            const verifyResult = yield* Effect.promise(() => evaluateVerify(itemExec, change, itemOptions))
+                            if (verifyResult.passed) {
+                              failCounts.verify = 0
+                              anyGatePassed = true
+                              gate = "commit"
+                              continue
+                            }
+                           if (yield* fail("verify", verifyResult.output)) break change
+                           continue
+                         }
+                          case "commit": {
+                            const commitResult = yield* Effect.promise(() => evaluateCommit(itemExec, change, itemOptions))
+                            if (commitResult.passed) {
+                              ending.outcome = "completed"
+                              anyGatePassed = true
+                              break change
+                            }
+                           iterations += 1
+                           if (yield* fail("commit", commitResult.output)) break change
+                           continue
+                         }
+                       }
+                     }
+
+                      outcomes.push({
+                        repo: item.repo,
+                        change: item.change,
+                        outcome: ending.outcome,
+                        cause: ending.cause,
+                      })
+                      processedChanges.add(key)
+                      processedThisPass += 1
+                      if (ending.outcome === "quarantined") haltsThisPass += 1
+                    } finally {
+                      runningRepos.delete(item.repo)
+                      // Release the claim if it was taken (Phase 3.6).
+                      if (claimedItems.has(key)) {
+                        yield* releaseChange(changeDir)
+                        claimedItems.delete(key)
+                      }
+                    }
+                 })
+
+               let next = 0
+               const worker = Effect.gen(function* () {
+                 while (true) {
+                   const idx = next
+                   next += 1
+                   if (idx >= result.items.length) return
+                   yield* processItem(result.items[idx])
+                 }
+               })
+                const cap = yield* capacity()
+                yield* Effect.forEach(Array.from({ length: Math.min(cap, result.items.length) }), () => worker, {
+                  concurrency: "unbounded",
+                })
+
+                // Environmental guard (Phase 3.5): several consecutive halts
+                // with no gate passing anywhere means the environment is
+                // broken, not the individual items. Stop the run and report
+                // a suspected environmental cause.
+
+                if (haltsThisPass > 0) {
+                  if (anyGatePassed) {
+                    consecutiveHalts = 0
+                  } else {
+                    consecutiveHalts += haltsThisPass
+                  }
+                } else {
+                  consecutiveHalts = 0
+                }
+                if (consecutiveHalts >= 3) {
+                  // Generate aggregated report with environmental cause (Phase 4.1).
+                  const lines: string[] = [
+                    `suspected environmental cause — ${consecutiveHalts} consecutive halts with no gate passing`,
+                    "",
+                  ]
+                  for (const o of outcomes) {
+                    const repoName = path.basename(o.repo)
+                    if (o.outcome === "skipped") {
+                      lines.push(`- ${repoName}/${o.change}: SKIPPED (${o.cause})`)
+                    } else if (o.outcome === "quarantined") {
+                      lines.push(`- ${repoName}/${o.change}: HALTED (${o.cause})`)
+                    } else {
+                      lines.push(`- ${repoName}/${o.change}: completed`)
+                    }
+                  }
+                  yield* patch(id, (current) => ({
+                    ...current,
+                    info: { ...current.info, report: lines.join("\n") },
+                  }))
+                  yield* finalize(id, "stalled")
+                  return
+                }
+
+                if (processedThisPass === 0) {
+                  // Generate aggregated report (Phase 4.1).
+                  const lines: string[] = ["auto drained — all changes processed", ""]
+                  for (const o of outcomes) {
+                    const repoName = path.basename(o.repo)
+                    if (o.outcome === "skipped") {
+                      lines.push(`- ${repoName}/${o.change}: SKIPPED (${o.cause})`)
+                    } else if (o.outcome === "quarantined") {
+                      lines.push(`- ${repoName}/${o.change}: HALTED (${o.cause})`)
+                    } else {
+                      lines.push(`- ${repoName}/${o.change}: completed`)
+                    }
+                  }
+                  yield* patch(id, (current) => ({
+                    ...current,
+                    info: { ...current.info, report: lines.join("\n") },
+                  }))
+                  yield* finalize(id, "completed")
+                  return
+                }
+
+              yield* patch(id, (current) => ({
+                ...current,
+                queue: current.queue
+                  ? {
+                      ...current.queue,
+                      outcomes: [
+                        ...current.queue.outcomes,
+                        ...outcomes.filter((r) => r.outcome !== "skipped").map((r) => ({ slug: r.change, outcome: r.outcome as "completed" | "quarantined", cause: r.cause, gate: "commit" as Gate, iterations: 0 })),
+                      ] as ChangeOutcome[],
+                    }
+                  : undefined,
+              }))
+              yield* emit(id)
+
+              yield* waitBetween(id, (record.info.interval ?? DefaultIntervalSeconds) * 1000)
+            }
+          } catch (err) {
+           yield* Effect.logError("runAuto error", { error: String(err) })
+           yield* finishQueue(id, "error", `auto mode error: ${err}`)
+           return
+         }
+
+         yield* finishQueue(id, "completed", "auto drained — all changes processed")
+       })
+     const runPromptThenMaybeQueue = (id: LoopID): Effect.Effect<void> =>
       Effect.gen(function* () {
         yield* run(id)
         const record = (yield* Ref.get(state)).get(id)
@@ -1698,25 +2088,27 @@ export const layer = Layer.effect(
             "loop prompt contains the completion token; token-based completion is disabled for this loop",
             { "loop.id": id, "loop.completionToken": completionToken },
           )
-        const info: Info = {
-          id,
-          directory,
-          sessionID,
-          parentSessionID,
-          prompt,
-          status: "running",
-          maxIterations: input.maxIterations ?? DefaultMaxIterations,
-          interval: input.interval,
-          noProgressLimit: input.noProgressLimit ?? DefaultNoProgressLimit,
-          completionToken,
-          // Only meaningful in prompt mode; queue mode is already relentless
-          // by construction (it drains the whole backlog before stopping).
-          eternal: mode === "prompt" ? (input.eternal ?? true) : false,
-          mode,
-          iteration: 0,
-          iterations: [],
-          startedAt: now,
-        }
+         const info: Info = {
+           id,
+           directory,
+           sessionID,
+           parentSessionID,
+           prompt,
+           status: "running",
+           maxIterations: input.maxIterations ?? DefaultMaxIterations,
+           interval: input.interval,
+           noProgressLimit: input.noProgressLimit ?? DefaultNoProgressLimit,
+           completionToken,
+           // Only meaningful in prompt mode; queue mode is already relentless
+           // by construction (it drains the whole backlog before stopping).
+           eternal: mode === "prompt" ? (input.eternal ?? true) : false,
+           mode,
+           iteration: 0,
+           iterations: [],
+           startedAt: now,
+           autoDirectory: input.autoDirectory,
+           autoRepos: input.autoRepos,
+         }
         yield* Ref.update(state, (map) =>
           new Map(map).set(id, {
             info,
@@ -1771,7 +2163,7 @@ export const layer = Layer.effect(
         // all (found in review): "scoped" means in-project, and publishing is outside the project.
         // `full` and `off` are explicit choices that leave a plain loop as it was; a queue run is always
         // fenced. The explicit denies are what the policy's "always wins" rests on, so they must exist.
-        const fenced = mode === "queue" || policy.mode === "scoped"
+        const fenced = mode === "queue" || mode === "auto" || policy.mode === "scoped"
         const priorPermission = fenced
           ? ((yield* session.get(sessionID).pipe(Effect.orElseSucceed(() => undefined)))?.permission ?? [])
           : []
@@ -1781,7 +2173,7 @@ export const layer = Layer.effect(
             .pipe(Effect.ignore)
         }
 
-        const driver = mode === "queue" ? runQueue(id) : runPromptThenMaybeQueue(id)
+        const driver = mode === "queue" ? runQueue(id) : mode === "auto" ? runAuto(id) : runPromptThenMaybeQueue(id)
         yield* driver
           .pipe(
             Effect.catchCause((cause) =>

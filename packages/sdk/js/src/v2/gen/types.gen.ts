@@ -753,7 +753,7 @@ export type Loop = {
     finishedAt: number
   }>
   iterationSessionID?: string
-  mode?: "prompt" | "queue"
+  mode?: "prompt" | "queue" | "auto"
   currentChange?: string
   currentGate?: string
   report?: string
@@ -761,6 +761,8 @@ export type Loop = {
   startedAt: number
   lastRunAt?: number
   finishedAt?: number
+  autoDirectory?: string
+  autoRepos?: Array<string>
 }
 
 export type GlobalEvent = {
@@ -2099,11 +2101,10 @@ export type Config = {
     mcp_timeout?: number
     mcp_protocol_mode?: McpProtocolMode
     local_subagent_placement?: boolean
-    local_subagent_placement_models?: Array<string>
     peer_delegation?: boolean
-    follow_lead?: boolean
     unattended_permissions?: "scoped" | "full" | "off"
     unattended_allow?: Array<string>
+    follow_lead?: boolean
     queue_gate?: {
       cwd?: string
       test_command?: string
@@ -9465,7 +9466,7 @@ export type LoopCreateData = {
     noProgressLimit?: number
     completionToken?: string
     eternal?: boolean
-    mode?: "prompt" | "queue"
+    mode?: "prompt" | "queue" | "auto"
     queue?: Array<string>
     queueGuidance?: string
     queueSync?: boolean
@@ -9477,6 +9478,8 @@ export type LoopCreateData = {
       defaultBranch?: string
       cwd?: string
     }
+    autoDirectory?: string
+    autoRepos?: Array<string>
   }
   path?: never
   query?: {

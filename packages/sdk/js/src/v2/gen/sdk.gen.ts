@@ -3082,7 +3082,7 @@ export class Loop extends HeyApiClient {
       noProgressLimit?: number
       completionToken?: string
       eternal?: boolean
-      mode?: "prompt" | "queue"
+      mode?: "prompt" | "queue" | "auto"
       queue?: Array<string>
       queueGuidance?: string
       queueSync?: boolean
@@ -3094,6 +3094,8 @@ export class Loop extends HeyApiClient {
         defaultBranch?: string
         cwd?: string
       }
+      autoDirectory?: string
+      autoRepos?: Array<string>
     },
     options?: Options<never, ThrowOnError>,
   ) {
@@ -3118,6 +3120,8 @@ export class Loop extends HeyApiClient {
             { in: "body", key: "queuePush" },
             { in: "body", key: "queueWatch" },
             { in: "body", key: "queueOptions" },
+            { in: "body", key: "autoDirectory" },
+            { in: "body", key: "autoRepos" },
           ],
         },
       ],
