@@ -394,6 +394,24 @@ export type TextPart = {
   }
 }
 
+export type PeerMessagePart = {
+  id: string
+  sessionID: string
+  messageID: string
+  type: "peer-message"
+  text: string
+  body: string
+  from: {
+    harness: "opencode-skein" | "claude-code"
+    sessionID: string
+    title: string
+  }
+  mode?: "notify" | "request" | "reply"
+  envelopeID?: string
+  contextID?: string
+  inReplyTo?: string
+}
+
 export type SubtaskPart = {
   id: string
   sessionID: string
@@ -628,6 +646,7 @@ export type CompactionPart = {
 
 export type Part =
   | TextPart
+  | PeerMessagePart
   | SubtaskPart
   | ReasoningPart
   | FilePart
@@ -2930,6 +2949,22 @@ export type TextPartInput = {
   metadata?: {
     [key: string]: unknown
   }
+}
+
+export type PeerMessagePartInput = {
+  id?: string
+  type: "peer-message"
+  text: string
+  body: string
+  from: {
+    harness: "opencode-skein" | "claude-code"
+    sessionID: string
+    title: string
+  }
+  mode?: "notify" | "request" | "reply"
+  envelopeID?: string
+  contextID?: string
+  inReplyTo?: string
 }
 
 export type FilePartInput = {
@@ -11087,7 +11122,7 @@ export type SessionPromptData = {
     format?: OutputFormat
     system?: string
     variant?: string
-    parts: Array<TextPartInput | FilePartInput | AgentPartInput | SubtaskPartInput>
+    parts: Array<TextPartInput | PeerMessagePartInput | FilePartInput | AgentPartInput | SubtaskPartInput>
   }
   path: {
     sessionID: string
@@ -11434,7 +11469,7 @@ export type SessionPromptAsyncData = {
     format?: OutputFormat
     system?: string
     variant?: string
-    parts: Array<TextPartInput | FilePartInput | AgentPartInput | SubtaskPartInput>
+    parts: Array<TextPartInput | PeerMessagePartInput | FilePartInput | AgentPartInput | SubtaskPartInput>
   }
   path: {
     sessionID: string

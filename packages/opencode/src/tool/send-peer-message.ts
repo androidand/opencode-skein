@@ -17,7 +17,7 @@ import {
 import { Session } from "@/session/session"
 import { SessionID } from "@/session/schema"
 import { SessionStatus } from "@/session/status"
-import { formatPeerMessage, resolveMessageTargets, resolveTarget } from "@/session/peers"
+import { peerMessagePart, resolveMessageTargets, resolveTarget } from "@/session/peers"
 import type { TaskPromptOps } from "./task"
 import DESCRIPTION from "./send-peer-message.txt"
 import * as Tool from "./tool"
@@ -342,7 +342,7 @@ export const SendPeerMessageTool = Tool.define(
             }
           }
 
-           const text = formatPeerMessage(
+           const part = peerMessagePart(
              {
                sessionID: ctx.sessionID,
                title: caller?.title ?? "(unknown session)",
@@ -371,7 +371,7 @@ export const SendPeerMessageTool = Tool.define(
               .prompt({
                 sessionID: targetSessionID,
                 agent: target?.agent ?? ctx.agent,
-                parts: [{ type: "text", synthetic: true, text }],
+                parts: [part],
               })
               .pipe(Effect.ignore, Effect.forkIn(scope, { startImmediately: true }))
 

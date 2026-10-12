@@ -208,6 +208,10 @@ export const toModelMessagesEffect = Effect.fnUntraced(function* (
             type: "text",
             text: part.text,
           })
+        // A received peer message reaches the model as the exact text the sender's
+        // framing produced; the structured fields exist for display only.
+        if (part.type === "peer-message" && part.text !== "")
+          userMessage.parts.push({ type: "text", text: part.text })
         // text/plain and directory files are converted into text parts, ignore them
         if (part.type === "file" && part.mime !== "text/plain" && part.mime !== "application/x-directory") {
           if (options?.stripMedia && isMedia(part.mime)) {

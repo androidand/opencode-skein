@@ -115,6 +115,31 @@ export const TextPart = Schema.Struct({
 }).annotate({ identifier: "TextPart" })
 export type TextPart = Types.DeepMutable<Schema.Schema.Type<typeof TextPart>>
 
+const peerMessageFields = {
+  type: Schema.Literal("peer-message"),
+  /** Exactly what the model is shown: the trust preamble, the envelope header and the body. */
+  text: Schema.String,
+  /** The sender's message with every header and preamble removed; what a person reads. */
+  body: Schema.String,
+  from: Schema.Struct({
+    harness: Schema.Literals(["opencode-skein", "claude-code"]),
+    /** A session id, or for a Claude Code peer its pid. */
+    sessionID: Schema.String,
+    title: Schema.String,
+  }),
+  mode: Schema.optional(Schema.Literals(["notify", "request", "reply"])),
+  /** The envelope's id (not the id of the message this part belongs to). */
+  envelopeID: Schema.optional(Schema.String),
+  contextID: Schema.optional(Schema.String),
+  inReplyTo: Schema.optional(Schema.String),
+}
+
+export const PeerMessagePart = Schema.Struct({
+  ...partBase,
+  ...peerMessageFields,
+}).annotate({ identifier: "PeerMessagePart" })
+export type PeerMessagePart = Types.DeepMutable<Schema.Schema.Type<typeof PeerMessagePart>>
+
 export const ReasoningPart = Schema.Struct({
   ...partBase,
   type: Schema.Literal("reasoning"),
@@ -356,6 +381,7 @@ export type User = Types.DeepMutable<Schema.Schema.Type<typeof User>>
 
 export const Part = Schema.Union([
   TextPart,
+  PeerMessagePart,
   SubtaskPart,
   ReasoningPart,
   FilePart,
@@ -370,6 +396,7 @@ export const Part = Schema.Union([
 ]).annotate({ discriminator: "type", identifier: "Part" })
 export type Part =
   | TextPart
+  | PeerMessagePart
   | SubtaskPart
   | ReasoningPart
   | FilePart
@@ -409,6 +436,12 @@ export const TextPartInput = Schema.Struct({
   metadata: Schema.optional(Schema.Record(Schema.String, Schema.Any)),
 }).annotate({ identifier: "TextPartInput" })
 export type TextPartInput = Types.DeepMutable<Schema.Schema.Type<typeof TextPartInput>>
+
+export const PeerMessagePartInput = Schema.Struct({
+  id: Schema.optional(PartID),
+  ...peerMessageFields,
+}).annotate({ identifier: "PeerMessagePartInput" })
+export type PeerMessagePartInput = Types.DeepMutable<Schema.Schema.Type<typeof PeerMessagePartInput>>
 
 export const FilePartInput = Schema.Struct({
   id: Schema.optional(PartID),

@@ -996,16 +996,21 @@ it.instance("send_peer_message delivers into a second, idle session in the same 
         const msgs = yield* MessageV2.filterCompactedEffect(receiver.id)
         const injected = msgs
           .flatMap((msg) => msg.parts)
-          .find((part) => part.type === "text" && part.text.includes("update your client"))
+          .find((part) => part.type === "peer-message" && part.text.includes("update your client"))
         return injected
       }),
       "peer message never arrived in the receiver session",
     )
-    expect(delivered?.type).toBe("text")
-    if (delivered?.type === "text") {
+    expect(delivered?.type).toBe("peer-message")
+    if (delivered?.type === "peer-message") {
+      // What the model sees is unchanged ...
       expect(delivered.text).toContain(sender.id)
       expect(delivered.text).toContain("Sender session")
       expect(delivered.text).toContain("not a user")
+      // ... and what a person sees is structured, with no preamble in the body.
+      expect(delivered.from).toMatchObject({ harness: "opencode-skein", sessionID: sender.id, title: "Sender session" })
+      expect(delivered.body).toContain("update your client")
+      expect(delivered.body).not.toContain("not a user instruction")
     }
   }),
 )
@@ -1067,7 +1072,7 @@ it.instance("a message to a busy peer is queued, not refused, and delivers once 
 
     // Still busy: the message must not have landed while the target is mid-turn.
     const whileBusy = yield* MessageV2.filterCompactedEffect(receiver.id)
-    expect(whileBusy.flatMap((msg) => msg.parts).some((part) => part.type === "text" && part.text.includes("update your client"))).toBe(false)
+    expect(whileBusy.flatMap((msg) => msg.parts).some((part) => part.type === "peer-message" && part.text.includes("update your client"))).toBe(false)
 
     // The target goes idle on its own — nothing the sender does. This is the
     // same status transition SessionPrompt's own step loop makes at the end
@@ -1077,11 +1082,11 @@ it.instance("a message to a busy peer is queued, not refused, and delivers once 
     const delivered = yield* pollWithTimeout(
       Effect.gen(function* () {
         const msgs = yield* MessageV2.filterCompactedEffect(receiver.id)
-        return msgs.flatMap((msg) => msg.parts).find((part) => part.type === "text" && part.text.includes("update your client"))
+        return msgs.flatMap((msg) => msg.parts).find((part) => part.type === "peer-message" && part.text.includes("update your client"))
       }),
       "queued peer message never arrived after the target went idle",
     )
-    expect(delivered?.type).toBe("text")
+    expect(delivered?.type).toBe("peer-message")
   }),
 )
 

@@ -1,4 +1,5 @@
 import { describe, expect, test } from "bun:test"
+import { formatPeerEnvelope } from "@/peer/envelope"
 import {
   availabilityOf,
   byRelation,
@@ -6,6 +7,7 @@ import {
   describePeer,
   formatPeerMessage,
   idlePeers,
+  peerMessagePart,
   resolveMessageTargets,
   resolvePeers,
   relationTo,
@@ -707,5 +709,34 @@ describe("byRelation", () => {
   test("empty relations are omitted rather than shown as empty headings", () => {
     const groups = byRelation(caller, [p("here", "/repo/main", "/repo/.git")])
     expect(groups).toHaveLength(1)
+  })
+})
+
+describe("peerMessagePart", () => {
+  const from = { sessionID: "ses_a", title: "Alpha", reply: { target: "ses_a" } }
+
+  test("a request header is parsed into fields and stripped from the body", () => {
+    const raw = formatPeerEnvelope({ mode: "request", messageID: "m1", contextID: "ctx-1" }, "can you check x?")
+    const part = peerMessagePart({ ...from, mode: "request" }, raw)
+    expect(part).toMatchObject({
+      type: "peer-message",
+      body: "can you check x?",
+      mode: "request",
+      envelopeID: "m1",
+      contextID: "ctx-1",
+      from: { harness: "opencode-skein", sessionID: "ses_a", title: "Alpha" },
+    })
+    // The model text is what formatPeerMessage has always produced for this input.
+    expect(part.text).toBe(formatPeerMessage({ ...from, mode: "request" }, raw))
+  })
+
+  test("a message with no header is still a peer message, mode notify", () => {
+    const part = peerMessagePart(from, "plain text")
+    expect(part).toMatchObject({ type: "peer-message", body: "plain text", mode: "notify" })
+    expect(part.envelopeID).toBeUndefined()
+  })
+
+  test("a Claude Code sender keeps its harness", () => {
+    expect(peerMessagePart({ ...from, harness: "claude-code", sessionID: "123" }, "hi").from.harness).toBe("claude-code")
   })
 })

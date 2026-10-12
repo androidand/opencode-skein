@@ -21,6 +21,8 @@ export {
   OutputFormatText,
   Part,
   PartID,
+  PeerMessagePart,
+  PeerMessagePartInput,
   PatchPart,
   Range,
   ReasoningPart,

@@ -19,7 +19,7 @@ import { RuntimeFlags } from "@/effect/runtime-flags"
 import { Database } from "@opencode-ai/core/database/database"
 import { SessionStatus } from "@/session/status"
 import { Permission } from "@/permission"
-import { formatPeerMessage, resolveMessageTargets } from "@/session/peers"
+import { peerMessagePart, resolveMessageTargets } from "@/session/peers"
 import { fetchClaudeAgentRecords } from "@/agent/presence-claude"
 import { sendClaudeMessage } from "@/peer/claude/client"
 import { sidecarNameFor } from "@/peer/claude/sidecar-manager"
@@ -471,13 +471,7 @@ export const TaskTool = Tool.define(
                 .prompt({
                   sessionID: SessionID.make(peer.id),
                   agent: target?.agent ?? ctx.agent,
-                  parts: [
-                    {
-                      type: "text",
-                      synthetic: true,
-                      text: formatPeerMessage({ sessionID: ctx.sessionID, title: parent.title }, envelope),
-                    },
-                  ],
+                  parts: [peerMessagePart({ sessionID: ctx.sessionID, title: parent.title }, envelope)],
                 })
                 .pipe(Effect.ignore, Effect.forkIn(scope, { startImmediately: true })),
           })

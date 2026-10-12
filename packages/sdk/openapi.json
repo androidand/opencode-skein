@@ -3496,6 +3496,684 @@
         ]
       }
     },
+    "/gallery/search": {
+      "get": {
+        "tags": ["gallery"],
+        "operationId": "gallery.search",
+        "parameters": [
+          {
+            "name": "directory",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            },
+            "required": false
+          },
+          {
+            "name": "workspace",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            },
+            "required": false
+          },
+          {
+            "name": "q",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            },
+            "required": false
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            },
+            "required": false
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Catalog candidates matching the query",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/GalleryCandidate"
+                  },
+                  "description": "Catalog candidates matching the query"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Bad request",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BadRequestError"
+                }
+              }
+            }
+          }
+        },
+        "description": "Live Hugging Face search (GGUF repositories), falling back to the bundled seed catalog when Hugging Face is unreachable. An `owner/repo` query resolves that repository directly.",
+        "summary": "Search the model catalog",
+        "x-codeSamples": [
+          {
+            "lang": "js",
+            "source": "import { createOpencodeClient } from \"@opencode-ai/sdk\n\nconst client = createOpencodeClient()\nawait client.gallery.search({\n  ...\n})"
+          }
+        ]
+      }
+    },
+    "/gallery/plan": {
+      "post": {
+        "tags": ["gallery"],
+        "operationId": "gallery.plan",
+        "parameters": [
+          {
+            "name": "directory",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            },
+            "required": false
+          },
+          {
+            "name": "workspace",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            },
+            "required": false
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "What an install would do, for confirmation",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GalleryInstallPlanView"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "InvalidRequestError",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "anyOf": [
+                    {
+                      "$ref": "#/components/schemas/InvalidRequestError"
+                    },
+                    {
+                      "$ref": "#/components/schemas/InvalidRequestError"
+                    }
+                  ]
+                }
+              }
+            }
+          }
+        },
+        "description": "Resolve candidate, variant and host into the immutable plan llama-skein would execute, without submitting it.",
+        "summary": "Preview an install plan",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/GalleryInstallPayload"
+              }
+            }
+          }
+        },
+        "x-codeSamples": [
+          {
+            "lang": "js",
+            "source": "import { createOpencodeClient } from \"@opencode-ai/sdk\n\nconst client = createOpencodeClient()\nawait client.gallery.plan({\n  ...\n})"
+          }
+        ]
+      }
+    },
+    "/gallery/install": {
+      "post": {
+        "tags": ["gallery"],
+        "operationId": "gallery.install",
+        "parameters": [
+          {
+            "name": "directory",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            },
+            "required": false
+          },
+          {
+            "name": "workspace",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            },
+            "required": false
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "The queued llama-skein operation",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GalleryOperation"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "InvalidRequestError",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "anyOf": [
+                    {
+                      "$ref": "#/components/schemas/InvalidRequestError"
+                    },
+                    {
+                      "$ref": "#/components/schemas/InvalidRequestError"
+                    }
+                  ]
+                }
+              }
+            }
+          }
+        },
+        "description": "Submit the install plan to the chosen llama-skein host. Returns immediately with the operation; poll `gallery.operations` for progress. The host owns the operation — opencode never retries or replays it.",
+        "summary": "Install a model on a host",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/GalleryInstallPayload"
+              }
+            }
+          }
+        },
+        "x-codeSamples": [
+          {
+            "lang": "js",
+            "source": "import { createOpencodeClient } from \"@opencode-ai/sdk\n\nconst client = createOpencodeClient()\nawait client.gallery.install({\n  ...\n})"
+          }
+        ]
+      }
+    },
+    "/gallery/installed": {
+      "get": {
+        "tags": ["gallery"],
+        "operationId": "gallery.installed",
+        "parameters": [
+          {
+            "name": "directory",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            },
+            "required": false
+          },
+          {
+            "name": "workspace",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            },
+            "required": false
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Installed models per host, with store identity",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/GalleryHostInventory"
+                  },
+                  "description": "Installed models per host, with store identity"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Bad request",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BadRequestError"
+                }
+              }
+            }
+          }
+        },
+        "description": "Every discovered llama-skein host with the models it serves (size, loaded state, provenance) and a store key; hosts with equal keys share one model store.",
+        "summary": "List installed models per host",
+        "x-codeSamples": [
+          {
+            "lang": "js",
+            "source": "import { createOpencodeClient } from \"@opencode-ai/sdk\n\nconst client = createOpencodeClient()\nawait client.gallery.installed({\n  ...\n})"
+          }
+        ]
+      }
+    },
+    "/gallery/model/remove": {
+      "post": {
+        "tags": ["gallery"],
+        "operationId": "gallery.remove",
+        "parameters": [
+          {
+            "name": "directory",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            },
+            "required": false
+          },
+          {
+            "name": "workspace",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            },
+            "required": false
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "What was removed",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GalleryRemoveResult"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "InvalidRequestError",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "anyOf": [
+                    {
+                      "$ref": "#/components/schemas/InvalidRequestError"
+                    },
+                    {
+                      "$ref": "#/components/schemas/InvalidRequestError"
+                    }
+                  ]
+                }
+              }
+            }
+          }
+        },
+        "description": "`hide` drops the host's config entry and keeps the files; `delete` removes the artifact set from the store.",
+        "summary": "Hide or delete an installed model",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/GalleryRemovePayload"
+              }
+            }
+          }
+        },
+        "x-codeSamples": [
+          {
+            "lang": "js",
+            "source": "import { createOpencodeClient } from \"@opencode-ai/sdk\n\nconst client = createOpencodeClient()\nawait client.gallery.remove({\n  ...\n})"
+          }
+        ]
+      }
+    },
+    "/gallery/model/load": {
+      "post": {
+        "tags": ["gallery"],
+        "operationId": "gallery.load",
+        "parameters": [
+          {
+            "name": "directory",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            },
+            "required": false
+          },
+          {
+            "name": "workspace",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            },
+            "required": false
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Loaded state after the request",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GalleryModelState"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "InvalidRequestError",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "anyOf": [
+                    {
+                      "$ref": "#/components/schemas/InvalidRequestError"
+                    },
+                    {
+                      "$ref": "#/components/schemas/InvalidRequestError"
+                    }
+                  ]
+                }
+              }
+            }
+          }
+        },
+        "summary": "Load a model into memory on a host",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/GalleryModelRef"
+              }
+            }
+          }
+        },
+        "x-codeSamples": [
+          {
+            "lang": "js",
+            "source": "import { createOpencodeClient } from \"@opencode-ai/sdk\n\nconst client = createOpencodeClient()\nawait client.gallery.load({\n  ...\n})"
+          }
+        ]
+      }
+    },
+    "/gallery/model/unload": {
+      "post": {
+        "tags": ["gallery"],
+        "operationId": "gallery.unload",
+        "parameters": [
+          {
+            "name": "directory",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            },
+            "required": false
+          },
+          {
+            "name": "workspace",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            },
+            "required": false
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Loaded state after the request",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GalleryModelState"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "InvalidRequestError",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "anyOf": [
+                    {
+                      "$ref": "#/components/schemas/InvalidRequestError"
+                    },
+                    {
+                      "$ref": "#/components/schemas/InvalidRequestError"
+                    }
+                  ]
+                }
+              }
+            }
+          }
+        },
+        "summary": "Unload a model from memory on a host",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/GalleryModelRef"
+              }
+            }
+          }
+        },
+        "x-codeSamples": [
+          {
+            "lang": "js",
+            "source": "import { createOpencodeClient } from \"@opencode-ai/sdk\n\nconst client = createOpencodeClient()\nawait client.gallery.unload({\n  ...\n})"
+          }
+        ]
+      }
+    },
+    "/gallery/model/copy": {
+      "post": {
+        "tags": ["gallery"],
+        "operationId": "gallery.copy",
+        "parameters": [
+          {
+            "name": "directory",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            },
+            "required": false
+          },
+          {
+            "name": "workspace",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            },
+            "required": false
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "The install operation on the target host",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GalleryCopyResult"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "InvalidRequestError",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "anyOf": [
+                    {
+                      "$ref": "#/components/schemas/InvalidRequestError"
+                    },
+                    {
+                      "$ref": "#/components/schemas/InvalidRequestError"
+                    }
+                  ]
+                }
+              }
+            }
+          }
+        },
+        "description": "Re-creates the model on the target from its recorded provenance (same repository, revision, artifacts, id). On a host sharing the source's store this is registration only. With `move`, the source is hidden or deleted once the target operation succeeds.",
+        "summary": "Copy or move an installed model to another host",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/GalleryCopyPayload"
+              }
+            }
+          }
+        },
+        "x-codeSamples": [
+          {
+            "lang": "js",
+            "source": "import { createOpencodeClient } from \"@opencode-ai/sdk\n\nconst client = createOpencodeClient()\nawait client.gallery.copy({\n  ...\n})"
+          }
+        ]
+      }
+    },
+    "/gallery/operations": {
+      "get": {
+        "tags": ["gallery"],
+        "operationId": "gallery.operations",
+        "parameters": [
+          {
+            "name": "directory",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            },
+            "required": false
+          },
+          {
+            "name": "workspace",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            },
+            "required": false
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Active and recent operations across online hosts",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/GalleryOperation"
+                  },
+                  "description": "Active and recent operations across online hosts"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Bad request",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BadRequestError"
+                }
+              }
+            }
+          }
+        },
+        "description": "Install/download operations on every online llama-skein host, newest first.",
+        "summary": "List host operations",
+        "x-codeSamples": [
+          {
+            "lang": "js",
+            "source": "import { createOpencodeClient } from \"@opencode-ai/sdk\n\nconst client = createOpencodeClient()\nawait client.gallery.operations({\n  ...\n})"
+          }
+        ]
+      }
+    },
+    "/gallery/operations/cancel": {
+      "post": {
+        "tags": ["gallery"],
+        "operationId": "gallery.cancel",
+        "parameters": [
+          {
+            "name": "directory",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            },
+            "required": false
+          },
+          {
+            "name": "workspace",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            },
+            "required": false
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "The operation after the cancel request",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GalleryOperation"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "InvalidRequestError",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "anyOf": [
+                    {
+                      "$ref": "#/components/schemas/InvalidRequestError"
+                    },
+                    {
+                      "$ref": "#/components/schemas/InvalidRequestError"
+                    }
+                  ]
+                }
+              }
+            }
+          }
+        },
+        "description": "Ask the owning llama-skein host to cancel an operation by id.",
+        "summary": "Cancel a host operation",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/GalleryOperationRef"
+              }
+            }
+          }
+        },
+        "x-codeSamples": [
+          {
+            "lang": "js",
+            "source": "import { createOpencodeClient } from \"@opencode-ai/sdk\n\nconst client = createOpencodeClient()\nawait client.gallery.cancel({\n  ...\n})"
+          }
+        ]
+      }
+    },
     "/gallery/hosts": {
       "get": {
         "tags": ["gallery"],
@@ -3755,9 +4433,12 @@
                   "completionToken": {
                     "type": "string"
                   },
+                  "eternal": {
+                    "type": "boolean"
+                  },
                   "mode": {
                     "type": "string",
-                    "enum": ["prompt", "queue"]
+                    "enum": ["prompt", "queue", "auto"]
                   },
                   "queue": {
                     "type": "array",
@@ -3772,6 +4453,9 @@
                     "type": "boolean"
                   },
                   "queuePush": {
+                    "type": "boolean"
+                  },
+                  "queueWatch": {
                     "type": "boolean"
                   },
                   "queueOptions": {
@@ -3791,6 +4475,15 @@
                       }
                     },
                     "additionalProperties": false
+                  },
+                  "autoDirectory": {
+                    "type": "string"
+                  },
+                  "autoRepos": {
+                    "type": "array",
+                    "items": {
+                      "type": "string"
+                    }
                   }
                 },
                 "required": ["prompt"],
@@ -7658,6 +8351,9 @@
                           "$ref": "#/components/schemas/TextPartInput"
                         },
                         {
+                          "$ref": "#/components/schemas/PeerMessagePartInput"
+                        },
+                        {
                           "$ref": "#/components/schemas/FilePartInput"
                         },
                         {
@@ -8538,6 +9234,9 @@
                       "anyOf": [
                         {
                           "$ref": "#/components/schemas/TextPartInput"
+                        },
+                        {
+                          "$ref": "#/components/schemas/PeerMessagePartInput"
                         },
                         {
                           "$ref": "#/components/schemas/FilePartInput"
@@ -17895,6 +18594,65 @@
         "required": ["id", "sessionID", "messageID", "type", "text"],
         "additionalProperties": false
       },
+      "PeerMessagePart": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "pattern": "^prt"
+          },
+          "sessionID": {
+            "type": "string",
+            "pattern": "^ses"
+          },
+          "messageID": {
+            "type": "string",
+            "pattern": "^msg"
+          },
+          "type": {
+            "type": "string",
+            "enum": ["peer-message"]
+          },
+          "text": {
+            "type": "string"
+          },
+          "body": {
+            "type": "string"
+          },
+          "from": {
+            "type": "object",
+            "properties": {
+              "harness": {
+                "type": "string",
+                "enum": ["opencode-skein", "claude-code"]
+              },
+              "sessionID": {
+                "type": "string"
+              },
+              "title": {
+                "type": "string"
+              }
+            },
+            "required": ["harness", "sessionID", "title"],
+            "additionalProperties": false
+          },
+          "mode": {
+            "type": "string",
+            "enum": ["notify", "request", "reply"]
+          },
+          "envelopeID": {
+            "type": "string"
+          },
+          "contextID": {
+            "type": "string"
+          },
+          "inReplyTo": {
+            "type": "string"
+          }
+        },
+        "required": ["id", "sessionID", "messageID", "type", "text", "body", "from"],
+        "additionalProperties": false
+      },
       "SubtaskPart": {
         "type": "object",
         "properties": {
@@ -18606,6 +19364,9 @@
             "$ref": "#/components/schemas/TextPart"
           },
           {
+            "$ref": "#/components/schemas/PeerMessagePart"
+          },
+          {
             "$ref": "#/components/schemas/SubtaskPart"
           },
           {
@@ -18892,6 +19653,9 @@
           "completionToken": {
             "type": "string"
           },
+          "eternal": {
+            "type": "boolean"
+          },
           "iteration": {
             "type": "integer"
           },
@@ -18944,7 +19708,7 @@
           },
           "mode": {
             "type": "string",
-            "enum": ["prompt", "queue"]
+            "enum": ["prompt", "queue", "auto"]
           },
           "currentChange": {
             "type": "string"
@@ -18955,6 +19719,9 @@
           "report": {
             "type": "string"
           },
+          "watching": {
+            "type": "boolean"
+          },
           "startedAt": {
             "type": "number"
           },
@@ -18963,6 +19730,15 @@
           },
           "finishedAt": {
             "type": "number"
+          },
+          "autoDirectory": {
+            "type": "string"
+          },
+          "autoRepos": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
           }
         },
         "required": [
@@ -18974,6 +19750,7 @@
           "maxIterations",
           "noProgressLimit",
           "completionToken",
+          "eternal",
           "iteration",
           "iterations",
           "startedAt"
@@ -23240,11 +24017,21 @@
               "local_subagent_placement": {
                 "type": "boolean"
               },
-              "local_subagent_placement_models": {
+              "peer_delegation": {
+                "type": "boolean"
+              },
+              "unattended_permissions": {
+                "type": "string",
+                "enum": ["scoped", "full", "off"]
+              },
+              "unattended_allow": {
                 "type": "array",
                 "items": {
                   "type": "string"
                 }
+              },
+              "follow_lead": {
+                "type": "boolean"
               },
               "queue_gate": {
                 "type": "object",
@@ -23608,14 +24395,13 @@
         "properties": {
           "owner": {
             "type": "string",
-            "enum": ["opencode-skein"]
+            "enum": ["opencode-skein", "claude-code"]
           },
           "instanceID": {
             "type": "string"
           },
           "sessionID": {
-            "type": "string",
-            "pattern": "^ses"
+            "type": "string"
           },
           "loopID": {
             "type": "string",
@@ -24710,6 +25496,713 @@
         "required": ["provider", "baseURL", "reachable", "probedAt", "ageMs", "stale"],
         "additionalProperties": false
       },
+      "GalleryVariant": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "quantization": {
+            "type": "string"
+          },
+          "format": {
+            "type": "string"
+          },
+          "totalBytes": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "string",
+                "enum": ["NaN"]
+              },
+              {
+                "type": "string",
+                "enum": ["Infinity"]
+              },
+              {
+                "type": "string",
+                "enum": ["-Infinity"]
+              },
+              {
+                "type": "string",
+                "enum": ["Infinity", "-Infinity", "NaN"]
+              }
+            ]
+          },
+          "complete": {
+            "type": "boolean"
+          }
+        },
+        "required": ["id", "quantization", "format", "totalBytes", "complete"],
+        "additionalProperties": false
+      },
+      "GalleryCandidate": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          },
+          "author": {
+            "type": "string"
+          },
+          "repository": {
+            "type": "string"
+          },
+          "parameterCount": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "string",
+                "enum": ["NaN"]
+              },
+              {
+                "type": "string",
+                "enum": ["Infinity"]
+              },
+              {
+                "type": "string",
+                "enum": ["-Infinity"]
+              },
+              {
+                "type": "string",
+                "enum": ["Infinity", "-Infinity", "NaN"]
+              }
+            ]
+          },
+          "trainedContext": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "string",
+                "enum": ["NaN"]
+              },
+              {
+                "type": "string",
+                "enum": ["Infinity"]
+              },
+              {
+                "type": "string",
+                "enum": ["-Infinity"]
+              },
+              {
+                "type": "string",
+                "enum": ["Infinity", "-Infinity", "NaN"]
+              }
+            ]
+          },
+          "license": {
+            "type": "string"
+          },
+          "pipelineTag": {
+            "type": "string"
+          },
+          "capabilities": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "downloads": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "string",
+                "enum": ["NaN"]
+              },
+              {
+                "type": "string",
+                "enum": ["Infinity"]
+              },
+              {
+                "type": "string",
+                "enum": ["-Infinity"]
+              },
+              {
+                "type": "string",
+                "enum": ["Infinity", "-Infinity", "NaN"]
+              }
+            ]
+          },
+          "likes": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "string",
+                "enum": ["NaN"]
+              },
+              {
+                "type": "string",
+                "enum": ["Infinity"]
+              },
+              {
+                "type": "string",
+                "enum": ["-Infinity"]
+              },
+              {
+                "type": "string",
+                "enum": ["Infinity", "-Infinity", "NaN"]
+              }
+            ]
+          },
+          "freshness": {
+            "type": "string"
+          },
+          "variants": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/GalleryVariant"
+            }
+          }
+        },
+        "required": [
+          "id",
+          "name",
+          "author",
+          "repository",
+          "parameterCount",
+          "trainedContext",
+          "license",
+          "pipelineTag",
+          "capabilities",
+          "downloads",
+          "likes",
+          "freshness",
+          "variants"
+        ],
+        "additionalProperties": false
+      },
+      "GalleryInstallPayload": {
+        "type": "object",
+        "properties": {
+          "hostId": {
+            "type": "string"
+          },
+          "candidateId": {
+            "type": "string"
+          },
+          "variantId": {
+            "type": "string"
+          },
+          "modelId": {
+            "type": "string"
+          }
+        },
+        "required": ["hostId", "candidateId"],
+        "additionalProperties": false
+      },
+      "GalleryInstallPlanView": {
+        "type": "object",
+        "properties": {
+          "hostId": {
+            "type": "string"
+          },
+          "hostName": {
+            "type": "string"
+          },
+          "repository": {
+            "type": "string"
+          },
+          "revision": {
+            "type": "string"
+          },
+          "modelId": {
+            "type": "string"
+          },
+          "backend": {
+            "type": "string"
+          },
+          "license": {
+            "type": "string"
+          },
+          "bytes": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "string",
+                "enum": ["NaN"]
+              },
+              {
+                "type": "string",
+                "enum": ["Infinity"]
+              },
+              {
+                "type": "string",
+                "enum": ["-Infinity"]
+              },
+              {
+                "type": "string",
+                "enum": ["Infinity", "-Infinity", "NaN"]
+              }
+            ]
+          },
+          "artifacts": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "path": {
+                  "type": "string"
+                },
+                "bytes": {
+                  "anyOf": [
+                    {
+                      "type": "number"
+                    },
+                    {
+                      "type": "string",
+                      "enum": ["NaN"]
+                    },
+                    {
+                      "type": "string",
+                      "enum": ["Infinity"]
+                    },
+                    {
+                      "type": "string",
+                      "enum": ["-Infinity"]
+                    },
+                    {
+                      "type": "string",
+                      "enum": ["Infinity", "-Infinity", "NaN"]
+                    }
+                  ]
+                },
+                "role": {
+                  "type": "string"
+                }
+              },
+              "required": ["path", "bytes", "role"],
+              "additionalProperties": false
+            }
+          }
+        },
+        "required": [
+          "hostId",
+          "hostName",
+          "repository",
+          "revision",
+          "modelId",
+          "backend",
+          "license",
+          "bytes",
+          "artifacts"
+        ],
+        "additionalProperties": false
+      },
+      "GalleryOperation": {
+        "type": "object",
+        "properties": {
+          "hostId": {
+            "type": "string"
+          },
+          "hostName": {
+            "type": "string"
+          },
+          "id": {
+            "type": "string"
+          },
+          "phase": {
+            "type": "string"
+          },
+          "modelId": {
+            "type": "string"
+          },
+          "bytesDownloaded": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "string",
+                "enum": ["NaN"]
+              },
+              {
+                "type": "string",
+                "enum": ["Infinity"]
+              },
+              {
+                "type": "string",
+                "enum": ["-Infinity"]
+              },
+              {
+                "type": "string",
+                "enum": ["Infinity", "-Infinity", "NaN"]
+              }
+            ]
+          },
+          "bytesTotal": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "string",
+                "enum": ["NaN"]
+              },
+              {
+                "type": "string",
+                "enum": ["Infinity"]
+              },
+              {
+                "type": "string",
+                "enum": ["-Infinity"]
+              },
+              {
+                "type": "string",
+                "enum": ["Infinity", "-Infinity", "NaN"]
+              }
+            ]
+          },
+          "createdAt": {
+            "type": "string"
+          },
+          "updatedAt": {
+            "type": "string"
+          },
+          "error": {
+            "type": "object",
+            "properties": {
+              "code": {
+                "type": "string"
+              },
+              "message": {
+                "type": "string"
+              }
+            },
+            "required": ["code", "message"],
+            "additionalProperties": false
+          },
+          "warnings": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "artifacts": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "path": {
+                  "type": "string"
+                },
+                "bytesDownloaded": {
+                  "anyOf": [
+                    {
+                      "type": "number"
+                    },
+                    {
+                      "type": "string",
+                      "enum": ["NaN"]
+                    },
+                    {
+                      "type": "string",
+                      "enum": ["Infinity"]
+                    },
+                    {
+                      "type": "string",
+                      "enum": ["-Infinity"]
+                    },
+                    {
+                      "type": "string",
+                      "enum": ["Infinity", "-Infinity", "NaN"]
+                    }
+                  ]
+                },
+                "bytesTotal": {
+                  "anyOf": [
+                    {
+                      "type": "number"
+                    },
+                    {
+                      "type": "string",
+                      "enum": ["NaN"]
+                    },
+                    {
+                      "type": "string",
+                      "enum": ["Infinity"]
+                    },
+                    {
+                      "type": "string",
+                      "enum": ["-Infinity"]
+                    },
+                    {
+                      "type": "string",
+                      "enum": ["Infinity", "-Infinity", "NaN"]
+                    }
+                  ]
+                }
+              },
+              "required": ["path", "bytesDownloaded", "bytesTotal"],
+              "additionalProperties": false
+            }
+          }
+        },
+        "required": [
+          "hostId",
+          "hostName",
+          "id",
+          "phase",
+          "modelId",
+          "bytesDownloaded",
+          "bytesTotal",
+          "createdAt",
+          "updatedAt",
+          "error",
+          "warnings",
+          "artifacts"
+        ],
+        "additionalProperties": false
+      },
+      "GalleryInstalledModel": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          },
+          "sizeBytes": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "string",
+                "enum": ["NaN"]
+              },
+              {
+                "type": "string",
+                "enum": ["Infinity"]
+              },
+              {
+                "type": "string",
+                "enum": ["-Infinity"]
+              },
+              {
+                "type": "string",
+                "enum": ["Infinity", "-Infinity", "NaN"]
+              }
+            ]
+          },
+          "loaded": {
+            "type": "boolean"
+          },
+          "state": {
+            "type": "string"
+          },
+          "default": {
+            "type": "boolean"
+          },
+          "format": {
+            "type": "string"
+          },
+          "quantization": {
+            "type": "string"
+          },
+          "parameterSize": {
+            "type": "string"
+          },
+          "sourceRepository": {
+            "type": "string"
+          },
+          "sourceRevision": {
+            "type": "string"
+          },
+          "artifactPaths": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "activeOperationId": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "name",
+          "sizeBytes",
+          "loaded",
+          "state",
+          "default",
+          "format",
+          "quantization",
+          "parameterSize",
+          "sourceRepository",
+          "sourceRevision",
+          "artifactPaths",
+          "activeOperationId"
+        ],
+        "additionalProperties": false
+      },
+      "GalleryHostInventory": {
+        "type": "object",
+        "properties": {
+          "hostId": {
+            "type": "string"
+          },
+          "hostName": {
+            "type": "string"
+          },
+          "online": {
+            "type": "boolean"
+          },
+          "storeKey": {
+            "type": "string"
+          },
+          "modelsDir": {
+            "type": "string"
+          },
+          "models": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/GalleryInstalledModel"
+            }
+          }
+        },
+        "required": ["hostId", "hostName", "online", "storeKey", "modelsDir", "models"],
+        "additionalProperties": false
+      },
+      "GalleryRemovePayload": {
+        "type": "object",
+        "properties": {
+          "hostId": {
+            "type": "string"
+          },
+          "modelId": {
+            "type": "string"
+          },
+          "mode": {
+            "type": "string",
+            "enum": ["hide", "delete"]
+          }
+        },
+        "required": ["hostId", "modelId", "mode"],
+        "additionalProperties": false
+      },
+      "GalleryRemoveResult": {
+        "type": "object",
+        "properties": {
+          "hostId": {
+            "type": "string"
+          },
+          "modelId": {
+            "type": "string"
+          },
+          "mode": {
+            "type": "string",
+            "enum": ["hide", "delete"]
+          },
+          "deletedFiles": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "missingFiles": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          }
+        },
+        "required": ["hostId", "modelId", "mode", "deletedFiles", "missingFiles"],
+        "additionalProperties": false
+      },
+      "GalleryModelRef": {
+        "type": "object",
+        "properties": {
+          "hostId": {
+            "type": "string"
+          },
+          "modelId": {
+            "type": "string"
+          }
+        },
+        "required": ["hostId", "modelId"],
+        "additionalProperties": false
+      },
+      "GalleryModelState": {
+        "type": "object",
+        "properties": {
+          "hostId": {
+            "type": "string"
+          },
+          "modelId": {
+            "type": "string"
+          },
+          "loaded": {
+            "type": "boolean"
+          }
+        },
+        "required": ["hostId", "modelId", "loaded"],
+        "additionalProperties": false
+      },
+      "GalleryCopyPayload": {
+        "type": "object",
+        "properties": {
+          "fromHostId": {
+            "type": "string"
+          },
+          "toHostId": {
+            "type": "string"
+          },
+          "modelId": {
+            "type": "string"
+          },
+          "move": {
+            "type": "boolean"
+          }
+        },
+        "required": ["fromHostId", "toHostId", "modelId"],
+        "additionalProperties": false
+      },
+      "GalleryCopyResult": {
+        "type": "object",
+        "properties": {
+          "operation": {
+            "$ref": "#/components/schemas/GalleryOperation"
+          },
+          "sharedStore": {
+            "type": "boolean"
+          },
+          "sourceRemoval": {
+            "type": "string",
+            "enum": ["none", "hide", "delete"]
+          }
+        },
+        "required": ["operation", "sharedStore", "sourceRemoval"],
+        "additionalProperties": false
+      },
+      "GalleryOperationRef": {
+        "type": "object",
+        "properties": {
+          "hostId": {
+            "type": "string"
+          },
+          "id": {
+            "type": "string"
+          }
+        },
+        "required": ["hostId", "id"],
+        "additionalProperties": false
+      },
       "GalleryHostInfo": {
         "type": "object",
         "properties": {
@@ -25678,6 +27171,57 @@
           }
         },
         "required": ["type", "text"],
+        "additionalProperties": false
+      },
+      "PeerMessagePartInput": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "pattern": "^prt"
+          },
+          "type": {
+            "type": "string",
+            "enum": ["peer-message"]
+          },
+          "text": {
+            "type": "string"
+          },
+          "body": {
+            "type": "string"
+          },
+          "from": {
+            "type": "object",
+            "properties": {
+              "harness": {
+                "type": "string",
+                "enum": ["opencode-skein", "claude-code"]
+              },
+              "sessionID": {
+                "type": "string"
+              },
+              "title": {
+                "type": "string"
+              }
+            },
+            "required": ["harness", "sessionID", "title"],
+            "additionalProperties": false
+          },
+          "mode": {
+            "type": "string",
+            "enum": ["notify", "request", "reply"]
+          },
+          "envelopeID": {
+            "type": "string"
+          },
+          "contextID": {
+            "type": "string"
+          },
+          "inReplyTo": {
+            "type": "string"
+          }
+        },
+        "required": ["type", "text", "body", "from"],
         "additionalProperties": false
       },
       "FilePartInput": {

@@ -13,7 +13,7 @@ import { InstanceStore } from "@/project/instance-store"
 import { Session } from "@/session/session"
 import { SessionID } from "@/session/schema"
 import { SessionPrompt } from "@/session/prompt"
-import { formatPeerMessage } from "@/session/peers"
+import { peerMessagePart, type PeerMessageSource } from "@/session/peers"
 import { settleTaskReply } from "@/peer/delegate"
 import { peerBody, settlePeerReply } from "@/peer/envelope"
 import { PeerInbox } from "@/peer/inbox"
@@ -138,13 +138,9 @@ const layer = Layer.effect(
                   grant: lead.grantID,
                 })
               }
-              const wrapped = sender
-                ? formatPeerMessage(
-                    { sessionID: sender, title: inbound.fromName ?? sender, reply: { target: sender }, lead },
-                    inbound.text,
-                  )
-                : formatPeerMessage(
-                    {
+              const source: PeerMessageSource = sender
+                ? { sessionID: sender, title: inbound.fromName ?? sender, reply: { target: sender }, lead }
+                : {
                       harness: "claude-code",
                       sessionID: pid ?? "unknown-pid",
                       title: inbound.fromName ?? "a Claude Code peer",
@@ -157,9 +153,8 @@ const layer = Layer.effect(
                           ? { target: inbound.fromName }
                           : { unreachable: true },
                       lead,
-                    },
-                    inbound.text,
-                  )
+                    }
+              const part = peerMessagePart(source, inbound.text)
               const targetID = SessionID.make(inbound.sessionID)
               // `instanceStore.provide` only wraps this generator's own
               // computation, not a closure called later from outside it
@@ -173,7 +168,7 @@ const layer = Layer.effect(
                     .prompt({
                       sessionID: targetID,
                       agent: info.agent,
-                      parts: [{ type: "text", synthetic: true, text: wrapped }],
+                      parts: [part],
                     })
                     .pipe(Effect.asVoid),
                 )

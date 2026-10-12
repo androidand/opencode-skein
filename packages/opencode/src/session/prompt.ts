@@ -1760,6 +1760,7 @@ export const PromptInput = Schema.Struct({
   parts: Schema.Array(
     Schema.Union([
       SessionV1.TextPartInput,
+      SessionV1.PeerMessagePartInput,
       SessionV1.FilePartInput,
       SessionV1.AgentPartInput,
       SessionV1.SubtaskPartInput,

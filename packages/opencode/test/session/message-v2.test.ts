@@ -1727,3 +1727,34 @@ describe("session.message-v2.latest", () => {
     expect(state.tasks[0]).toMatchObject({ type: "subtask", prompt: "inspect" })
   })
 })
+
+describe("session.message-v2.toModelMessage peer-message", () => {
+  const peerPart = (messageID: string) =>
+    ({
+      ...basePart(messageID, "p1"),
+      type: "peer-message",
+      text: "[peer message from opencode-skein session ses_a — \"A\"]\nlead\n\nbody",
+      body: "body",
+      from: { harness: "opencode-skein", sessionID: "ses_a", title: "A" },
+      mode: "notify",
+    }) as unknown as SessionV1.Part
+
+  test("the model receives exactly the part's model text", async () => {
+    const input: SessionV1.WithParts[] = [{ info: userInfo("m-peer"), parts: [peerPart("m-peer")] }]
+
+    expect(await MessageV2.toModelMessages(input, model)).toStrictEqual([
+      { role: "user", content: [{ type: "text", text: "[peer message from opencode-skein session ses_a — \"A\"]\nlead\n\nbody" }] },
+    ])
+  })
+
+  // Every Part type is either handled by toModelMessages or named here as
+  // never shown to the model. A new type that is neither is silently dropped
+  // from the prompt, which is how a received message would vanish.
+  test("every part type is converted or declared model-invisible", () => {
+    const converted = new Set(["text", "peer-message", "file", "tool", "reasoning", "step-start", "compaction", "subtask"])
+    const modelInvisible = new Set(["step-finish", "snapshot", "patch", "agent", "retry"])
+    const types = SessionV1.Part.members.map((member) => (member.fields.type as any).literal as string)
+    expect(types).toContain("peer-message")
+    for (const type of types) expect([type, converted.has(type) || modelInvisible.has(type)]).toEqual([type, true])
+  })
+})

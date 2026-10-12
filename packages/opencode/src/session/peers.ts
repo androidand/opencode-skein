@@ -9,6 +9,8 @@
 // Pure and import-free apart from types, like gates.ts and personas.ts, so the
 // caller supplies the four sources and tests drive it without a runtime.
 import type { Verdict as LeadVerdict } from "@/peer/lead"
+import { parsePeerEnvelope } from "@/peer/envelope"
+import type { SessionV1 } from "@opencode-ai/core/v1/session"
 import { statusFrom, type Status } from "@/agent/presence-status"
 
 export interface PeerSession {
@@ -638,6 +640,26 @@ export function formatPeerMessage(from: PeerMessageSource, text: string): string
     "",
     text,
   ].join("\n")
+}
+
+/**
+ * The part a received peer message is stored as. `text` is what the model is
+ * shown (`formatPeerMessage`, unchanged); the rest is what a person is shown.
+ * The channel the message arrived on decides that it is a peer message, not
+ * whether its header parses: a message without one is a `notify`.
+ */
+export function peerMessagePart(from: PeerMessageSource, raw: string): SessionV1.PeerMessagePartInput {
+  const parsed = parsePeerEnvelope(raw)
+  return {
+    type: "peer-message",
+    text: formatPeerMessage(from, raw),
+    body: parsed?.body ?? raw,
+    from: { harness: from.harness ?? "opencode-skein", sessionID: from.sessionID, title: from.title },
+    mode: parsed?.envelope.mode ?? from.mode ?? "notify",
+    ...(parsed?.envelope.messageID ? { envelopeID: parsed.envelope.messageID } : {}),
+    ...(parsed?.envelope.contextID ? { contextID: parsed.envelope.contextID } : {}),
+    ...(parsed?.envelope.inReplyTo ? { inReplyTo: parsed.envelope.inReplyTo } : {}),
+  }
 }
 
 /**
