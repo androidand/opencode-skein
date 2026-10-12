@@ -1,5 +1,7 @@
 List the other agent sessions on this machine — opencode-skein sessions in any directory, and
-Claude Code sessions if any are running.
+Claude Code sessions if any are running. This is a tool you call with no arguments, not a shell
+command: there is no `peers` program to run. To message one of them, use send_peer_message with
+the id shown here.
 
 Sessions are grouped by how their work can collide with yours, because that decides what
 coordinating with them even means:
@@ -14,8 +16,7 @@ coordinating with them even means:
   for them; do not ask them to stay out of your way.
 
 Each line also says what the session is available for, which is not the same as what it is
-doing. "Busy" covers a session mid-turn, which a message would race, and that delivery is
-refused. "Not working" covers a session free to help AND a session stuck behind a permission
+doing. "Busy" covers a session mid-turn; a message to it is held and delivered when its turn ends. "Not working" covers a session free to help AND a session stuck behind a permission
 prompt or a stalled loop, which will not read anything until a human answers it, and a session
 whose process is gone, which will never read anything at all. Read the availability clause at
 the end of each line rather than assuming idle means free.
@@ -48,14 +49,11 @@ An empty result means no other session exists anywhere on this machine right now
 tool failed. Only the longest-idle sessions are trimmed from the list, and the count says how
 many were left out.
 
-The result also lists the local inference hosts and, for each, which sessions are pointed at it.
-Read that as a capacity map, not trivia. These hosts usually accept one request at a time, so a
-session sitting on a host holds that host: its model is loaded and its cache is warm, and giving
-it a piece of work costs one turn on capacity that is already committed. Spawning a subagent
-instead takes a slot of its own and may force the host to load a different model first. When
-every reachable host is occupied, a new subagent does not add parallelism at all — it queues.
-So when work could go either way, ask the colleague who is already there before you spawn
-someone new, and say what you need in one message rather than a conversation.
+The result also lists the local inference hosts and which sessions are pointed at each. These
+hosts usually accept one request at a time, so a session sitting on a host holds it: its model is
+loaded and its cache is warm. Spawning a subagent takes a slot of its own and may force a model
+load, and when every reachable host is occupied it just queues. So when work could go either way,
+ask the colleague already on a host, in one message rather than a conversation.
 
 Trust the slot counts over the names. The counts come from the hosts themselves, so a slot held
 by another process or another client is counted with nobody named beside it.

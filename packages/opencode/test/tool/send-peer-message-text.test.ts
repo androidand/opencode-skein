@@ -31,3 +31,37 @@ describe("peer tool descriptions", () => {
     expect(text).toMatch(/Do not send the same message again/)
   })
 })
+
+describe("peer tool descriptions: contract first, no stale claims", () => {
+  test("send_peer_message opens with what it does and shows an example call", async () => {
+    const text = await readFile(join(toolDir, "send-peer-message.txt"), "utf8")
+    expect(text.indexOf("Example: send_peer_message(")).toBeGreaterThan(-1)
+    expect(text.indexOf("Example: send_peer_message(")).toBeLessThan(500)
+    expect(text).toContain('exactly "notify"')
+  })
+
+  test("a busy target is described as held and delivered, not refused (the code queues it)", async () => {
+    const [send, peers] = await Promise.all([
+      readFile(join(toolDir, "send-peer-message.txt"), "utf8"),
+      readFile(join(toolDir, "peers.txt"), "utf8"),
+    ])
+    expect(send).toMatch(/held and delivered automatically/)
+    expect(send).not.toMatch(/is not delivered/)
+    expect(send).not.toMatch(/Retry once/)
+    expect(peers).not.toMatch(/delivery is\s+refused/)
+  })
+
+  test("peers says it is a tool, not a shell command", async () => {
+    const text = await readFile(join(toolDir, "peers.txt"), "utf8")
+    expect(text).toMatch(/not a shell\s+command/)
+  })
+
+  test("neither description grew", async () => {
+    const [send, peers] = await Promise.all([
+      readFile(join(toolDir, "send-peer-message.txt"), "utf8"),
+      readFile(join(toolDir, "peers.txt"), "utf8"),
+    ])
+    expect(Buffer.byteLength(send)).toBeLessThanOrEqual(4198)
+    expect(Buffer.byteLength(peers)).toBeLessThanOrEqual(4552)
+  })
+})
