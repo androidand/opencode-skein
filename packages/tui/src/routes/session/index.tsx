@@ -58,6 +58,7 @@ import { SubagentFooter } from "./subagent-footer.tsx"
 import { filetype } from "../../util/filetype"
 import parsers from "../../parsers-config"
 import { errorMessage } from "../../util/error"
+import { peerMessageLabel } from "../../util/peer-message"
 import { Toast, useToast } from "../../ui/toast"
 import { useKV } from "../../context/kv.tsx"
 import stripAnsi from "strip-ansi"
@@ -1509,9 +1510,31 @@ function UserMessage(props: {
   const metadataVisible = createMemo(() => queued() || ctx.showTimestamps())
 
   const compaction = createMemo(() => props.parts.find((x) => x.type === "compaction"))
+  // A received peer message is not typed input: it is shown as an inbound block
+  // and, like synthetic text, kept out of the input counter, the edit-last-message
+  // scan and the visible-message list (all of which look only at `type === "text"`).
+  const peers = createMemo(() => props.parts.flatMap((x) => (x.type === "peer-message" ? [x] : [])))
 
   return (
     <>
+      <For each={peers()}>
+        {(peer) => (
+          <box
+            border={["left"]}
+            borderColor={theme.accent}
+            customBorderChars={SplitBorder.customBorderChars}
+            marginTop={props.index === 0 ? 0 : 1}
+          >
+            <box paddingTop={1} paddingBottom={1} paddingLeft={2} backgroundColor={theme.backgroundPanel} flexShrink={0}>
+              <text fg={theme.accent}>
+                <span style={{ bold: true }}>← Peer message</span>
+                <span style={{ fg: theme.textMuted }}> {peerMessageLabel(peer)}</span>
+              </text>
+              <text fg={theme.text}>{peer.body}</text>
+            </box>
+          </box>
+        )}
+      </For>
       <Show when={text()}>
         <box
           id={props.message.id}

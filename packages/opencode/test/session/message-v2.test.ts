@@ -1758,3 +1758,17 @@ describe("session.message-v2.toModelMessage peer-message", () => {
     for (const type of types) expect([type, converted.has(type) || modelInvisible.has(type)]).toEqual([type, true])
   })
 })
+
+describe("session.message-v2.isTypedUserMessage", () => {
+  const msg = (parts: unknown[]) => ({ info: userInfo("m"), parts }) as unknown as SessionV1.WithParts
+
+  test("a message holding only peer messages or synthetic text is not typed input", () => {
+    expect(MessageV2.isTypedUserMessage(msg([{ type: "peer-message" }]))).toBe(false)
+    expect(MessageV2.isTypedUserMessage(msg([{ type: "text", synthetic: true, text: "x" }]))).toBe(false)
+  })
+
+  test("a message with real text is typed input, even beside a peer message", () => {
+    expect(MessageV2.isTypedUserMessage(msg([{ type: "text", text: "hi" }]))).toBe(true)
+    expect(MessageV2.isTypedUserMessage(msg([{ type: "peer-message" }, { type: "text", text: "hi" }]))).toBe(true)
+  })
+})

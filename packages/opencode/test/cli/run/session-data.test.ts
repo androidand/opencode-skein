@@ -591,3 +591,39 @@ describe("run session data", () => {
     ])
   })
 })
+
+describe("run session data: received peer messages", () => {
+  const peer = (id: string) => ({
+    type: "message.part.updated",
+    properties: {
+      part: {
+        id,
+        messageID: "msg-user",
+        sessionID: "session-1",
+        type: "peer-message",
+        text: "model text",
+        body: "can you check x?",
+        from: { harness: "opencode-skein", sessionID: "ses_a", title: "Alpha" },
+        mode: "request",
+      },
+    },
+  })
+
+  test("is shown even though user-role text is not", () => {
+    const data = createSessionData()
+    reduce(data, user("msg-user"))
+    const out = reduce(data, peer("prt-peer"))
+    const shown = out.commits.map((c: StreamCommit) => c.text).join("\n")
+    expect(shown).toContain("Alpha")
+    expect(shown).toContain("ses_a")
+    expect(shown).toContain("can you check x?")
+    expect(shown).not.toContain("model text")
+  })
+
+  test("is shown once when the same part is updated again", () => {
+    const data = createSessionData()
+    reduce(data, user("msg-user"))
+    reduce(data, peer("prt-peer"))
+    expect(reduce(data, peer("prt-peer")).commits).toHaveLength(0)
+  })
+})

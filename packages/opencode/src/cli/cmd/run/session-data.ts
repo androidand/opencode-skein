@@ -998,6 +998,26 @@ export function reduceSessionData(input: SessionDataInput): SessionDataOutput {
       }
     }
 
+    // A received peer message is inbound, not the user's own typing, so the
+    // user-role suppression below does not apply. It is complete when created,
+    // so it is committed whole rather than streamed.
+    if (part.type === "peer-message") {
+      if (data.ids.has(part.id)) {
+        return out(data, commits)
+      }
+      data.ids.add(part.id)
+      const sender = part.from.harness === "claude-code" ? `Claude Code ${part.from.sessionID}` : part.from.sessionID
+      commits.push({
+        kind: "user",
+        text: `← Peer message · ${part.from.title} · ${sender} · ${part.mode ?? "notify"}\n${part.body}`,
+        phase: "final",
+        source: "system",
+        messageID: part.messageID,
+        partID: part.id,
+      })
+      return out(data, commits)
+    }
+
     if (part.type !== "text" && part.type !== "reasoning") {
       return out(data, commits)
     }

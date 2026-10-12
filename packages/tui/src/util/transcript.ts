@@ -1,6 +1,7 @@
 import type { AssistantMessage, Part, Provider, UserMessage } from "@opencode-ai/sdk/v2"
 import { Locale } from "./locale"
 import * as Model from "./model"
+import { peerMessageLabel } from "./peer-message"
 
 export type TranscriptOptions = {
   thinking: boolean
@@ -86,6 +87,10 @@ export function formatAssistantHeader(
 export function formatPart(part: Part, options: TranscriptOptions): string {
   if (part.type === "text" && !part.synthetic) {
     return `${part.text}\n\n`
+  }
+
+  if (part.type === "peer-message") {
+    return `_Peer message from ${peerMessageLabel(part)}:_\n\n${part.body}\n\n`
   }
 
   if (part.type === "reasoning") {

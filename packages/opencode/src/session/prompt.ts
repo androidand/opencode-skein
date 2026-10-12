@@ -203,11 +203,9 @@ export const layer = Layer.effect(
       if (input.session.parentID) return
       if (!Session.isDefaultTitle(input.session.title)) return
 
-      const real = (m: SessionV1.WithParts) =>
-        m.info.role === "user" && !m.parts.every((p) => "synthetic" in p && p.synthetic)
-      const idx = input.history.findIndex(real)
+      const idx = input.history.findIndex(MessageV2.isTypedUserMessage)
       if (idx === -1) return
-      if (input.history.filter(real).length !== 1) return
+      if (input.history.filter(MessageV2.isTypedUserMessage).length !== 1) return
 
       const context = input.history.slice(0, idx + 1)
       const firstUser = context[idx]

@@ -1580,3 +1580,36 @@ body:not([data-new-layout]) {
     color: var(--text-weak);
   }
 }
+
+[data-component="peer-message"] {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 8px 12px;
+  border-left: 2px solid var(--v2-border-border-accent, var(--border-interactive-base));
+  border-radius: 4px;
+  background: var(--v2-background-bg-layer-01);
+  -webkit-user-select: text;
+  user-select: text;
+
+  [data-slot="peer-message-header"] {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+    font-size: 12px;
+  }
+
+  [data-slot="peer-message-title"] {
+    font-weight: 600;
+  }
+
+  [data-slot="peer-message-from"] {
+    opacity: 0.7;
+  }
+
+  [data-slot="peer-message-body"] {
+    white-space: pre-wrap;
+    word-break: break-word;
+    unicode-bidi: plaintext;
+  }
+}

@@ -739,3 +739,15 @@ export function fromError(
 
 export * as MessageV2 from "./message-v2"
 export const node = LayerNode.group([Database.node])
+
+/**
+ * Whether a user message is something the user (or a caller acting for them)
+ * entered, as opposed to injected: synthetic text and received peer messages
+ * do not count. Title generation keys off the first one.
+ */
+export function isTypedUserMessage(message: SessionV1.WithParts): boolean {
+  return (
+    message.info.role === "user" &&
+    !message.parts.every((part) => part.type === "peer-message" || ("synthetic" in part && part.synthetic))
+  )
+}

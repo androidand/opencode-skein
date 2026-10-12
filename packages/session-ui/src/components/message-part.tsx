@@ -18,6 +18,7 @@ import stripAnsi from "strip-ansi"
 import { Dynamic } from "solid-js/web"
 import {
   AgentPart,
+  PeerMessagePart,
   AssistantMessage,
   FilePart,
   Message as MessageType,
@@ -1211,6 +1212,9 @@ export function UserMessageDisplay(props: {
 
   const agents = createMemo(() => (props.parts?.filter((p) => p.type === "agent") as AgentPart[]) ?? [])
 
+  // A received peer message is shown as an inbound block, not as the user's own text.
+  const peers = createMemo(() => (props.parts?.filter((p) => p.type === "peer-message") as PeerMessagePart[]) ?? [])
+
   const model = createMemo(() => {
     const providerID = props.message.model?.providerID
     const modelID = props.message.model?.modelID
@@ -1336,6 +1340,22 @@ export function UserMessageDisplay(props: {
           </div>
         </div>
       </Show>
+      <For each={peers()}>
+        {(peer) => (
+          <div data-component="peer-message" data-mode={peer.mode ?? "notify"} data-timeline-part-id={peer.id}>
+            <div data-slot="peer-message-header">
+              <span data-slot="peer-message-title">{i18n.t("ui.messagePart.peerMessage")}</span>
+              <span data-slot="peer-message-from">
+                {peer.from.title} · {peer.from.harness === "claude-code" ? `Claude Code ${peer.from.sessionID}` : peer.from.sessionID} ·{" "}
+                {peer.mode ?? "notify"}
+              </span>
+            </div>
+            <div data-slot="peer-message-body" dir="auto">
+              {peer.body}
+            </div>
+          </div>
+        )}
+      </For>
       <Show when={props.useV2Actions}>{renderAttachments()}</Show>
       <Show when={text() || (props.useV2Actions && messageComments().length > 0)}>
         <div data-slot="user-message-copy-wrapper">
