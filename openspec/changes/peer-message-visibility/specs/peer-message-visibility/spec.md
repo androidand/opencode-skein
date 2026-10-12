@@ -2,8 +2,7 @@
 
 ### Requirement: a received peer message SHALL be a structurally distinct message part
 
-The injected part SHALL have type `peer-message` when a peer message is delivered by any path (direct, sidecar socket or queued drain) and its first line parses as a peer envelope, and SHALL carry the parsed fields (sender session id, sender
-title, mode, message id, and context id / in-reply-to when present) plus the body. The
+The injected part SHALL have type `peer-message` (defined in `packages/schema/src/v1/session.ts`) when a peer message is delivered by any path (direct, sidecar socket or queued drain) and its first line parses as a peer envelope, and SHALL carry the parsed fields (sender harness, session id and title, mode, `envelopeID`, and context id / in-reply-to when present) plus the body. The
 same `parsePeerEnvelope` SHALL be used on every path.
 
 #### Scenario: an idle owned session receives a message
@@ -32,15 +31,16 @@ line, and the body, identical to the current synthetic-text injection.
 - **WHEN** the guard test iterates every `Part` type through `toModelMessages`
 - **THEN** each is either converted or listed as UI-only; adding an undeclared type fails
 
-### Requirement: unparseable envelopes SHALL degrade, never drop
+### Requirement: the delivery channel, not the header, SHALL decide that a message is a peer message
 
-A message with no valid header (legacy sender, human-typed, corrupted) SHALL be injected
-as a synthetic text part as today. A parsed header with missing optional fields SHALL
-still produce a `peer-message` part, with missing fields shown as unknown.
+Every message delivered through a peer path SHALL be stored as a `peer-message` part, whether
+or not its first line parses as an envelope. A message with no valid header SHALL have mode
+`notify` and no envelope fields; a parsed header contributes `envelopeID`, `contextID`,
+`inReplyTo` and `mode`. No message SHALL be dropped or downgraded to synthetic text.
 
 #### Scenario: no envelope
 - **WHEN** an inbound message has no `[peer …]` first line
-- **THEN** it is injected as synthetic text and no peer marker is rendered
+- **THEN** it is stored as a `peer-message` part with mode `notify` and its text as the body
 
 ### Requirement: every part-rendering surface SHALL show received peer messages
 
