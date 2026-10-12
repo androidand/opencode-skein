@@ -35,7 +35,8 @@ Each phase can ship or be dropped on its own.
 - [x] 3.2 Web app: `app/src/utils/session-message.ts`, `pages/session/timeline/rows.ts`.
 - [x] 3.3 session-ui: `components/message-part.tsx`.
 - [x] 3.4 CLI run live stream (`session-data.ts`); `session-replay.ts` not changed.
-- [x] 3.5 For each synthetic check, decide include/exclude explicitly and test it.
+- [x] 3.5 Each synthetic check decided (see 1.4). Tested: title generation, run mode. NOT tested: the
+      TUI checks (they match `type === "text"` only, so peer parts fall outside by construction).
 
 ## Phase 4: `peers` in bash
 
@@ -51,7 +52,9 @@ Each phase can ship or be dropped on its own.
 
 ## Phase 6: Verification
 
-- [x] 6.1 Every fix above has a test that goes red without it.
+- [x] 6.1 Red-without-fix observed for: model conversion, `peerMessagePart`, transcript/label helper,
+      run-mode commit, `isTypedUserMessage`, the `peers` matcher and shell intercept, description
+      tests. No test for the TUI block or the web block themselves (JSX; type-checked only).
 - [x] 6.2 `peer-conversation-reliability` tests still pass.
 - [ ] 6.3 Send a real message to a live session and see the block on each surface
       (needs a build deployed to the running instances; not done).
