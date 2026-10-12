@@ -1,3 +1,4 @@
+import { isPeersShellCommand, PEERS_SHELL_MESSAGE } from "./peers-shell-command"
 import { Effect, Stream } from "effect"
 import os from "os"
 import { createWriteStream } from "node:fs"
@@ -637,6 +638,18 @@ export const ShellTool = Tool.define(
           parameters: prompt.parameters,
           execute: (params: Parameters, ctx: Tool.Context) =>
             Effect.gen(function* () {
+              if (isPeersShellCommand(params.command)) {
+                return {
+                  title: params.description ?? params.command,
+                  metadata: {
+                    output: PEERS_SHELL_MESSAGE,
+                    exit: 1,
+                    description: params.description ?? params.command,
+                    truncated: false,
+                  },
+                  output: PEERS_SHELL_MESSAGE,
+                }
+              }
               const instanceCtx = yield* InstanceState.context
               const cwd = params.workdir
                 ? yield* resolvePath(params.workdir, instanceCtx.directory, shell)

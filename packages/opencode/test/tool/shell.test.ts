@@ -194,6 +194,18 @@ describe("tool.shell", () => {
     ),
   )
 
+  each("points `peers` at the peers tool instead of running it", () =>
+    runIn(
+      projectRoot,
+      Effect.gen(function* () {
+        const result = yield* run({ command: "rtk peers 2>&1 | head -20" })
+        expect(result.output).toContain("`peers` is a tool")
+        expect(result.output).not.toContain("command not found")
+        expect(result.metadata.exit).toBe(1)
+      }),
+    ),
+  )
+
   it.live("falls back from terminal-only configured shell", () =>
     Effect.gen(function* () {
       const tmp = yield* tmpdirScoped({ config: { shell: "fish" } })
