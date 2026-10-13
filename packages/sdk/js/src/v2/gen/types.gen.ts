@@ -2515,6 +2515,15 @@ export type LocalCtxSizePayload = {
   ctx_size: number
 }
 
+export type LocalMemoryPayload = {
+  ctx_size?: number
+  cache_type_k?: string
+  cache_type_v?: string
+  kv_offload?: boolean
+  n_cpu_moe?: number
+  n_gpu_layers?: number
+}
+
 export type LocalOffloadPayload = {
   n_cpu_moe?: number
   cpu_moe?: boolean
@@ -8998,6 +9007,37 @@ export type LocalModelSetCtxSizeResponses = {
 }
 
 export type LocalModelSetCtxSizeResponse = LocalModelSetCtxSizeResponses[keyof LocalModelSetCtxSizeResponses]
+
+export type LocalModelSetMemoryData = {
+  body?: LocalMemoryPayload
+  path: {
+    providerID: string
+    modelID: string
+  }
+  query?: {
+    directory?: string
+    workspace?: string
+  }
+  url: "/local/model/{providerID}/{modelID}/memory"
+}
+
+export type LocalModelSetMemoryErrors = {
+  /**
+   * Bad request
+   */
+  400: BadRequestError
+}
+
+export type LocalModelSetMemoryError = LocalModelSetMemoryErrors[keyof LocalModelSetMemoryErrors]
+
+export type LocalModelSetMemoryResponses = {
+  /**
+   * Memory configuration updated
+   */
+  200: boolean
+}
+
+export type LocalModelSetMemoryResponse = LocalModelSetMemoryResponses[keyof LocalModelSetMemoryResponses]
 
 export type LocalModelSetOffloadData = {
   body?: LocalOffloadPayload

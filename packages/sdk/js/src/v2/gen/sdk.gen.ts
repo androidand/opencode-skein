@@ -130,10 +130,13 @@ import type {
   LocalCtxSizePayload,
   LocalDisconnectErrors,
   LocalDisconnectResponses,
+  LocalMemoryPayload,
   LocalModelOffloadRecommendationErrors,
   LocalModelOffloadRecommendationResponses,
   LocalModelSetCtxSizeErrors,
   LocalModelSetCtxSizeResponses,
+  LocalModelSetMemoryErrors,
+  LocalModelSetMemoryResponses,
   LocalModelSetOffloadErrors,
   LocalModelSetOffloadResponses,
   LocalOffloadPayload,
@@ -2387,6 +2390,51 @@ export class Model extends HeyApiClient {
       ThrowOnError
     >({
       url: "/local/model/{providerID}/{modelID}/ctx-size",
+      ...options,
+      ...params,
+      headers: {
+        "Content-Type": "application/json",
+        ...options?.headers,
+        ...params.headers,
+      },
+    })
+  }
+
+  /**
+   * Set model memory configuration
+   *
+   * Write context size, KV cache types, KV offload and weight offload for a model on a llama-skein backend in one PATCH, so the model reloads once. The values are never refused against the fit estimate.
+   */
+  public setMemory<ThrowOnError extends boolean = false>(
+    parameters: {
+      providerID: string
+      modelID: string
+      directory?: string
+      workspace?: string
+      localMemoryPayload?: LocalMemoryPayload
+    },
+    options?: Options<never, ThrowOnError>,
+  ) {
+    const params = buildClientParams(
+      [parameters],
+      [
+        {
+          args: [
+            { in: "path", key: "providerID" },
+            { in: "path", key: "modelID" },
+            { in: "query", key: "directory" },
+            { in: "query", key: "workspace" },
+            { key: "localMemoryPayload", map: "body" },
+          ],
+        },
+      ],
+    )
+    return (options?.client ?? this.client).patch<
+      LocalModelSetMemoryResponses,
+      LocalModelSetMemoryErrors,
+      ThrowOnError
+    >({
+      url: "/local/model/{providerID}/{modelID}/memory",
       ...options,
       ...params,
       headers: {
