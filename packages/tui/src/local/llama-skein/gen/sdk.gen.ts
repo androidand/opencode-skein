@@ -2,7 +2,7 @@
 
 import { buildClientParams, type Client, type Options as Options2, type TDataShape } from './client';
 import { client } from './client.gen';
-import type { AddModelConfigErrors, AddModelConfigResponses, CancelModelOperationErrors, CancelModelOperationResponses, CheckRuntimeHealthResponses, ClearModelDefaultErrors, ClearModelDefaultResponses, ConfigDefaultModelRequest, ConfigGroupPatchRequest, ConfigModelPatchRequest, ConfigModelRequest, ConfigRollbackRequest, ConfigValidateRequest, CreateModelOperationErrors, CreateModelOperationResponses, GetApiModelsResponses, GetConfigHistoryResponses, GetConfigInfoResponses, GetDefaultSkeinConfigResponses, GetFitReportResponses, GetHardwareResponses, GetHealthResponses, GetModelConfigErrors, GetModelConfigResponses, GetModelDefaultResponses, GetModelFitErrors, GetModelFitResponses, GetModelOperationErrors, GetModelOperationResponses, GetOffloadRecommendationErrors, GetOffloadRecommendationResponses, GetRunningResponses, GetSkeinConfigResponses, GetSystemCapabilitiesResponses, GetSystemVersionResponses, GetTuningResponses, HypotheticalFitRequest, InstallRuntimeErrors, InstallRuntimeResponses, ListModelOperationsResponses, ListModelsResponses, ListRuntimesResponses, ListTuningProfilesResponses, ModelInstallPlan, PatchGroupErrors, PatchGroupResponses, PatchModelConfigErrors, PatchModelConfigResponses, PatchTuningResponses, PostHypotheticalFitErrors, PostHypotheticalFitResponses, ReloadConfigErrors, ReloadConfigResponses, RemoveModelConfigErrors, RemoveModelConfigResponses, RollbackConfigErrors, RollbackConfigResponses, RuntimeInstallRequest, SetModelDefaultErrors, SetModelDefaultResponses, SetSkeinConfigErrors, SetSkeinConfigResponses, StreamModelOperationEventsErrors, StreamModelOperationEventsResponses, TuningPatchRequest, UpgradeRuntimeErrors, UpgradeRuntimeResponses, UserProfile, ValidateConfigResponses } from './types.gen';
+import type { AddModelConfigErrors, AddModelConfigResponses, CancelModelOperationErrors, CancelModelOperationResponses, CheckRuntimeHealthResponses, ClearModelDefaultErrors, ClearModelDefaultResponses, ConfigDefaultModelRequest, ConfigGroupPatchRequest, ConfigModelPatchRequest, ConfigModelRequest, ConfigRollbackRequest, ConfigValidateRequest, CreateModelOperationErrors, CreateModelOperationResponses, DeleteModelErrors, DeleteModelResponses, GetApiModelsResponses, GetConfigHistoryResponses, GetConfigInfoResponses, GetDefaultSkeinConfigResponses, GetFitReportResponses, GetHardwareResponses, GetHealthResponses, GetModelArtifactErrors, GetModelArtifactResponses, GetModelConfigErrors, GetModelConfigResponses, GetModelDefaultResponses, GetModelFitErrors, GetModelFitResponses, GetModelMemoryOptionsErrors, GetModelMemoryOptionsResponses, GetModelOperationErrors, GetModelOperationResponses, GetOffloadRecommendationErrors, GetOffloadRecommendationResponses, GetRunningResponses, GetSkeinConfigResponses, GetSystemCapabilitiesResponses, GetSystemVersionResponses, GetTuningResponses, HypotheticalFitRequest, InstallRuntimeErrors, InstallRuntimeResponses, ListModelArtifactsErrors, ListModelArtifactsResponses, ListModelOperationsResponses, ListModelsResponses, ListRuntimesResponses, ListTuningProfilesResponses, LoadModelErrors, LoadModelResponses, MemoryOverrides, ModelInstallPlan, PatchGroupErrors, PatchGroupResponses, PatchModelConfigErrors, PatchModelConfigResponses, PatchTuningResponses, PostHypotheticalFitErrors, PostHypotheticalFitResponses, ReloadConfigErrors, ReloadConfigResponses, RemoveModelConfigErrors, RemoveModelConfigResponses, RollbackConfigErrors, RollbackConfigResponses, RuntimeInstallRequest, SetModelDefaultErrors, SetModelDefaultResponses, SetSkeinConfigErrors, SetSkeinConfigResponses, StreamModelOperationEventsErrors, StreamModelOperationEventsResponses, TuningPatchRequest, UnloadAllModelsResponses, UnloadModelErrors, UnloadModelResponses, UpgradeRuntimeErrors, UpgradeRuntimeResponses, UserProfile, ValidateConfigResponses, WhatIfModelFitErrors, WhatIfModelFitResponses } from './types.gen';
 
 export type Options<TData extends TDataShape = TDataShape, ThrowOnError extends boolean = boolean> = Options2<TData, ThrowOnError> & {
     /**
@@ -541,6 +541,123 @@ export class LlamaSkeinClient extends HeyApiClient {
         const params = buildClientParams([parameters], [{ args: [{ in: 'path', key: 'id' }] }]);
         return (options?.client ?? this.client).sse.get<StreamModelOperationEventsResponses, StreamModelOperationEventsErrors, ThrowOnError>({
             url: '/api/models/operations/{id}/events',
+            ...options,
+            ...params
+        });
+    }
+    
+    /**
+     * Delete an installed model: its complete artifact set on disk and its config entry.
+     *
+     * Resolves the full artifact set the founding install recorded before touching disk, so a model is never half-deleted. Refuses while an operation on the model is in flight.
+     */
+    public deleteModel<ThrowOnError extends boolean = false>(parameters: {
+        model: string;
+    }, options?: Options<never, ThrowOnError>) {
+        const params = buildClientParams([parameters], [{ args: [{ in: 'path', key: 'model' }] }]);
+        return (options?.client ?? this.client).delete<DeleteModelResponses, DeleteModelErrors, ThrowOnError>({
+            url: '/api/models/{model}',
+            ...options,
+            ...params
+        });
+    }
+    
+    /**
+     * Load a model into memory now (warm swap-in) without waiting for a real request.
+     */
+    public loadModel<ThrowOnError extends boolean = false>(parameters: {
+        model: string;
+    }, options?: Options<never, ThrowOnError>) {
+        const params = buildClientParams([parameters], [{ args: [{ in: 'path', key: 'model' }] }]);
+        return (options?.client ?? this.client).post<LoadModelResponses, LoadModelErrors, ThrowOnError>({
+            url: '/api/models/load/{model}',
+            ...options,
+            ...params
+        });
+    }
+    
+    /**
+     * Stop one loaded model and free its memory.
+     */
+    public unloadModel<ThrowOnError extends boolean = false>(parameters: {
+        model: string;
+    }, options?: Options<never, ThrowOnError>) {
+        const params = buildClientParams([parameters], [{ args: [{ in: 'path', key: 'model' }] }]);
+        return (options?.client ?? this.client).post<UnloadModelResponses, UnloadModelErrors, ThrowOnError>({
+            url: '/api/models/unload/{model}',
+            ...options,
+            ...params
+        });
+    }
+    
+    /**
+     * Stop every loaded model.
+     */
+    public unloadAllModels<ThrowOnError extends boolean = false>(options?: Options<never, ThrowOnError>) {
+        return (options?.client ?? this.client).post<UnloadAllModelsResponses, unknown, ThrowOnError>({ url: '/api/models/unload', ...options });
+    }
+    
+    /**
+     * List the artifact set of an installed model, for a peer that wants to import it.
+     *
+     * Lives under /api/models/artifacts/ rather than /api/models/{model}/artifacts because the latter is ambiguous with the /api/models/context/{model} route family.
+     */
+    public listModelArtifacts<ThrowOnError extends boolean = false>(parameters: {
+        model: string;
+    }, options?: Options<never, ThrowOnError>) {
+        const params = buildClientParams([parameters], [{ args: [{ in: 'path', key: 'model' }] }]);
+        return (options?.client ?? this.client).get<ListModelArtifactsResponses, ListModelArtifactsErrors, ThrowOnError>({
+            url: '/api/models/artifacts/{model}',
+            ...options,
+            ...params
+        });
+    }
+    
+    /**
+     * Stream one artifact of an installed model (supports Range).
+     */
+    public getModelArtifact<ThrowOnError extends boolean = false>(parameters: {
+        model: string;
+        path: string;
+    }, options?: Options<never, ThrowOnError>) {
+        const params = buildClientParams([parameters], [{ args: [{ in: 'path', key: 'model' }, { in: 'path', key: 'path' }] }]);
+        return (options?.client ?? this.client).get<GetModelArtifactResponses, GetModelArtifactErrors, ThrowOnError>({
+            url: '/api/models/artifacts/{model}/{path}',
+            ...options,
+            ...params
+        });
+    }
+    
+    /**
+     * Fit a model would have under overrides, without changing its config or reloading it.
+     */
+    public whatIfModelFit<ThrowOnError extends boolean = false>(parameters: {
+        model: string;
+        memoryOverrides: MemoryOverrides;
+    }, options?: Options<never, ThrowOnError>) {
+        const params = buildClientParams([parameters], [{ args: [{ in: 'path', key: 'model' }, { key: 'memoryOverrides', map: 'body' }] }]);
+        return (options?.client ?? this.client).post<WhatIfModelFitResponses, WhatIfModelFitErrors, ThrowOnError>({
+            url: '/api/fit/{model}/whatif',
+            ...options,
+            ...params,
+            headers: {
+                'Content-Type': 'application/json',
+                ...options?.headers,
+                ...params.headers
+            }
+        });
+    }
+    
+    /**
+     * Ordered ways to reach a target context: KV quantisation, KV in RAM, layer or expert offload. Advisory; writes nothing.
+     */
+    public getModelMemoryOptions<ThrowOnError extends boolean = false>(parameters: {
+        model: string;
+        target_ctx: number;
+    }, options?: Options<never, ThrowOnError>) {
+        const params = buildClientParams([parameters], [{ args: [{ in: 'path', key: 'model' }, { in: 'query', key: 'target_ctx' }] }]);
+        return (options?.client ?? this.client).get<GetModelMemoryOptionsResponses, GetModelMemoryOptionsErrors, ThrowOnError>({
+            url: '/api/fit/{model}/options',
             ...options,
             ...params
         });

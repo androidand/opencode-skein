@@ -49,6 +49,30 @@ export type ErrorResponse = {
     error: string;
 };
 
+/**
+ * Returned when a prompt exceeds the model's max_safe_ctx. The max_safe_ctx field is the enforced ceiling in tokens — clients should trim to it and retry. Also emitted in the X-Skein-Max-Safe-Ctx response header for compatibility.
+ */
+export type PromptOverCtxError = {
+    error: {
+        /**
+         * Human-readable explanation including the estimated prompt size and the enforced ceiling.
+         */
+        message: string;
+        /**
+         * Error type identifier.
+         */
+        type: 'exceed_context_size_error';
+        /**
+         * Machine-readable error code.
+         */
+        code: 'prompt_over_max_safe_ctx';
+        /**
+         * The enforced context ceiling in tokens. Clients must trim prompts to this size before retrying.
+         */
+        max_safe_ctx: number;
+    };
+};
+
 export type ResourceSnapshot = {
     storage?: StorageInfo;
     memory?: MemoryInfo;
@@ -236,6 +260,7 @@ export type Model = {
      * ID of a currently non-terminal model operation (see ModelOperation) whose registration.model_id is this model, if one is in progress — a reinstall, for instance. Omitted when no such operation exists.
      */
     active_operation_id?: string;
+    source_peer?: PeerSource;
 };
 
 export type ConfigInfoResponse = {
@@ -247,6 +272,10 @@ export type ConfigInfoResponse = {
      * Configured default model ID; omitted when no default is set.
      */
     default_model?: string;
+    /**
+     * Stable identity of the model store this host serves from, read from a marker file llama-skein keeps in models_dir. Two hosts reporting the same store_id share the same files (one directory mounted twice, or two instances on one machine); omitted when models_dir is unknown or unwritable.
+     */
+    store_id?: string;
 };
 
 export type ConfigModelInfo = {
@@ -294,6 +323,14 @@ export type ConfigModelRequest = {
      * Advanced tensor placement override regex (llama.cpp --override-tensor). llamacpp only.
      */
     override_tensor?: string;
+    /**
+     * Keep the KV cache on the GPU (llama.cpp default). false writes --no-kv-offload, which places the KV cache in system RAM: far less VRAM, but every attention step crosses PCIe. Omitted leaves the command untouched.
+     */
+    kv_offload?: boolean;
+    /**
+     * Dash alias of kv_offload.
+     */
+    'kv-offload'?: boolean;
 };
 
 export type ConfigModelPatchRequest = {
@@ -357,6 +394,14 @@ export type ConfigModelPatchRequest = {
         mtp?: MtpMetadata;
         [key: string]: unknown | MtpMetadata | undefined;
     };
+    /**
+     * Keep the KV cache on the GPU (llama.cpp default). false writes --no-kv-offload, which places the KV cache in system RAM: far less VRAM, but every attention step crosses PCIe. Omitted leaves the command untouched.
+     */
+    kv_offload?: boolean;
+    /**
+     * Dash alias of kv_offload.
+     */
+    'kv-offload'?: boolean;
 };
 
 export type ConfigGroupPatchRequest = {
@@ -422,6 +467,10 @@ export type ConfigModelDetail = {
      * Read-only: the launch command after GPU-tuning profile injection. The stored `cmd` is unchanged; compare the two to see what the profile added.
      */
     effective_flags?: string;
+    /**
+     * Current KV offload setting read back from the command. false means --no-kv-offload is present.
+     */
+    kv_offload?: boolean;
 };
 
 export type ReloadResponse = {
@@ -658,6 +707,8 @@ export type FitScore = {
 
 /**
  * Fit of one model to THIS host: whether it runs, how well, and the max SAFE context (output- and overhead-reserved). Ported from llmfit fit.rs ModelFit.
+ *
+ * Invariant: max_safe_ctx > 0 implies max_fit_ctx > 0 — the report never advertises a usable prompt budget while simultaneously claiming no context fits. Enforced at the end of the fit computation so new fields cannot reintroduce the contradiction.
  */
 export type ModelFit = {
     /**
@@ -673,15 +724,19 @@ export type ModelFit = {
      */
     fit_level: FitLevel;
     /**
+     * True when the model fits physically (vram_required_mb <= vram_total_mb) but exceeds the VRAM safety budget (vramSafetyFrac * mtpExtraSafetyFrac). The engine still runs it — fit_level is at worst 'marginal' — but headroom is thin. Distinguishes 'risky but serving' from 'does not fit' so callers can warn without inferring from an omitted field.
+     */
+    over_safety_margin?: boolean;
+    /**
      * True when a configured model's --ctx-size is materially below the context VRAM could safely hold. Signals a starved config that the fit report would otherwise hide behind the small configured_ctx.
      */
     under_configured?: boolean;
     /**
-     * Largest --ctx-size (hard n_ctx) that fits this host's VRAM. The grow target for an under-configured model. 0 when VRAM is unknown.
+     * Largest --ctx-size that fits this host's VRAM, capped at the model's trained context when known. The grow target for an under-configured model. 0 when VRAM is unknown.
      */
     max_fit_ctx?: number;
     /**
-     * Largest --ctx-size that fits in raw VRAM bytes with NO safety margin applied: no vramSafetyFrac headroom cap, no promptMarginFrac prompt-budget trim. Only the real physical requirements (weights, KV cache, compute/activation overhead) are subtracted. This is what will load without OOMing, not what is comfortable to run at — expect it to sit close to 100% VRAM with little headroom for fluctuation. max_fit_ctx/max_safe_ctx are the conservative recommendations; this is the true ceiling for a caller who wants to choose their own risk. 0 when VRAM is unknown.
+     * Largest --ctx-size that fits in raw VRAM bytes with NO safety margin applied: no vramSafetyFrac headroom cap, no promptMarginFrac prompt-budget trim. Only the real physical requirements (weights, KV cache, compute/activation overhead) are subtracted. This is what will load without OOMing, not what is comfortable to run at — expect it to sit close to 100% VRAM with little headroom for fluctuation. Capped at the model's trained context when known (same quality ceiling as max_fit_ctx). max_fit_ctx/max_safe_ctx are the conservative recommendations; this is the true ceiling for a caller who wants to choose their own risk. 0 when VRAM is unknown.
      */
     max_physical_ctx?: number;
     /**
@@ -730,6 +785,10 @@ export type ModelFit = {
      */
     reason?: string;
     placement?: PlacementDecision;
+    /**
+     * The KV cache is resident in system RAM (--no-kv-offload). vram_required_mb then excludes it.
+     */
+    kv_on_host?: boolean;
 };
 
 /**
@@ -976,6 +1035,32 @@ export type ApiModel = {
     details?: {
         [key: string]: unknown;
     };
+    /**
+     * Weights file the config points at exists on disk.
+     */
+    installed?: boolean;
+    default?: boolean;
+    /**
+     * On-disk size of the weights.
+     */
+    size_bytes?: number;
+    /**
+     * Hugging Face repository the founding install operation fetched from; omitted for models registered by hand.
+     */
+    source_repository?: string;
+    /**
+     * Immutable revision (commit SHA) of source_repository.
+     */
+    source_revision?: string;
+    /**
+     * Repository-relative paths the founding install operation submitted.
+     */
+    artifact_paths?: Array<string>;
+    /**
+     * Id of an in-flight operation on this model, when one exists.
+     */
+    active_operation_id?: string;
+    source_peer?: PeerSource;
 };
 
 export type ApiModelsResponse = {
@@ -1162,23 +1247,35 @@ export type ModelRegistration = {
 };
 
 /**
- * An immutable installation plan (design.md decision 2). The server validates and snapshots this into a ModelOperation with a host-generated ID; the plan itself is never mutated after submission.
+ * An immutable installation plan (design.md decision 2). The server validates and snapshots this into a ModelOperation with a host-generated ID; the plan itself is never mutated after submission. Exactly one of source_repository/source_revision or source_peer identifies the source.
  */
 export type ModelInstallPlan = {
     /**
-     * e.g. "unsloth/Qwen3.6-35B-A3B-GGUF". A display name or mutable branch reference is not artifact identity — see source_revision.
+     * e.g. "unsloth/Qwen3.6-35B-A3B-GGUF". A display name or mutable branch reference is not artifact identity — see source_revision. Required unless source_peer is set.
      */
-    source_repository: string;
+    source_repository?: string;
     /**
-     * Immutable revision (commit SHA), not a mutable branch name. Required so a plan identifies exact, reproducible source content.
+     * Immutable revision (commit SHA), not a mutable branch name. Required so a plan identifies exact, reproducible source content. Required unless source_peer is set.
      */
-    source_revision: string;
-    artifacts: Array<InstallArtifact>;
+    source_revision?: string;
+    /**
+     * Artifacts to download. When empty or omitted with auto_discover_companions=true, the server discovers GGUF files from the repository (main weights + mmproj/dflash companions).
+     */
+    artifacts?: Array<InstallArtifact>;
+    /**
+     * When true and artifacts is empty, query the HuggingFace API to discover companion GGUFs (mmproj-*.gguf, dflash-*.gguf) alongside the main weights. Defaults to false for backward compatibility.
+     */
+    auto_discover_companions?: boolean;
+    /**
+     * When auto_discover_companions is true and the repository contains multiple GGUF weight variations (multiple quantizations), only the weight file whose path contains this substring is selected as the main weights artifact; the other weight variants are excluded from the plan. Example: "Q8_0" or "kquant-dynamic". Empty selects every GGUF that is not a recognized companion.
+     */
+    weight_filter?: string;
     registration: ModelRegistration;
     /**
      * Hugging Face access token for a gated repository. A request secret, not artifact identity: never persisted in the operation record, logged, or echoed back in an error (design.md decision 7). Not yet used to authenticate a download — no download execution exists yet (sections 3-4) — accepted now so the redaction guarantee is in place before there is anything to redact from.
      */
     token?: string;
+    source_peer?: PeerSource;
 };
 
 /**
@@ -1306,6 +1403,139 @@ export type PlacementAttempt = {
      * The failure this rung was a response to.
      */
     failure?: string;
+};
+
+export type ModelDeleteResponse = {
+    model: string;
+    /**
+     * Primary weights path that was removed.
+     */
+    deleted?: string;
+    deleted_files: Array<string>;
+    /**
+     * Artifacts the install recorded but that were already gone.
+     */
+    missing_files: Array<string>;
+    config_removed: boolean;
+};
+
+export type ModelLoadFailure = {
+    model: string;
+    state: string;
+    loaded: boolean;
+    load_request_status: number;
+    last_error?: LastError;
+};
+
+/**
+ * Import an installed model from another llama-skein host instead of Hugging Face. The target lists the peer's artifact set (GET /api/models/artifacts/{model}) and streams each file from it.
+ */
+export type PeerSource = {
+    /**
+     * Control-plane base URL of the llama-skein host to import from, e.g. http://192.0.2.10:8080. Must resolve to a private or loopback address unless allowPublicPeers is set.
+     */
+    base_url: string;
+    /**
+     * Model ID as served by that host.
+     */
+    model_id: string;
+};
+
+export type ArtifactListing = {
+    model: string;
+    /**
+     * Every file the model owns on this host (weights, shards, projector, draft), with sizes; digests when the founding install recorded them. Paths are relative to the model's artifact root and valid for GET /api/models/artifacts/{model}/{path}.
+     */
+    artifacts: Array<InstallArtifact>;
+};
+
+/**
+ * Settings to evaluate as if applied. Never persisted by the what-if or advisor endpoints; applying them is an ordinary config PATCH with all keys in one request.
+ */
+export type MemoryOverrides = {
+    ctx_size?: number;
+    /**
+     * e.g. f16, q8_0, q4_0.
+     */
+    cache_type_k?: string;
+    /**
+     * e.g. f16, q8_0, q4_0. Quantised V cache requires flash attention on llama.cpp.
+     */
+    cache_type_v?: string;
+    kv_offload?: boolean;
+    n_gpu_layers?: number;
+    n_cpu_moe?: number;
+    cpu_moe?: boolean;
+};
+
+/**
+ * Coarse cost classes, never numbers. Quality is the expected output-quality impact; speed is the expected throughput impact. Both are labels from a fixed table, not measurements.
+ */
+export type MemoryCost = {
+    /**
+     * Expected quality impact.
+     */
+    quality: 'none' | 'minor' | 'moderate' | 'major';
+    /**
+     * Expected throughput impact.
+     */
+    speed: 'none' | 'minor' | 'moderate' | 'major';
+};
+
+/**
+ * The fit a model would have under the supplied overrides. Non-mutating; equals the /api/fit entry when no overrides are supplied.
+ */
+export type WhatIfFit = {
+    fit: ModelFit;
+    /**
+     * Change versus the model's current configuration.
+     */
+    delta?: {
+        vram_required_mb?: number;
+        max_fit_ctx?: number;
+        host_resident_mb?: number;
+    };
+    cost: MemoryCost;
+    /**
+     * Applying this sets n_gpu_layers, which pins placement and disables the automatic placement planner.
+     */
+    pins_placement?: boolean;
+    /**
+     * Flags the command lacks that this override needs (e.g. --flash-attn on).
+     */
+    requires_flags?: Array<string>;
+    warnings?: Array<string>;
+};
+
+export type MemoryOption = {
+    /**
+     * Stable id of the rung, e.g. kv-q8, kv-v-q4, kv-q4, offload, kv-host.
+     */
+    id: string;
+    overrides: MemoryOverrides;
+    fit_level?: FitLevel;
+    max_fit_ctx?: number;
+    cost: MemoryCost;
+    pins_placement?: boolean;
+    requires_flags?: Array<string>;
+};
+
+/**
+ * Ordered, cheapest first, override sets that reach target_ctx. Advisory: nothing here is applied or refused.
+ */
+export type MemoryOptions = {
+    /**
+     * false for backends without these controls (vLLM, MLX).
+     */
+    applicable: boolean;
+    reason?: string;
+    target_ctx?: number;
+    options: Array<MemoryOption>;
+    /**
+     * Set when options is empty: the binding constraint.
+     */
+    unreachable_reason?: string;
+    warnings?: Array<string>;
 };
 
 export type GetSystemVersionData = {
@@ -2210,3 +2440,252 @@ export type StreamModelOperationEventsResponses = {
 };
 
 export type StreamModelOperationEventsResponse = StreamModelOperationEventsResponses[keyof StreamModelOperationEventsResponses];
+
+export type DeleteModelData = {
+    body?: never;
+    path: {
+        /**
+         * Model ID (or alias) as served by this host.
+         */
+        model: string;
+    };
+    query?: never;
+    url: '/api/models/{model}';
+};
+
+export type DeleteModelErrors = {
+    /**
+     * Model not found.
+     */
+    404: unknown;
+    /**
+     * Model has no removable artifact set, or an operation is in flight.
+     */
+    422: unknown;
+    /**
+     * Deletion failed part way; see message.
+     */
+    500: unknown;
+};
+
+export type DeleteModelResponses = {
+    /**
+     * Deleted.
+     */
+    200: ModelDeleteResponse;
+};
+
+export type DeleteModelResponse = DeleteModelResponses[keyof DeleteModelResponses];
+
+export type LoadModelData = {
+    body?: never;
+    path: {
+        /**
+         * Model ID (or alias) as served by this host.
+         */
+        model: string;
+    };
+    query?: never;
+    url: '/api/models/load/{model}';
+};
+
+export type LoadModelErrors = {
+    /**
+     * Model not found or not served locally.
+     */
+    404: unknown;
+    /**
+     * The backend failed to start.
+     */
+    502: ModelLoadFailure;
+};
+
+export type LoadModelError = LoadModelErrors[keyof LoadModelErrors];
+
+export type LoadModelResponses = {
+    /**
+     * OK
+     */
+    200: string;
+};
+
+export type LoadModelResponse = LoadModelResponses[keyof LoadModelResponses];
+
+export type UnloadModelData = {
+    body?: never;
+    path: {
+        /**
+         * Model ID (or alias) as served by this host.
+         */
+        model: string;
+    };
+    query?: never;
+    url: '/api/models/unload/{model}';
+};
+
+export type UnloadModelErrors = {
+    /**
+     * Model not found or not served locally.
+     */
+    404: unknown;
+    /**
+     * Model still reported loaded after unload.
+     */
+    500: ErrorResponse;
+};
+
+export type UnloadModelError = UnloadModelErrors[keyof UnloadModelErrors];
+
+export type UnloadModelResponses = {
+    /**
+     * OK
+     */
+    200: string;
+};
+
+export type UnloadModelResponse = UnloadModelResponses[keyof UnloadModelResponses];
+
+export type UnloadAllModelsData = {
+    body?: never;
+    path?: never;
+    query?: never;
+    url: '/api/models/unload';
+};
+
+export type UnloadAllModelsResponses = {
+    /**
+     * OK
+     */
+    200: string;
+};
+
+export type UnloadAllModelsResponse = UnloadAllModelsResponses[keyof UnloadAllModelsResponses];
+
+export type ListModelArtifactsData = {
+    body?: never;
+    path: {
+        /**
+         * Model ID (or alias) as served by this host.
+         */
+        model: string;
+    };
+    query?: never;
+    url: '/api/models/artifacts/{model}';
+};
+
+export type ListModelArtifactsErrors = {
+    /**
+     * Model not found or no weights file on disk.
+     */
+    404: unknown;
+};
+
+export type ListModelArtifactsResponses = {
+    /**
+     * Artifacts.
+     */
+    200: ArtifactListing;
+};
+
+export type ListModelArtifactsResponse = ListModelArtifactsResponses[keyof ListModelArtifactsResponses];
+
+export type GetModelArtifactData = {
+    body?: never;
+    path: {
+        /**
+         * Model ID (or alias) as served by this host.
+         */
+        model: string;
+        /**
+         * A path from listModelArtifacts; anything outside the model's artifact set is 404.
+         */
+        path: string;
+    };
+    query?: never;
+    url: '/api/models/artifacts/{model}/{path}';
+};
+
+export type GetModelArtifactErrors = {
+    /**
+     * Model or artifact not found.
+     */
+    404: unknown;
+};
+
+export type GetModelArtifactResponses = {
+    /**
+     * Whole file.
+     */
+    200: Blob | File;
+    /**
+     * Requested range.
+     */
+    206: Blob | File;
+};
+
+export type GetModelArtifactResponse = GetModelArtifactResponses[keyof GetModelArtifactResponses];
+
+export type WhatIfModelFitData = {
+    body: MemoryOverrides;
+    path: {
+        /**
+         * Model ID or alias.
+         */
+        model: string;
+    };
+    query?: never;
+    url: '/api/fit/{model}/whatif';
+};
+
+export type WhatIfModelFitErrors = {
+    /**
+     * Unknown override key.
+     */
+    400: unknown;
+    /**
+     * Model not found.
+     */
+    404: unknown;
+};
+
+export type WhatIfModelFitResponses = {
+    /**
+     * What-if fit.
+     */
+    200: WhatIfFit;
+};
+
+export type WhatIfModelFitResponse = WhatIfModelFitResponses[keyof WhatIfModelFitResponses];
+
+export type GetModelMemoryOptionsData = {
+    body?: never;
+    path: {
+        /**
+         * Model ID or alias.
+         */
+        model: string;
+    };
+    query: {
+        /**
+         * Hard n_ctx to reach.
+         */
+        target_ctx: number;
+    };
+    url: '/api/fit/{model}/options';
+};
+
+export type GetModelMemoryOptionsErrors = {
+    /**
+     * Model not found.
+     */
+    404: unknown;
+};
+
+export type GetModelMemoryOptionsResponses = {
+    /**
+     * Options.
+     */
+    200: MemoryOptions;
+};
+
+export type GetModelMemoryOptionsResponse = GetModelMemoryOptionsResponses[keyof GetModelMemoryOptionsResponses];

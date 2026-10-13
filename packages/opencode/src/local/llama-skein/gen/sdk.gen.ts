@@ -45,6 +45,9 @@ import type {
   GetModelFitData,
   GetModelFitErrors,
   GetModelFitResponses,
+  GetModelMemoryOptionsData,
+  GetModelMemoryOptionsErrors,
+  GetModelMemoryOptionsResponses,
   GetModelOperationData,
   GetModelOperationErrors,
   GetModelOperationResponses,
@@ -117,6 +120,9 @@ import type {
   UpgradeRuntimeResponses,
   ValidateConfigData,
   ValidateConfigResponses,
+  WhatIfModelFitData,
+  WhatIfModelFitErrors,
+  WhatIfModelFitResponses,
 } from "./types.gen"
 
 export type Options<TData extends TDataShape = TDataShape, ThrowOnError extends boolean = boolean> = Options2<
@@ -709,5 +715,32 @@ export class LlamaSkeinClient extends HeyApiClient {
       url: "/api/models/artifacts/{model}/{path}",
       ...options,
     })
+  }
+
+  /**
+   * Fit a model would have under overrides, without changing its config or reloading it.
+   */
+  public whatIfModelFit<ThrowOnError extends boolean = false>(options: Options<WhatIfModelFitData, ThrowOnError>) {
+    return (options.client ?? this.client).post<WhatIfModelFitResponses, WhatIfModelFitErrors, ThrowOnError>({
+      url: "/api/fit/{model}/whatif",
+      ...options,
+      headers: {
+        "Content-Type": "application/json",
+        ...options.headers,
+      },
+    })
+  }
+
+  /**
+   * Ordered ways to reach a target context: KV quantisation, KV in RAM, layer or expert offload. Advisory; writes nothing.
+   */
+  public getModelMemoryOptions<ThrowOnError extends boolean = false>(
+    options: Options<GetModelMemoryOptionsData, ThrowOnError>,
+  ) {
+    return (options.client ?? this.client).get<
+      GetModelMemoryOptionsResponses,
+      GetModelMemoryOptionsErrors,
+      ThrowOnError
+    >({ url: "/api/fit/{model}/options", ...options })
   }
 }
