@@ -28,6 +28,17 @@ export const LocalCtxSizePayload = Schema.Struct({
   ctx_size: Schema.Int.check(Schema.isGreaterThan(0)),
 }).annotate({ identifier: "LocalCtxSizePayload" })
 
+// One memory-configuration change: any subset of these is written in a single
+// PATCH so the backend reloads the model once, not once per key.
+export const LocalMemoryPayload = Schema.Struct({
+  ctx_size: Schema.optional(Schema.Int.check(Schema.isGreaterThan(0))),
+  cache_type_k: Schema.optional(Schema.String),
+  cache_type_v: Schema.optional(Schema.String),
+  kv_offload: Schema.optional(Schema.Boolean),
+  n_cpu_moe: Schema.optional(Schema.Int),
+  n_gpu_layers: Schema.optional(Schema.Int),
+}).annotate({ identifier: "LocalMemoryPayload" })
+
 // Backend-neutral CPU/MoE offload knobs. All optional; a zero/empty value
 // disables the corresponding flag on the backend. n_cpu_moe / cpu_moe target
 // llama.cpp; cpu_offload_gb targets vLLM.
@@ -110,6 +121,19 @@ export const LocalApi = HttpApi.make("local").add(
           identifier: "local.model.setCtxSize",
           summary: "Set model context window size",
           description: "Patch the ctx_size for a model on a llama-swap backend.",
+        }),
+      ),
+      HttpApiEndpoint.patch("setModelMemory", `${root}/model/:providerID/:modelID/memory`, {
+        params: { providerID: Schema.String, modelID: Schema.String },
+        query: WorkspaceRoutingQuery,
+        payload: LocalMemoryPayload,
+        success: described(Schema.Boolean, "Memory configuration updated"),
+      }).annotateMerge(
+        OpenApi.annotations({
+          identifier: "local.model.setMemory",
+          summary: "Set model memory configuration",
+          description:
+            "Write context size, KV cache types, KV offload and weight offload for a model on a llama-skein backend in one PATCH, so the model reloads once. The values are never refused against the fit estimate.",
         }),
       ),
       HttpApiEndpoint.patch("setModelOffload", `${root}/model/:providerID/:modelID/offload`, {

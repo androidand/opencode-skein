@@ -339,6 +339,31 @@ export const localHandlers = HttpApiBuilder.group(InstanceHttpApi, "local", (han
       return true
     })
 
+    const setModelMemory = Effect.fn("LocalHttpApi.setModelMemory")(function* (ctx) {
+      const { providerID, modelID } = ctx.params
+      const body = ctx.payload
+      const config = yield* configSvc.get()
+      const baseURL = (config.provider?.[providerID] as { options?: { baseURL?: string } } | undefined)?.options
+        ?.baseURL
+      if (!baseURL) return false
+      // fork: one PATCH with every key, so llama-skein reloads the model once.
+      // Like setModelCtxSize, a backend refusal dies with its real reason.
+      const res = yield* Effect.tryPromise(() =>
+        llamaClient(baseURL).patchModelConfig({ path: { id: modelID }, body }),
+      ).pipe(Effect.orDie)
+      if (res.error) {
+        return yield* Effect.die(
+          new Error(`llama-skein rejected memory config for ${modelID}: ${describeBackendError(res.error)}`),
+        )
+      }
+      if (body.ctx_size !== undefined) {
+        yield* providerSvc
+          .setModelContextLimit(ProviderV2.ID.make(providerID), ModelV2.ID.make(modelID), body.ctx_size)
+          .pipe(Effect.orElseSucceed(() => false))
+      }
+      return true
+    })
+
     const setModelOffload = Effect.fn("LocalHttpApi.setModelOffload")(function* (ctx) {
       const { providerID, modelID } = ctx.params
       const config = yield* configSvc.get()
@@ -406,6 +431,7 @@ export const localHandlers = HttpApiBuilder.group(InstanceHttpApi, "local", (han
       .handle("connect", connect)
       .handle("disconnect", disconnect)
       .handle("setModelCtxSize", setModelCtxSize)
+      .handle("setModelMemory", setModelMemory)
       .handle("setModelOffload", setModelOffload)
       .handle("getModelOffloadRecommendation", getModelOffloadRecommendation)
       .handle("capacity", capacity)
