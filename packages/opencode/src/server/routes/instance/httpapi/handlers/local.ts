@@ -309,21 +309,15 @@ export const localHandlers = HttpApiBuilder.group(InstanceHttpApi, "local", (han
         ?.baseURL
       if (!baseURL) return false
       const client = llamaClient(baseURL)
-      // fork: last line of defence against writing a --ctx-size the model cannot
-      // load. The TUI dialog annotates and refuses over-ceiling sizes, but this
-      // endpoint is reachable directly. `max_fit_ctx` is llama-skein's
-      // VRAM-achievable hard n_ctx. When it is unknown (0 — non-llama-skein
-      // backend, VRAM unreadable) there is nothing to judge against, so let the
-      // patch through rather than block a valid change.
-      const fit = yield* Effect.tryPromise(() => client.getModelFit({ path: { model: modelID } })).pipe(
-        Effect.orElseSucceed(() => null),
-      )
-      const maxFit = fit?.data?.max_fit_ctx ?? 0
-      if (maxFit > 0 && ctx_size > maxFit) return false
+      // fork: no ceiling guard. llama-skein's fit ceilings are estimates — they
+      // have contradicted a config that demonstrably loads (a resident model's own
+      // KV was left out of the budget, so 19k was reported for a model running at
+      // 75k) — and a hard refusal here made the estimate outrank the operator.
+      // The TUI still warns; llama-skein is the authority on whether a load works.
       // fork: a `false` here used to mean both "we didn't even try" (no
-      // baseURL / above ceiling) AND "we tried and the backend refused it" —
+      // baseURL) AND "we tried and the backend refused it" —
       // the TUI toast then blamed baseURL/ceiling even when neither was the
-      // cause. Only the two checks above are allowed to return false
+      // cause. Only the baseURL check above is allowed to return false
       // silently now; an actual backend failure dies with the real reason
       // attached, so the generic error boundary (middleware/error.ts) logs it
       // with a `ref` and the client sees "check server logs" instead of a
