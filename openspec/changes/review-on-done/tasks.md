@@ -22,13 +22,20 @@ can write its own LGTM. The reader (src/policy/review-record.ts) therefore carri
 identity as a claim (`reviewer.sessionID`) and the verdict's `independence`; these tasks make the claim
 true.
 
-- [ ] 1b.1 The record is written only by a tool (`opencode review record`, or the review hook), using the
-      authenticated session identity of the REVIEWER, never by a model's own file write.
+- [x] 1b.1 `src/policy/review-gate.ts` writes the record from the caller's own session identity
+      (`ctx.sessionID`, in-process — not parsed from a message, so it does not wait on callback
+      confirmation), validates against the reader's own closed schema before writing, and writes
+      atomically. The tool registration itself is the remaining wiring.
 - [ ] 1b.2 Deny `edit` and `write` of `.skein/review.json` for ordinary sessions (the fenced-path rules,
       same mechanism as the other protected paths), with a bypass-shape test.
 - [x] 1b.3 (driver side: `mayMerge` takes `authorSessionID`/`requireIndependent`; no caller passes the author yet, the merge CLI that will is not written) The merge driver refuses a verdict whose `reviewer.sessionID` is the author's session, and
       surfaces `independence` so a policy can require `independent`.
-- [ ] 1b.4 Observed-red test: an author that writes a forged LGTM into its own tree is refused.
+- [x] 1b.4 `gate()` supplies `authorSessionID` to `mayMerge`, which refuses a verdict the author's own
+      session wrote. Mutation-checked: removing the author comparison fails that test and only it.
+- [ ] 1b.5 NOT DONE, and it is the one that matters: a record forged by shell, naming a real reviewer,
+      is still accepted. `.skein/review.json` is writable by any process with filesystem access and the
+      gate only checks that the reviewer differs from the author. Pinned as a test so it cannot be
+      forgotten. Only OS separation closes this, and nothing here claims it.
 
 ## Phase 2: Independent reviewer
 
