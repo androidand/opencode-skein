@@ -68,6 +68,49 @@ export function aboveCeiling(ctx: number, maxPhysicalCtx?: number): boolean {
   return !!maxPhysicalCtx && maxPhysicalCtx > 0 && ctx > maxPhysicalCtx
 }
 
+type MemoryOptionLike = {
+  id: string
+  overrides: {
+    cache_type_k?: string
+    cache_type_v?: string
+    kv_offload?: boolean
+    n_cpu_moe?: number
+    n_gpu_layers?: number
+  }
+  cost: { quality: string; speed: string }
+  pins_placement?: boolean
+  requires_flags?: string[]
+}
+
+/** Human title for an advisor option ("current" = the config as it stands). */
+export function memoryOptionTitle(o: MemoryOptionLike): string {
+  const ov = o.overrides
+  if (o.id === "current") return "Keep current settings"
+  const parts: string[] = []
+  if (ov.cache_type_k || ov.cache_type_v) {
+    parts.push(
+      ov.cache_type_k === ov.cache_type_v
+        ? `KV cache ${ov.cache_type_k}`
+        : `KV cache K ${ov.cache_type_k ?? "default"} / V ${ov.cache_type_v ?? "default"}`,
+    )
+  }
+  if (ov.n_cpu_moe !== undefined) parts.push(`experts of ${ov.n_cpu_moe} layers in RAM`)
+  if (ov.n_gpu_layers !== undefined) parts.push(`${ov.n_gpu_layers} layers on GPU`)
+  if (ov.kv_offload === false) parts.push("KV cache in RAM")
+  return parts.join(" + ") || o.id
+}
+
+/** One-line cost label. Coarse classes from llama-skein, never numbers. */
+export function memoryOptionDescription(o: MemoryOptionLike): string {
+  const bits: string[] = []
+  if (o.cost.quality !== "none") bits.push(`quality: ${o.cost.quality}`)
+  if (o.cost.speed !== "none") bits.push(`speed: ${o.cost.speed}`)
+  if (!bits.length) bits.push("no quality or speed cost")
+  if (o.pins_placement) bits.push("pins GPU layer placement")
+  if (o.requires_flags?.length) bits.push(`needs ${o.requires_flags.join(", ")}`)
+  return bits.join(" · ")
+}
+
 export const PRESETS = [
   4096, 8192, 12288, 16384, 20480, 24576, 28672, 32768, 36864, 40960, 49152, 57344, 65536, 73728, 81920, 98304, 114688,
   131072, 163840, 196608, 262144, 393216, 524288, 786432, 1048576,
@@ -153,7 +196,10 @@ export function fitLabel(report: FitReport | undefined, modelID: string): string
  * No report at all is "no data to recommend from", not "recommend nothing is
  * wrong" — returns undefined rather than guessing.
  */
-export function recommendedModelID(report: FitReport | undefined, sizeFor: (modelID: string) => number): string | undefined {
+export function recommendedModelID(
+  report: FitReport | undefined,
+  sizeFor: (modelID: string) => number,
+): string | undefined {
   if (!report) return undefined
   const candidates = report.models.filter((entry) => entry.fit_level !== "no" && entry.fit_level !== "unknown")
   if (candidates.length === 0) return undefined

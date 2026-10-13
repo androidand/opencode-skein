@@ -6,13 +6,15 @@ import { useToast } from "../ui/toast"
 import { DialogSelect } from "../ui/dialog-select"
 import { createClient, createConfig } from "../local/llama-skein/gen/client"
 import { LlamaSkeinClient } from "../local/llama-skein/gen/sdk.gen"
-import type { ModelFit } from "../local/llama-skein/gen/types.gen"
+import type { MemoryOption, MemoryOverrides, ModelFit } from "../local/llama-skein/gen/types.gen"
 import {
   aboveCeiling,
   computeRecommendedCtx,
   extractMem,
   fmtCtxK,
   fmtGB,
+  memoryOptionDescription,
+  memoryOptionTitle,
   MIN_WORKFLOW_CTX,
   normalizeBaseURL,
   PRESETS,
@@ -46,6 +48,8 @@ export function DialogModelCtx(props: { providerID: string; modelID: string }) {
   // aboveCeiling's doc comment for why blocking on the conservative number
   // let this dialog recommend a value and then refuse that same value.
   const maxPhysical = createMemo(() => fit()?.max_physical_ctx ?? 0)
+
+  const baseURL = createMemo(() => provider()?.options?.["baseURL"] as string | undefined)
 
   const modelName = createMemo(() => provider()?.models[props.modelID]?.name ?? props.modelID)
 
@@ -135,22 +139,46 @@ export function DialogModelCtx(props: { providerID: string; modelID: string }) {
     return parts.length ? ` · ${parts.join(" · ")}` : ""
   })
 
-  function apply(ctx_size: number) {
+  // Above the estimated ceiling: ask llama-skein which settings would make the
+  // size fit and offer them. Advisory — "try anyway" is always listed, an
+  // unreachable advisor or an empty list just applies the size as before.
+  async function select(n: number) {
+    const url = baseURL()
+    if (!aboveCeiling(n, maxPhysical()) || !url) return apply(n)
+    try {
+      const client = new LlamaSkeinClient({ client: createClient(createConfig({ baseUrl: normalizeBaseURL(url) })) })
+      const res = await client.getModelMemoryOptions({ model: props.modelID, target_ctx: n })
+      const found = res.data?.options ?? []
+      if (!found.length) return apply(n)
+      dialog.replace(() => (
+        <DialogModelMemory
+          modelName={modelName()}
+          ctx={n}
+          options={found}
+          onApply={(overrides) => apply(n, overrides)}
+        />
+      ))
+    } catch {
+      apply(n)
+    }
+  }
+
+  function apply(ctx_size: number, overrides?: MemoryOverrides) {
     if (busy()) return
     setBusy(true)
     // Close immediately so the UI feels responsive; the model reload is slow.
     dialog.clear()
     toast.show({ variant: "info", message: `Context set to ${fmtCtxK(ctx_size)} — reloading model…` })
-    sdk.client.local.model
-      .setCtxSize(
-        {
-          providerID: props.providerID,
-          modelID: props.modelID,
-          directory: sdk.directory,
-          localCtxSizePayload: { ctx_size },
-        },
-        { throwOnError: true },
-      )
+    const target = { providerID: props.providerID, modelID: props.modelID, directory: sdk.directory }
+    // One request carries ctx and every override, so the model reloads once.
+    const request =
+      overrides && Object.keys(overrides).length > 0
+        ? sdk.client.local.model.setMemory(
+            { ...target, localMemoryPayload: { ...overrides, ctx_size } },
+            { throwOnError: true },
+          )
+        : sdk.client.local.model.setCtxSize({ ...target, localCtxSizePayload: { ctx_size } }, { throwOnError: true })
+    request
       .then((res) => {
         if (res.data === false) {
           toast.show({
@@ -185,7 +213,37 @@ export function DialogModelCtx(props: { providerID: string; modelID: string }) {
       flat={true}
       skipFilter={true}
       current={current()}
-      onSelect={(opt) => apply(opt.value)}
+      onSelect={(opt) => void select(opt.value)}
+    />
+  )
+}
+
+// Settings that would make `ctx` fit, cheapest first, with their cost classes.
+// "Keep current settings" is `current` when the advisor lists it, otherwise a
+// plain try-anyway row, so a selection is never blocked.
+function DialogModelMemory(props: {
+  modelName: string
+  ctx: number
+  options: MemoryOption[]
+  onApply: (overrides?: MemoryOverrides) => void
+}) {
+  const rows = createMemo(() => {
+    const out = props.options.map((o, i) => ({
+      value: i,
+      title: memoryOptionTitle(o),
+      description: memoryOptionDescription(o),
+    }))
+    if (!props.options.some((o) => o.id === "current"))
+      out.push({ value: -1, title: "Try anyway with current settings", description: "may fail to load" })
+    return out
+  })
+  return (
+    <DialogSelect<number>
+      title={`Make room for ${fmtCtxK(props.ctx)} — ${props.modelName}`}
+      options={rows()}
+      flat={true}
+      skipFilter={true}
+      onSelect={(opt) => props.onApply(opt.value >= 0 ? props.options[opt.value]!.overrides : undefined)}
     />
   )
 }

@@ -1,5 +1,13 @@
 import { expect, test } from "bun:test"
-import { aboveCeiling, computeRecommendedCtx, MAX_CTX, MIN_WORKFLOW_CTX, PRESETS } from "../src/local/model-fit"
+import {
+  aboveCeiling,
+  computeRecommendedCtx,
+  MAX_CTX,
+  memoryOptionDescription,
+  memoryOptionTitle,
+  MIN_WORKFLOW_CTX,
+  PRESETS,
+} from "../src/local/model-fit"
 
 function mem(overrides: Partial<Parameters<typeof computeRecommendedCtx>[0]> = {}) {
   return {
@@ -60,4 +68,34 @@ test("PRESETS offers sizes above a typical VRAM ceiling", () => {
   // must exist.
   expect(PRESETS.filter((n) => aboveCeiling(n, 32768)).length).toBeGreaterThan(0)
   expect(PRESETS).toContain(98304)
+})
+
+test("memory option labels name the change and its cost classes", () => {
+  const q4 = {
+    id: "kv-v-q4",
+    overrides: { cache_type_k: "q8_0", cache_type_v: "q4_0" },
+    cost: { quality: "minor", speed: "none" },
+    requires_flags: ["--flash-attn on"],
+  }
+  expect(memoryOptionTitle(q4)).toBe("KV cache K q8_0 / V q4_0")
+  expect(memoryOptionDescription(q4)).toBe("quality: minor · needs --flash-attn on")
+
+  const host = {
+    id: "kv-host",
+    overrides: { cache_type_k: "q4_0", cache_type_v: "q4_0", kv_offload: false },
+    cost: { quality: "moderate", speed: "major" },
+  }
+  expect(memoryOptionTitle(host)).toBe("KV cache q4_0 + KV cache in RAM")
+  expect(memoryOptionDescription(host)).toBe("quality: moderate · speed: major")
+
+  const dense = {
+    id: "offload",
+    overrides: { cache_type_k: "q4_0", cache_type_v: "q4_0", n_gpu_layers: 40 },
+    cost: { quality: "moderate", speed: "major" },
+    pins_placement: true,
+  }
+  expect(memoryOptionDescription(dense)).toContain("pins GPU layer placement")
+  expect(memoryOptionTitle({ id: "current", overrides: {}, cost: { quality: "none", speed: "none" } })).toBe(
+    "Keep current settings",
+  )
 })
