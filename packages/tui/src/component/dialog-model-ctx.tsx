@@ -97,10 +97,11 @@ export function DialogModelCtx(props: { providerID: string; modelID: string }) {
       // fork: PRESETS is hand-authored and runs to 1M, so it offers sizes no
       // model can load — this is how `--ctx-size 98304` got written onto a
       // 32k-trained model. Annotate loudly instead of hiding the row (a model
-      // already misconfigured above the ceiling needs its `current` row visible),
-      // and refuse the selection in apply().
+      // already misconfigured above the ceiling needs its `current` row visible).
+      // Advisory only: the ceiling is llama-skein's estimate, which can be wrong
+      // (it once reported 19k for a model running at 75k), so it never blocks.
       if (aboveCeiling(n, ceiling)) {
-        description = `⚠ above ceiling (${fmtCtxK(ceiling)}) — backend cannot load this`
+        description = `⚠ above estimated ceiling (${fmtCtxK(ceiling)}) — may not load`
         if (n === cur) description = `current · ${description}`
       } else if (n === cur && n === rec) {
         description = "current · recommended"
@@ -136,16 +137,6 @@ export function DialogModelCtx(props: { providerID: string; modelID: string }) {
 
   function apply(ctx_size: number) {
     if (busy()) return
-    const ceiling = maxPhysical()
-    if (aboveCeiling(ctx_size, ceiling)) {
-      // Refuse without closing so a valid size can still be picked. Server-side
-      // this is enforced again in local.model.setCtxSize.
-      toast.show({
-        variant: "error",
-        message: `${fmtCtxK(ctx_size)} exceeds what this model can load here (max ${fmtCtxK(ceiling)})`,
-      })
-      return
-    }
     setBusy(true)
     // Close immediately so the UI feels responsive; the model reload is slow.
     dialog.clear()
@@ -164,7 +155,7 @@ export function DialogModelCtx(props: { providerID: string; modelID: string }) {
         if (res.data === false) {
           toast.show({
             variant: "error",
-            message: "Context size rejected — provider has no base URL, or the size is above the model's ceiling",
+            message: "Context size rejected — provider has no base URL",
           })
           return
         }
