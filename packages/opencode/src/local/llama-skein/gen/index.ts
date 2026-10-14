@@ -188,6 +188,7 @@ export type {
   PatchTuningResponse,
   PatchTuningResponses,
   PeerSource,
+  PlacementAlternative,
   PlacementAttempt,
   PlacementDecision,
   PostHypotheticalFitData,

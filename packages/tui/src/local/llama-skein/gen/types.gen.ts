@@ -329,6 +329,10 @@ export type ConfigModelPatchRequest = {
     cache_type_v?: string;
     'cache-type-v'?: string;
     /**
+     * When true, removes every placement-pinning flag from the model's command (--n-gpu-layers/-ngl/--gpu-layers, --n-cpu-moe, --cpu-moe, --override-tensor/-ot, --tensor-split/-ts) so automatic placement takes over: full GPU when the model fits, host-RAM offload only when it does not. This is the explicit 'allow offload' action; it is deliberately separate from n_gpu_layers, where 0 is a real value (all layers on CPU) and must never mean 'remove'. A no-op when no such flag is present. llamacpp only.
+     */
+    unpin_placement?: boolean;
+    /**
      * Number of leading layers whose MoE expert tensors are offloaded to CPU/RAM (llama.cpp --n-cpu-moe). 0 removes the flag. llamacpp only.
      */
     n_cpu_moe?: number;
@@ -1283,7 +1287,38 @@ export type PlacementDecision = {
     /**
      * Adaptive retry ladder history, oldest first. Empty when the model has never failed for a memory reason.
      */
+    if_unpinned?: PlacementAlternative;
     retry_attempts?: Array<PlacementAttempt>;
+};
+
+/**
+ * What automatic placement WOULD decide for a model whose command pins placement flags (-ngl, --n-cpu-moe, -ot, ...), had the pin been absent. A report only: nothing is applied, and the pinned command still runs exactly as written. Answers 'could this model load at all, and at what cost, if I removed the pin?'. Absent when the counterfactual could not be computed (telemetry warming up, unreadable weights).
+ */
+export type PlacementAlternative = {
+    /**
+     * gpu: would fit fully in VRAM, so the pin can simply be dropped. hybrid: would load with weights in host RAM. cpu: would load CPU-only. refuse: would not load even with offload.;
+     */
+    mode?: "gpu" | "hybrid" | "cpu" | "refuse";
+    /**
+     * False only for a confident refuse: the model does not fit VRAM plus the safe host budget in any placement.;
+     */
+    loadable?: boolean;
+    /**
+     * Qualitative expectation for the unpinned placement; never a tokens-per-second prediction.;
+     */
+    perf_class?: "native-gpu" | "fast-hybrid" | "cpu-bound-hybrid" | "cpu-only";
+    /**
+     * Planned GPU memory footprint, MB.;
+     */
+    est_gpu_mb?: number;
+    /**
+     * Planned host-RAM weight footprint, MB. For a placement delegated to the engine's own --fit this is the planner's estimate of the overflow, not a measured split.;
+     */
+    est_host_mb?: number;
+    /**
+     * Human-readable explanation of the unpinned decision.;
+     */
+    reason?: string;
 };
 
 /**
