@@ -127,3 +127,36 @@ The sidebar indicator (tasks 2–4) ships without any llama-skein change, using
        Validation: reproduced or ruled out, with the finding recorded.
        **Result (2026-10-15):** Real defect, reproduced and fixed. `MemBreakdown` copied `props.mem` into a const at creation, so under the parent's `<Show when={mem()}>` it kept the FIRST sample (taken while the model was still loading, `modelMb == 0` → `0.1 / 24.0 GB`) while the bar, which reads the signal, kept updating — not a torn render across polls. `packages/tui/test/feature-plugins/sidebar-mem-breakdown.test.tsx` fails on the old code (the readout stays on `0.1 / 24.0`) and passes with the fix, which reads props at render time.
 
+## Verification and the compaction loop (added 2026-10-15)
+
+- [x] 13. **What the dialog shows is tested against real payloads.** The ctx rows are
+       now `buildCtxRows()` (pure), tested on the z4 payloads including the 164,249
+       "physical max" the host reported before its fit was fixed: the client shows
+       the host's figure verbatim, annotates rows above it, never hides or blocks one,
+       and its own recommendation never exceeds a ceiling the host reported or what
+       measured free VRAM supports. `packages/tui/test/model-fit.test.ts`.
+
+- [x] 14. **Live contract check** (`packages/tui/test/live/fit-contract.live.ts`, run
+       with `bun test ./test/live/fit-contract.live.ts` and `LLAMA_SKEIN_LIVE_URLS`):
+       typed fields, the client's memory view equal to the host's numbers, consistent
+       ceilings, the dialog's ceiling row equal to the host's figure, the client's
+       recommendation within every ceiling. It FAILS — not skips — with no URL or no
+       loaded model (both verified). Passing on z4 and host C, 2026-10-15. Whether the
+       host's figures match real VRAM is llama-skein's `fitcheck`, because only a
+       host-side tool can measure it (llama-skein `docs/fit-verification.md`).
+
+- [x] 15. **"Compacting forever" was the chunk timeout, not the model.** z4's log
+       showed an 80k-token prompt in prefill for 217 s (370 tok/s) — no byte
+       streamed — against a default 120 s chunk timeout. The client aborted, the
+       backend dropped the connection (llama-skein logs `EOF`, 503 after ~4 min), the
+       retry restarted the prefill, and a second opencode session on the one slot
+       evicted the prefix cache between attempts. The default chunk and header
+       timeouts now scale with the request (`provider/local-silence.ts`: estimated
+       tokens at a pessimistic 150 tok/s + a 60 s margin, capped at 30 min); a
+       configured value is never touched. Measured rates behind the constant: 370–550
+       tok/s (z4, falling with depth), 719 tok/s (host C, 23,816 tokens in 33 s). The
+       token estimator (3 chars/token) over-counts on purpose (5.5 chars/token on
+       repetitive text). Unit-tested (`test/provider/local-silence.test.ts`). NOT
+       verified end to end: a >120 s silent prefill through the provider has not been
+       run against a host; the existing header/chunk-timeout provider tests still pass.
+
