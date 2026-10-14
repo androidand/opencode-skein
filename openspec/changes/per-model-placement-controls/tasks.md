@@ -32,6 +32,7 @@ The sidebar indicator (tasks 2–4) ships without any llama-skein change, using
        Validation: `cd packages/tui && bun run typecheck`; manual check against
        host A `M2` (must warn) and `M4`
        (must stay silent).
+       **Progress (2026-10-14):** Not started: no sidebar indicator and no retitle yet. The ctx dialog title now carries a placement summary (`describePlacement`: 'weights X GB GPU + Y GB RAM (offloaded[, slow])' or 'offload pinned off'), which covers the reading half of the dialog but not the sidebar.
 
 - [ ] 4. Verify the indicator against all five host A models recorded in
        llama-skein `flag-under-offloaded-models`: warn on
@@ -59,6 +60,7 @@ The sidebar indicator (tasks 2–4) ships without any llama-skein change, using
        the only current removal route and is unsafe for this reason.
        Validation: `cd packages/tui && bun run typecheck`; a round-trip test proving
        `${PORT}` survives an edit.
+       **Progress (2026-10-14):** Built in `dialog-model-ctx.tsx` per D1. For a model whose command pins placement flags (`placement.mode == custom`) the dialog reads llama-skein's `placement.if_unpinned` and offers one row via `placementAction()`: 'Remove the placement pin' (fits on the GPU anyway), 'Allow offload to RAM' (states the RAM share and whether it is host-bandwidth bound), or an inert 'Offload would not help' (won't load even with offload). The reload cost is in the row text, before the write. The write is `local.model.setOffload` with `unpin_placement: true`, which llama-skein turns into removal of every pinned flag — no `cmd` string is read, edited and written back, so neither API defect (a)/(b) is worked around client-side (llama-skein `flag-under-offloaded-models` tasks 17/18 landed). Tests: `placementAction` in `packages/tui/test/model-fit.test.ts`; the route forwards the payload in `test/server/local-unpin-placement.test.ts` (red when the schema field is removed). NOT done: setting an explicit layer count (a deliberate pin) — the spec asks for it, no row offers it yet; the dialog also still carries the old 'Context' title (task 3).
 
 - [ ] 6. Confirm the patch path end to end against a live host: clearing the pin
        removes `--n-gpu-layers` from the model's `cmd` and the model returns
@@ -71,6 +73,7 @@ The sidebar indicator (tasks 2–4) ships without any llama-skein change, using
        published spec, and prefer it over the fallback heuristic. Commit the regen
        separately. Generated clients are never hand-edited.
        Validation: `grep -r "under_offloaded" packages/opencode/src/local/llama-skein/gen packages/tui/src/local/llama-skein/gen`
+       **Progress (2026-10-14):** `placement.if_unpinned` and `unpin_placement` are in both generated clients (additive hunks only — a full regen from the unmerged llama-skein branch also removes the slot-lease routes, which live in another unmerged change; the next regen from a merged contract reproduces these hunks). `under_offloaded` does not exist yet (llama-skein tasks 2-5), so the fallback heuristic is still the only signal.
 
 - [ ] 8. Correct the stale Non-goal in `openspec/changes/add-gpu-tuning-ui/proposal.md`:
        the route is `/api/models/config/{id}`, and "ctx size / offload live there
@@ -99,6 +102,7 @@ The sidebar indicator (tasks 2–4) ships without any llama-skein change, using
        client-side.
        Validation: once that lands, a pinned host-paced model on host A is penalised;
        confirm no double penalty against the placement-aware `fit_level` (its task 17).
+       **Progress (2026-10-14):** Server side landed in llama-skein (`flag-under-offloaded-models` task 16, report layer): a pinned model with host-resident weights now reports a host-paced `perf_class`, so `isHostPaced()` can fire. Not yet verified against a deployed host — the running builds predate it. No client change was made, per this task.
 
 - [ ] 11. Repo validation: `bun run typecheck` in `packages/opencode` and
        `packages/tui`; `cd packages/opencode && bun test test/local`.
