@@ -123,21 +123,29 @@ function vramSegs(m: MemSnapshot, tokenPercent: number | null, t: any): Seg[] {
   ]
 }
 
-function MemBreakdown(props: { mem: MemSnapshot; theme: any }) {
-  const m = props.mem
-  const t = props.theme
-  const total = `${fmtGB(m.totalMb)} GB`
-  if (m.modelMb > 0) {
-    return (
-      <text fg={t.textMuted}>
-        <span style={{ fg: t.warning }}>mod</span>{" "}{fmtGB(m.modelMb)}
+// Reads props at render time, never copied into a const: the parent passes a
+// fresh sample every poll, and a one-time copy froze the readout on the first
+// sample (taken while the model was still loading → `0.1 / 24.0 GB`) while the
+// bar beside it kept updating.
+export function MemBreakdown(props: { mem: MemSnapshot; theme: any }) {
+  return (
+    <Show
+      when={props.mem.modelMb > 0}
+      fallback={
+        <text fg={props.theme.textMuted}>
+          {fmtGB(props.mem.usedMb)} / {fmtGB(props.mem.totalMb)} GB
+        </text>
+      }
+    >
+      <text fg={props.theme.textMuted}>
+        <span style={{ fg: props.theme.warning }}>mod</span> {fmtGB(props.mem.modelMb)}
         {" + "}
-        <span style={{ fg: t.accent }}>ctx</span>{" "}{fmtGB(m.kvEstMb)}
-        {" / "}{total}
+        <span style={{ fg: props.theme.accent }}>ctx</span> {fmtGB(props.mem.kvEstMb)}
+        {" / "}
+        {fmtGB(props.mem.totalMb)} GB
       </text>
-    )
-  }
-  return <text fg={t.textMuted}>{fmtGB(m.usedMb)} / {total}</text>
+    </Show>
+  )
 }
 
 function View(props: { api: TuiPluginApi; session_id: string }) {

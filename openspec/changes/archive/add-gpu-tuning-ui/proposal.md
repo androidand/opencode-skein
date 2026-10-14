@@ -39,6 +39,11 @@ profile and let the user tweak it without hand-editing YAML on the host.
   opencode is a view/editor over the API.
 - Per-model flag editing beyond what `/api/config/models/:id` PATCH already
   supports (ctx size / offload live there already).
+  > **Superseded by `per-model-placement-controls` (2026-10-15).** The route is
+  > `/api/models/config/{id}`, not `/api/config/models/:id`, and "live there
+  > already" described the server API, not a client surface: `ctx_size` got a
+  > dialog, `n_gpu_layers` did not. Per-model placement editing now lives in the
+  > per-model dialog (`DialogModelCtx`).
 
 ## Disposition (2026-09-18)
 
