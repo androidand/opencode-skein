@@ -224,3 +224,49 @@ export function describePlacement(fit: ModelFit | null | undefined): string | nu
   if (fit.placement?.mode === "custom") return "offload pinned off (--n-gpu-layers etc. in command)"
   return null
 }
+
+export type PlacementAction = {
+  /** "unpin" is actionable; "info" explains why nothing can be done. */
+  kind: "unpin" | "info"
+  title: string
+  description: string
+}
+
+const RELOAD_NOTE = "reloads the model and drops its loaded state"
+
+/**
+ * What the ctx dialog should offer for a model's offload, from the fit report
+ * alone — the client never plans placement. Only a model whose command pins
+ * placement flags (`placement.mode == "custom"`) has anything to offer: an
+ * unpinned one is already placed by llama-skein.
+ *
+ * Asks "could this load with offload?", not "is it slow?": `if_unpinned` is the
+ * server's own counterfactual plan, so a refuse is reported as "won't load even
+ * with offload" rather than implying the pin is the problem.
+ */
+export function placementAction(fit: ModelFit | null | undefined): PlacementAction | null {
+  if (!fit || fit.placement?.mode !== "custom") return null
+  const alt = fit.placement.if_unpinned
+  if (!alt) return null
+  if (alt.loadable === false) {
+    return {
+      kind: "info",
+      title: "Offload would not help",
+      description: "won't load even with offload — weights exceed VRAM plus safe host RAM",
+    }
+  }
+  if (alt.mode === "gpu") {
+    return {
+      kind: "unpin",
+      title: "Remove the placement pin",
+      description: `fits fully on the GPU without it, and llama-skein re-plans if that ever stops being true · ${RELOAD_NOTE}`,
+    }
+  }
+  const host = alt.est_host_mb ?? 0
+  const slow = alt.perf_class === "cpu-bound-hybrid" || alt.perf_class === "cpu-only"
+  return {
+    kind: "unpin",
+    title: "Allow offload to RAM",
+    description: `loads with ~${fmtGB(host)} GB of weights in RAM${slow ? " (slow, host-bandwidth bound)" : ""} · ${RELOAD_NOTE}`,
+  }
+}

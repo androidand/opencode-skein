@@ -16,6 +16,7 @@ import {
   MIN_WORKFLOW_CTX,
   normalizeBaseURL,
   describePlacement,
+  placementAction,
   PRESETS,
   type MemSnapshot,
 } from "../local/model-fit"
@@ -93,7 +94,7 @@ export function DialogModelCtx(props: { providerID: string; modelID: string }) {
     if (physMax > 0) extra.add(physMax)
     const sizes = [...new Set([...PRESETS, ...extra])].sort((a, b) => a - b)
     const ceiling = physMax
-    return sizes.map((n) => {
+    const rows = sizes.map((n) => {
       let description: string | undefined
       // fork: PRESETS is hand-authored and runs to 1M, so it offers sizes no
       // model can load — this is how `--ctx-size 98304` got written onto a
@@ -123,6 +124,19 @@ export function DialogModelCtx(props: { providerID: string; modelID: string }) {
       }
       return { value: n, title: fmtCtxK(n), description, highlight: n === cur || n === rec || n === physMax }
     })
+    // Offload is a model setting, not a context one — it lives here only because
+    // this is the per-model settings surface (per-model-placement-controls D1).
+    const act = placementAction(fit())
+    if (!act) return rows
+    return [
+      {
+        value: act.kind === "unpin" ? ("unpin" as const) : ("info" as const),
+        title: `⚙ ${act.title}`,
+        description: act.description,
+        disabled: act.kind === "info",
+      },
+      ...rows,
+    ]
   })
 
   const titleSuffix = createMemo(() => {
@@ -137,6 +151,37 @@ export function DialogModelCtx(props: { providerID: string; modelID: string }) {
     if (placed) parts.push(placed)
     return parts.length ? ` · ${parts.join(" · ")}` : ""
   })
+
+  function unpin() {
+    if (busy()) return
+    setBusy(true)
+    dialog.clear()
+    toast.show({ variant: "info", message: `Allowing offload for ${modelName()} — reloading model…` })
+    sdk.client.local.model
+      .setOffload(
+        {
+          providerID: props.providerID,
+          modelID: props.modelID,
+          directory: sdk.directory,
+          localOffloadPayload: { unpin_placement: true },
+        },
+        { throwOnError: true },
+      )
+      .then((res) => {
+        if (res.data === false) {
+          toast.show({ variant: "error", message: "Offload change rejected — provider has no base URL" })
+          return
+        }
+        void sync.refreshProviders()
+      })
+      .catch((e: unknown) => {
+        const msg = e instanceof Error ? e.message : String(e)
+        toast.show({ variant: "error", message: `Failed to allow offload: ${msg}` })
+      })
+      .finally(() => {
+        setBusy(false)
+      })
+  }
 
   function apply(ctx_size: number) {
     if (busy()) return
@@ -182,13 +227,16 @@ export function DialogModelCtx(props: { providerID: string; modelID: string }) {
   }
 
   return (
-    <DialogSelect<number>
+    <DialogSelect<number | "unpin" | "info">
       title={`Context — ${modelName()}${titleSuffix()}`}
       options={options()}
       flat={true}
       skipFilter={true}
       current={current()}
-      onSelect={(opt) => apply(opt.value)}
+      onSelect={(opt) => {
+        if (opt.value === "unpin") return unpin()
+        if (typeof opt.value === "number") apply(opt.value)
+      }}
     />
   )
 }

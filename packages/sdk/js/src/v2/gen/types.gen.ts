@@ -2514,6 +2514,7 @@ export type LocalOffloadPayload = {
   cpu_moe?: boolean
   cpu_offload_gb?: number
   override_tensor?: string
+  unpin_placement?: boolean
 }
 
 export type LocalOffloadRecommendation = {

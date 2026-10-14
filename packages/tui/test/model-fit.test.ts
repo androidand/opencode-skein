@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test"
 import type { ModelFit } from "../src/local/llama-skein/gen/types.gen"
-import { aboveCeiling, computeRecommendedCtx, describePlacement, MAX_CTX, MIN_WORKFLOW_CTX, PRESETS } from "../src/local/model-fit"
+import { aboveCeiling, computeRecommendedCtx, describePlacement, placementAction, MAX_CTX, MIN_WORKFLOW_CTX, PRESETS } from "../src/local/model-fit"
 
 function mem(overrides: Partial<Parameters<typeof computeRecommendedCtx>[0]> = {}) {
   return {
@@ -75,5 +75,33 @@ describe("describePlacement", () => {
     expect(describePlacement({ model: "m", placement: { mode: "custom" } } as ModelFit)).toContain("pinned off")
     expect(describePlacement({ model: "m", host_resident_mb: 0, placement: { mode: "gpu" } } as ModelFit)).toBeNull()
     expect(describePlacement(null)).toBeNull()
+  })
+})
+
+describe("placementAction", () => {
+  const pinned = (alt: Record<string, unknown> | undefined) =>
+    ({ model: "m", placement: { mode: "custom", if_unpinned: alt } }) as unknown as ModelFit
+
+  test("nothing to offer for an unpinned, unknown or alternative-less model", () => {
+    expect(placementAction(null)).toBeNull()
+    expect(placementAction({ model: "m", placement: { mode: "gpu" } } as ModelFit)).toBeNull()
+    expect(placementAction(pinned(undefined))).toBeNull()
+  })
+  test("pinned but fits on the GPU anyway → drop the pin", () => {
+    const a = placementAction(pinned({ mode: "gpu", loadable: true }))!
+    expect(a.kind).toBe("unpin")
+    expect(a.title).toBe("Remove the placement pin")
+    expect(a.description).toContain("reloads the model")
+  })
+  test("pinned and only loadable with offload → says how much RAM and whether it is slow", () => {
+    const a = placementAction(pinned({ mode: "hybrid", loadable: true, est_host_mb: 20480, perf_class: "cpu-bound-hybrid" }))!
+    expect(a.kind).toBe("unpin")
+    expect(a.description).toContain("~20.0 GB")
+    expect(a.description).toContain("slow")
+  })
+  test("won't load even unpinned → info only, never an action", () => {
+    const a = placementAction(pinned({ mode: "refuse", loadable: false }))!
+    expect(a.kind).toBe("info")
+    expect(a.description).toContain("even with offload")
   })
 })
