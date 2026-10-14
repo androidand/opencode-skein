@@ -204,3 +204,23 @@ export function extractMem(hw: ResourceSnapshot): MemSnapshot | null {
   }
   return null
 }
+
+/**
+ * One-line placement summary for the ctx dialog: where the weights live and,
+ * when automatic offload is off for this model, why. null when there is
+ * nothing worth saying (plain full-GPU, or fit unknown).
+ */
+export function describePlacement(fit: ModelFit | null | undefined): string | null {
+  if (!fit) return null
+  const hostMb = fit.host_resident_mb ?? 0
+  if (hostMb > 0) {
+    const where = `weights ${fmtGB(fit.gpu_resident_mb ?? 0)} GB GPU + ${fmtGB(hostMb)} GB RAM`
+    return fit.placement?.perf_class === "cpu-bound-hybrid" || fit.placement?.perf_class === "cpu-only"
+      ? `${where} (offloaded, slow)`
+      : `${where} (offloaded)`
+  }
+  // `custom` = the command pins -ngl/--n-cpu-moe/-ot/...: llama-skein will not
+  // offload by itself, so ctx past the VRAM ceiling is simply unreachable.
+  if (fit.placement?.mode === "custom") return "offload pinned off (--n-gpu-layers etc. in command)"
+  return null
+}

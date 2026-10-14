@@ -15,6 +15,7 @@ import {
   fmtGB,
   MIN_WORKFLOW_CTX,
   normalizeBaseURL,
+  describePlacement,
   PRESETS,
   type MemSnapshot,
 } from "../local/model-fit"
@@ -132,6 +133,8 @@ export function DialogModelCtx(props: { providerID: string; modelID: string }) {
     if (m) parts.push(`${fmtGB(m.freeMb)}/${fmtGB(m.totalMb)} GB ${m.label} free`)
     if (ceiling > 0) parts.push(`max ${fmtCtxK(ceiling)}`)
     if (safe > 0 && safe !== ceiling) parts.push(`safe ~${fmtCtxK(safe)}`)
+    const placed = describePlacement(fit())
+    if (placed) parts.push(placed)
     return parts.length ? ` · ${parts.join(" · ")}` : ""
   })
 

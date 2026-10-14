@@ -1,5 +1,6 @@
-import { expect, test } from "bun:test"
-import { aboveCeiling, computeRecommendedCtx, MAX_CTX, MIN_WORKFLOW_CTX, PRESETS } from "../src/local/model-fit"
+import { describe, expect, test } from "bun:test"
+import type { ModelFit } from "../src/local/llama-skein/gen/types.gen"
+import { aboveCeiling, computeRecommendedCtx, describePlacement, MAX_CTX, MIN_WORKFLOW_CTX, PRESETS } from "../src/local/model-fit"
 
 function mem(overrides: Partial<Parameters<typeof computeRecommendedCtx>[0]> = {}) {
   return {
@@ -60,4 +61,19 @@ test("PRESETS offers sizes above a typical VRAM ceiling", () => {
   // must exist.
   expect(PRESETS.filter((n) => aboveCeiling(n, 32768)).length).toBeGreaterThan(0)
   expect(PRESETS).toContain(98304)
+})
+
+describe("describePlacement", () => {
+  test("offloaded weights report the GPU/RAM split and flag host-paced classes", () => {
+    const base = { model: "m", gpu_resident_mb: 30720, host_resident_mb: 20480 } as ModelFit
+    expect(describePlacement(base)).toBe("weights 30.0 GB GPU + 20.0 GB RAM (offloaded)")
+    expect(describePlacement({ ...base, placement: { perf_class: "cpu-bound-hybrid" } } as ModelFit)).toBe(
+      "weights 30.0 GB GPU + 20.0 GB RAM (offloaded, slow)",
+    )
+  })
+  test("a pinned command says offload is off; plain GPU says nothing", () => {
+    expect(describePlacement({ model: "m", placement: { mode: "custom" } } as ModelFit)).toContain("pinned off")
+    expect(describePlacement({ model: "m", host_resident_mb: 0, placement: { mode: "gpu" } } as ModelFit)).toBeNull()
+    expect(describePlacement(null)).toBeNull()
+  })
 })
