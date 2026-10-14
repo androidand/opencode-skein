@@ -80,4 +80,32 @@ describe("local.model.setOffload unpin_placement", () => {
       expect(backend.bodies).toEqual([{ unpin_placement: true }])
     }),
   )
+
+  it.live(
+    "forwards an explicit n_gpu_layers, including 0, verbatim",
+    Effect.gen(function* () {
+      const backend = yield* backendEffect()
+      const tmp = yield* tmpdirEffect({
+        config: {
+          formatter: false as const,
+          lsp: false as const,
+          provider: { gpuhost2: { npm: "@ai-sdk/openai-compatible", options: { baseURL: backend.baseURL, apiKey: "skein" } } },
+        },
+      })
+      for (const n of [99, 0]) {
+        const response = yield* Effect.promise(() =>
+          Promise.resolve(
+            app().request("/local/model/gpuhost2/big-dense/offload", {
+              method: "PATCH",
+              headers: { "content-type": "application/json", "x-opencode-directory": tmp.path },
+              body: JSON.stringify({ n_gpu_layers: n }),
+            }),
+          ),
+        )
+        expect(response.status).toBe(200)
+      }
+      // 0 is a real value (all layers on the CPU); it must not be dropped or turned into a removal.
+      expect(backend.bodies).toEqual([{ n_gpu_layers: 99 }, { n_gpu_layers: 0 }])
+    }),
+  )
 })

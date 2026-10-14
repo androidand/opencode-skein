@@ -2515,6 +2515,7 @@ export type LocalOffloadPayload = {
   cpu_offload_gb?: number
   override_tensor?: string
   unpin_placement?: boolean
+  n_gpu_layers?: number
 }
 
 export type LocalOffloadRecommendation = {

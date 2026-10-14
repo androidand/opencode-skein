@@ -4,6 +4,7 @@ import { useSync } from "../context/sync"
 import { useSDK } from "../context/sdk"
 import { useToast } from "../ui/toast"
 import { DialogSelect } from "../ui/dialog-select"
+import { DialogPrompt } from "../ui/dialog-prompt"
 import { createClient, createConfig } from "../local/llama-skein/gen/client"
 import { LlamaSkeinClient } from "../local/llama-skein/gen/sdk.gen"
 import type { ModelFit } from "../local/llama-skein/gen/types.gen"
@@ -16,6 +17,7 @@ import {
   MIN_WORKFLOW_CTX,
   normalizeBaseURL,
   describePlacement,
+  parseGpuLayers,
   placementAction,
   PRESETS,
   type MemSnapshot,
@@ -122,21 +124,32 @@ export function DialogModelCtx(props: { providerID: string; modelID: string }) {
           description += ` · ⚠ exceeds free ${m.label} (${fmtGB(m.freeMb)} GB)`
         }
       }
-      return { value: n, title: fmtCtxK(n), description, highlight: n === cur || n === rec || n === physMax }
+      return { value: n, title: fmtCtxK(n), description, category: "Context", highlight: n === cur || n === rec || n === physMax }
     })
     // Offload is a model setting, not a context one — it lives here only because
     // this is the per-model settings surface (per-model-placement-controls D1).
     const act = placementAction(fit())
-    if (!act) return rows
-    return [
-      {
-        value: act.kind === "unpin" ? ("unpin" as const) : ("info" as const),
+    const placementRows: Array<{ value: number | "unpin" | "info" | "layers"; title: string; description: string; category: string; disabled?: boolean }> = []
+    if (act) {
+      placementRows.push({
+        value: act.kind === "unpin" ? "unpin" : "info",
         title: `⚙ ${act.title}`,
         description: act.description,
+        category: "Placement",
         disabled: act.kind === "info",
-      },
-      ...rows,
-    ]
+      })
+    }
+    // A deliberate pin: always available for a local llama-skein model, so the
+    // operator can state an exact layer count rather than only clear one.
+    if (fit()) {
+      placementRows.push({
+        value: "layers",
+        title: "⚙ Pin GPU layers…",
+        description: `write an explicit --n-gpu-layers (a deliberate pin; stops automatic placement for this model) · ${"reloads the model and drops its loaded state"}`,
+        category: "Placement",
+      })
+    }
+    return [...placementRows, ...rows]
   })
 
   const titleSuffix = createMemo(() => {
@@ -183,6 +196,50 @@ export function DialogModelCtx(props: { providerID: string; modelID: string }) {
       })
   }
 
+  function pinLayers() {
+    dialog.replace(() => (
+      <DialogPrompt
+        title={`Pin GPU layers — ${modelName()}`}
+        placeholder="e.g. 99 (all layers on the GPU), 0 (CPU only)"
+        description={() => (
+          <text>Writes --n-gpu-layers verbatim and reloads the model. Cancel to leave placement alone.</text>
+        )}
+        onConfirm={(value) => {
+          const n = parseGpuLayers(value)
+          if (n === null) {
+            toast.show({ variant: "error", message: `"${value.trim()}" is not a layer count (a whole number ≥ 0)` })
+            return
+          }
+          setBusy(true)
+          dialog.clear()
+          toast.show({ variant: "info", message: `Pinning ${modelName()} to ${n} GPU layers — reloading model…` })
+          sdk.client.local.model
+            .setOffload(
+              {
+                providerID: props.providerID,
+                modelID: props.modelID,
+                directory: sdk.directory,
+                localOffloadPayload: { n_gpu_layers: n },
+              },
+              { throwOnError: true },
+            )
+            .then((res) => {
+              if (res.data === false) {
+                toast.show({ variant: "error", message: "Layer pin rejected — provider has no base URL" })
+                return
+              }
+              void sync.refreshProviders()
+            })
+            .catch((e: unknown) => {
+              toast.show({ variant: "error", message: `Failed to pin layers: ${e instanceof Error ? e.message : String(e)}` })
+            })
+            .finally(() => setBusy(false))
+        }}
+        onCancel={() => dialog.clear()}
+      />
+    ))
+  }
+
   function apply(ctx_size: number) {
     if (busy()) return
     setBusy(true)
@@ -227,14 +284,14 @@ export function DialogModelCtx(props: { providerID: string; modelID: string }) {
   }
 
   return (
-    <DialogSelect<number | "unpin" | "info">
-      title={`Context — ${modelName()}${titleSuffix()}`}
+    <DialogSelect<number | "unpin" | "info" | "layers">
+      title={`${modelName()}${titleSuffix()}`}
       options={options()}
-      flat={true}
       skipFilter={true}
       current={current()}
       onSelect={(opt) => {
         if (opt.value === "unpin") return unpin()
+        if (opt.value === "layers") return pinLayers()
         if (typeof opt.value === "number") apply(opt.value)
       }}
     />

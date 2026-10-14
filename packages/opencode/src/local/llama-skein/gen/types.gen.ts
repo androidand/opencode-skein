@@ -343,6 +343,14 @@ export type ConfigModelPatchRequest = {
   cache_type_v?: string
   "cache-type-v"?: string
   /**
+   * Writes the model's `placement:` declaration block (reason / intent / allowKvQuantization). An empty object removes the block. Written as a structured field, so no `cmd` string is read, edited and written back.
+   */
+  placement?: {
+    reason?: string
+    intent?: "auto" | "latency" | "context" | "custom"
+    allow_kv_quantization?: boolean
+  }
+  /**
    * When true, removes every placement-pinning flag from the model's command (--n-gpu-layers/-ngl/--gpu-layers, --n-cpu-moe, --cpu-moe, --override-tensor/-ot, --tensor-split/-ts) so automatic placement takes over: full GPU when the model fits, host-RAM offload only when it does not. This is the explicit 'allow offload' action; it is deliberately separate from n_gpu_layers, where 0 is a real value (all layers on CPU) and must never mean 'remove'. A no-op when no such flag is present. llamacpp only.
    */
   unpin_placement?: boolean
@@ -694,6 +702,14 @@ export type ModelFit = {
    * True when a configured model's --ctx-size is materially below the context VRAM could safely hold. Signals a starved config that the fit report would otherwise hide behind the small configured_ctx.
    */
   under_configured?: boolean
+  /**
+   * Where gpu_resident_mb / host_resident_mb came from. measured: read from the backend's own load log for the currently loaded model, so it includes a split the engine decided itself (--fit adjusting -ngl) that no command flag reveals. estimated: parsed from the command's placement flags, which cannot see an engine-side split — authoritative only when the model is not loaded or its log is unavailable.
+   */
+  resident_source?: "measured" | "estimated"
+  /**
+   * True when part of the model's weights are host-resident (host_resident_mb > 0) although the whole model would fit usable VRAM at the configured context, i.e. the offload is avoidable. Advisory. Keys on the outcome, not on a pinned flag value, so a pin that happens to exceed the model's layer count is never flagged, and a model that genuinely needs host RAM is never flagged. Omitted when false.
+   */
+  under_offloaded?: boolean
   /**
    * Largest --ctx-size (hard n_ctx) that fits this host's VRAM. The grow target for an under-configured model. 0 when VRAM is unknown.
    */
@@ -1402,6 +1418,22 @@ export type PlacementDecision = {
    * llama-fit-params preflight output (the engine's own fitted arguments) when the tool is available; advisory.
    */
   effective_args?: string
+  /**
+   * True when the model's config carries a `placement:` block, i.e. the operator stated that its placement is deliberate. False for a raw placement flag with no block (undeclared) and for models with no pin at all. Descriptive only: it never changes what the planner does.
+   */
+  declared?: boolean
+  /**
+   * The operator's `placement.reason` text when the placement is declared. Distinct from `reason`, which explains the planner's decision.
+   */
+  declared_reason?: string
+  /**
+   * The operator's declared placement intent (auto when the block is present without one). latency: never offload, refuse instead. context: the configured --ctx-size is a floor the retry ladder will not shrink below. custom: the operator owns placement and automatic placement stays out.
+   */
+  declared_intent?: "auto" | "latency" | "context" | "custom"
+  /**
+   * Report only, never applied: for a model that pins placement flags with no placement: block (an undeclared pin), the YAML block the operator could add to record the pin as deliberate. Absent for declared models and for models with no pin.
+   */
+  suggested_declaration?: string
   if_unpinned?: PlacementAlternative
   /**
    * Adaptive retry ladder history, oldest first. Empty when the model has never failed for a memory reason.

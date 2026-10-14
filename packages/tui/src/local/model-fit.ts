@@ -270,3 +270,34 @@ export function placementAction(fit: ModelFit | null | undefined): PlacementActi
     description: `loads with ~${fmtGB(host)} GB of weights in RAM${slow ? " (slow, host-bandwidth bound)" : ""} · ${RELOAD_NOTE}`,
   }
 }
+
+export type PlacementIndicator = { text: string }
+
+/**
+ * The sidebar's avoidable-offload indicator. Prefers the host's own
+ * `under_offloaded`; for a host that predates it, falls back to the mechanical
+ * pair derivable from /api/fit (cpu_offload while the GPU share would have
+ * fit). It must stay silent for a model that genuinely needs host RAM and for
+ * a fully resident one — a warning on a correct hybrid teaches people to
+ * ignore it. Names the host-resident amount so the cost is legible.
+ */
+export function placementIndicator(fit: ModelFit | null | undefined): PlacementIndicator | null {
+  if (!fit) return null
+  const hostMb = fit.host_resident_mb ?? 0
+  if (hostMb <= 0) return null
+  const avoidable =
+    fit.under_offloaded !== undefined
+      ? fit.under_offloaded === true
+      : fit.run_mode === "cpu_offload" &&
+        (fit.vram_required_mb ?? Infinity) <= (fit.vram_total_mb ?? 0)
+  if (!avoidable) return null
+  return { text: `⚠ ${fmtGB(hostMb)} GB of weights in RAM — avoidable` }
+}
+
+/** Parses an operator-typed GPU layer count. null = not a usable value. */
+export function parseGpuLayers(input: string): number | null {
+  const t = input.trim()
+  if (!/^\d+$/.test(t)) return null
+  const n = Number(t)
+  return Number.isSafeInteger(n) ? n : null
+}

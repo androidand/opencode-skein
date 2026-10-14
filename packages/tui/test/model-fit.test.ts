@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test"
 import type { ModelFit } from "../src/local/llama-skein/gen/types.gen"
-import { aboveCeiling, computeRecommendedCtx, describePlacement, placementAction, MAX_CTX, MIN_WORKFLOW_CTX, PRESETS } from "../src/local/model-fit"
+import { aboveCeiling, computeRecommendedCtx, describePlacement, parseGpuLayers, placementAction, placementIndicator, MAX_CTX, MIN_WORKFLOW_CTX, PRESETS } from "../src/local/model-fit"
 
 function mem(overrides: Partial<Parameters<typeof computeRecommendedCtx>[0]> = {}) {
   return {
@@ -103,5 +103,44 @@ describe("placementAction", () => {
     const a = placementAction(pinned({ mode: "refuse", loadable: false }))!
     expect(a.kind).toBe("info")
     expect(a.description).toContain("even with offload")
+  })
+})
+
+describe("placementIndicator", () => {
+  const fit = (o: Record<string, unknown>) => ({ model: "m", ...o }) as unknown as ModelFit
+
+  // The five host A models from flag-under-offloaded-models: two avoidably
+  // offloaded must warn, three fully resident (two pinned at -ngl 40 above their
+  // layer count) must not — so the check keys on the OUTCOME, never the pin.
+  test("warns on avoidable offload, naming the host-resident amount", () => {
+    const m2 = placementIndicator(fit({ host_resident_mb: 6037, under_offloaded: true }))
+    expect(m2?.text).toContain("5.9 GB")
+    expect(placementIndicator(fit({ host_resident_mb: 6166, under_offloaded: true }))).not.toBeNull()
+  })
+  test("silent for fully resident models, whatever the pin says", () => {
+    for (const run_mode of ["gpu"]) {
+      expect(placementIndicator(fit({ run_mode, host_resident_mb: 0, placement: { mode: "custom" } }))).toBeNull()
+    }
+    expect(placementIndicator(fit({ host_resident_mb: 0, under_offloaded: false }))).toBeNull()
+  })
+  test("silent for a genuine hybrid the model cannot run without", () => {
+    expect(placementIndicator(fit({ host_resident_mb: 50000, under_offloaded: false, run_mode: "moe_offload" }))).toBeNull()
+  })
+  test("a host that predates under_offloaded falls back to run_mode + vram_required", () => {
+    const avoidable = fit({ run_mode: "cpu_offload", host_resident_mb: 7165, vram_required_mb: 20000, vram_total_mb: 24560 })
+    expect(placementIndicator(avoidable)).not.toBeNull()
+    const needed = fit({ run_mode: "cpu_offload", host_resident_mb: 7165, vram_required_mb: 30000, vram_total_mb: 24560 })
+    expect(placementIndicator(needed)).toBeNull()
+  })
+  test("no fit (non-llama-skein backend) renders nothing", () => {
+    expect(placementIndicator(null)).toBeNull()
+  })
+})
+
+describe("parseGpuLayers", () => {
+  test("accepts whole numbers including 0, rejects everything else", () => {
+    expect(parseGpuLayers("99")).toBe(99)
+    expect(parseGpuLayers(" 0 ")).toBe(0)
+    for (const bad of ["", "-1", "1.5", "all", "40 layers", "1e3"]) expect(parseGpuLayers(bad)).toBeNull()
   })
 })
