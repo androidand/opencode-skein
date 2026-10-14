@@ -9,17 +9,15 @@ import { createClient, createConfig } from "../local/llama-skein/gen/client"
 import { LlamaSkeinClient } from "../local/llama-skein/gen/sdk.gen"
 import type { ModelFit } from "../local/llama-skein/gen/types.gen"
 import {
-  aboveCeiling,
   computeRecommendedCtx,
   extractMem,
   fmtCtxK,
   fmtGB,
-  MIN_WORKFLOW_CTX,
   normalizeBaseURL,
   describePlacement,
   parseGpuLayers,
+  buildCtxRows,
   placementAction,
-  PRESETS,
   type MemSnapshot,
 } from "../local/model-fit"
 
@@ -90,42 +88,7 @@ export function DialogModelCtx(props: { providerID: string; modelID: string }) {
     const m = mem()
     const rec = recommended()
     const physMax = maxPhysical()
-    const kvPerToken = m && cur > 0 && m.kvEstMb > 0 ? m.kvEstMb / cur : null
-    const extra = new Set(cur > 0 ? [cur] : [])
-    if (rec) extra.add(rec)
-    if (physMax > 0) extra.add(physMax)
-    const sizes = [...new Set([...PRESETS, ...extra])].sort((a, b) => a - b)
-    const ceiling = physMax
-    const rows = sizes.map((n) => {
-      let description: string | undefined
-      // fork: PRESETS is hand-authored and runs to 1M, so it offers sizes no
-      // model can load — this is how `--ctx-size 98304` got written onto a
-      // 32k-trained model. Annotate loudly instead of hiding the row (a model
-      // already misconfigured above the ceiling needs its `current` row visible).
-      // Advisory only: the ceiling is llama-skein's estimate, which can be wrong
-      // (it once reported 19k for a model running at 75k), so it never blocks.
-      if (aboveCeiling(n, ceiling)) {
-        description = `⚠ above estimated ceiling (${fmtCtxK(ceiling)}) — may not load`
-        if (n === cur) description = `current · ${description}`
-      } else if (n === cur && n === rec) {
-        description = "current · recommended"
-      } else if (n === cur) {
-        description = "current"
-      } else if (n === rec) {
-        description = "recommended for this model + VRAM"
-      } else if (n === physMax) {
-        description = "physical max — no safety margin, expect ~100% VRAM"
-      } else if (n < MIN_WORKFLOW_CTX) {
-        description = "⚠ too small — MCP tools fill this before meaningful work"
-      } else if (n > cur && m && kvPerToken) {
-        const extraKvMb = (n - cur) * kvPerToken
-        description = `+${fmtCtxK(n - cur)}`
-        if (extraKvMb > m.freeMb) {
-          description += ` · ⚠ exceeds free ${m.label} (${fmtGB(m.freeMb)} GB)`
-        }
-      }
-      return { value: n, title: fmtCtxK(n), description, category: "Context", highlight: n === cur || n === rec || n === physMax }
-    })
+    const rows = buildCtxRows({ current: cur, recommended: rec, maxPhysical: physMax, mem: m })
     // Offload is a model setting, not a context one — it lives here only because
     // this is the per-model settings surface (per-model-placement-controls D1).
     const act = placementAction(fit())

@@ -1,6 +1,7 @@
 import { describe, expect, test } from "bun:test"
 import type { ModelFit } from "../src/local/llama-skein/gen/types.gen"
-import { aboveCeiling, computeRecommendedCtx, describePlacement, parseGpuLayers, placementAction, placementIndicator, MAX_CTX, MIN_WORKFLOW_CTX, PRESETS } from "../src/local/model-fit"
+import type { MemSnapshot } from "../src/local/model-fit"
+import { aboveCeiling, buildCtxRows, computeRecommendedCtx, describePlacement, parseGpuLayers, placementAction, placementIndicator, MAX_CTX, MIN_WORKFLOW_CTX, PRESETS } from "../src/local/model-fit"
 
 function mem(overrides: Partial<Parameters<typeof computeRecommendedCtx>[0]> = {}) {
   return {
@@ -142,5 +143,52 @@ describe("parseGpuLayers", () => {
     expect(parseGpuLayers("99")).toBe(99)
     expect(parseGpuLayers(" 0 ")).toBe(0)
     for (const bad of ["", "-1", "1.5", "all", "40 layers", "1e3"]) expect(parseGpuLayers(bad)).toBeNull()
+  })
+})
+
+// What the operator is shown, against REAL host payloads (z4 and host C,
+// 2026-10-15) — the dialog displays llama-skein's figures and never replaces them.
+describe("buildCtxRows against real payloads", () => {
+  const z4Mem: MemSnapshot = { freeMb: 12896, totalMb: 49136, usedMb: 36240, label: "VRAM", modelMb: 30000, kvEstMb: 6240 }
+  const row = (rows: ReturnType<typeof buildCtxRows>, n: number) => rows.find((r) => r.value === n)!
+
+  test("the engine's physical ceiling is a row of its own and is never altered", () => {
+    // z4 BEFORE the MTP fix: the API said 164249. The dialog must show exactly that
+    // figure — correcting it is the server's job, not the client's.
+    const old = buildCtxRows({ current: 110789, recommended: null, maxPhysical: 164249, mem: z4Mem })
+    expect(row(old, 164249).description).toContain("physical max")
+    // z4 AFTER the fix: 262144 is a preset and the trained context.
+    const fixed = buildCtxRows({ current: 110789, recommended: null, maxPhysical: 262144, mem: z4Mem })
+    expect(row(fixed, 262144).description).toContain("physical max")
+    expect(fixed.some((r) => r.value > 262144 && !r.description?.includes("above estimated ceiling"))).toBe(false)
+  })
+
+  test("rows above the ceiling are annotated, not removed or blocked", () => {
+    const rows = buildCtxRows({ current: 110789, recommended: null, maxPhysical: 164249, mem: z4Mem })
+    expect(row(rows, 196608).description).toContain("above estimated ceiling (160k)")
+    expect(row(rows, 163840).description ?? "").not.toContain("above estimated ceiling")
+    // Every preset is still selectable: nothing was filtered out.
+    expect(rows.length).toBeGreaterThanOrEqual(PRESETS.length)
+  })
+
+  test("a context already set above the ceiling keeps its row, marked current", () => {
+    const rows = buildCtxRows({ current: 196608, recommended: null, maxPhysical: 164249, mem: z4Mem })
+    expect(row(rows, 196608).description).toMatch(/^current · ⚠ above estimated ceiling/)
+  })
+
+  test("no ceiling known (older backend) never annotates anything as too large", () => {
+    const rows = buildCtxRows({ current: 110789, recommended: null, maxPhysical: 0, mem: null })
+    expect(rows.some((r) => r.description?.includes("above estimated ceiling"))).toBe(false)
+  })
+
+  // The client's own arithmetic (recommended ctx) may not exceed what the
+  // measured numbers imply. z4: measured 62.8 KB/token; free 12.9 GB over a
+  // 110789 context => about 326k, so any recommendation <= 262144 is supported.
+  test("the recommended ctx never exceeds what measured free VRAM supports", () => {
+    const rec = computeRecommendedCtx(z4Mem, 110789, 219281)!
+    const measuredKvBytesPerToken = 62826
+    const supported = 110789 + (z4Mem.freeMb * 1048576) / measuredKvBytesPerToken
+    expect(rec).toBeLessThanOrEqual(supported)
+    expect(rec).toBeLessThanOrEqual(219281)
   })
 })

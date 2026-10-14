@@ -301,3 +301,59 @@ export function parseGpuLayers(input: string): number | null {
   const n = Number(t)
   return Number.isSafeInteger(n) ? n : null
 }
+
+export type CtxRow = {
+  value: number
+  title: string
+  description: string | undefined
+  category: string
+  highlight: boolean
+}
+
+/**
+ * The context-size rows of the per-model dialog, as a pure function of what the
+ * host reported — so what the operator is shown can be tested against real
+ * payloads instead of being assumed.
+ *
+ * Nothing here computes a limit: `maxPhysical` is llama-skein's figure and is
+ * only displayed and annotated, never replaced or second-guessed. Rows above it
+ * are annotated, never hidden or blocked (the estimate has been wrong in both
+ * directions).
+ */
+export function buildCtxRows(input: {
+  current: number
+  recommended: number | null
+  maxPhysical: number
+  mem: MemSnapshot | null
+}): CtxRow[] {
+  const { current: cur, recommended: rec, maxPhysical: physMax, mem: m } = input
+  const kvPerToken = m && cur > 0 && m.kvEstMb > 0 ? m.kvEstMb / cur : null
+  const extra = new Set(cur > 0 ? [cur] : [])
+  if (rec) extra.add(rec)
+  if (physMax > 0) extra.add(physMax)
+  const sizes = [...new Set([...PRESETS, ...extra])].sort((a, b) => a - b)
+  return sizes.map((n) => {
+    let description: string | undefined
+    if (aboveCeiling(n, physMax)) {
+      description = `⚠ above estimated ceiling (${fmtCtxK(physMax)}) — may not load`
+      if (n === cur) description = `current · ${description}`
+    } else if (n === cur && n === rec) {
+      description = "current · recommended"
+    } else if (n === cur) {
+      description = "current"
+    } else if (n === rec) {
+      description = "recommended for this model + VRAM"
+    } else if (n === physMax) {
+      description = "physical max — no safety margin, expect ~100% VRAM"
+    } else if (n < MIN_WORKFLOW_CTX) {
+      description = "⚠ too small — MCP tools fill this before meaningful work"
+    } else if (n > cur && m && kvPerToken) {
+      const extraKvMb = (n - cur) * kvPerToken
+      description = `+${fmtCtxK(n - cur)}`
+      if (extraKvMb > m.freeMb) {
+        description += ` · ⚠ exceeds free ${m.label} (${fmtGB(m.freeMb)} GB)`
+      }
+    }
+    return { value: n, title: fmtCtxK(n), description, category: "Context", highlight: n === cur || n === rec || n === physMax }
+  })
+}
