@@ -253,16 +253,17 @@ Critical path: `acp-external-verification` → `project-server` → `autonomous-
 
 ## 7. New changes introduced by this breakdown
 
-| Slug | Phase | Scenario | Created |
+| Slug | Phase | Scenario | Tracker |
 |---|---|---|---|
-| `acp-external-verification` | 1 | A | **this iteration** |
-| `ahp-host` | 7 | G | **this iteration** |
-| `skein-control-plane` | 4 | (enables C, D, F, H) | next iteration (gated by R6, R7) |
-| `mission-control` | 7 | (dashboard) | next iteration (gated by R9) |
-| `skein-observability` | cross | (metrics/CLI) | next iteration (gated by R10) |
-| `skein-soak-hardening` | 8 | D, H | next iteration |
+| `acp-external-verification` | 1 | A | #118 |
+| `ahp-host` | 7 | G | #119 |
+| `skein-control-plane` | 4 | (enables C, D, F, H) | #120 |
+| `mission-control` | 7 | (dashboard) | #121 |
+| `skein-observability` | cross | (metrics/CLI) | #122 |
+| `skein-soak-hardening` | 8 | D, H | #123 |
 
-Plus: `project-server` amendment (`DurableAgentExecution`, §7.4) and `02-architecture-decisions.md`.
+Plus: `project-server` amendment (`DurableAgentExecution`, §7.4, synced to #103) and
+`02-architecture-decisions.md` (12 ADRs, §22).
 
 ---
 
@@ -275,11 +276,11 @@ Plus: `project-server` amendment (`DurableAgentExecution`, §7.4) and `02-archit
 | R3 | Go `skein` repo structure | **answered** — 1090 Go files, 48+ internal packages (`supervisor`, `funnel`, `control`, `watchdog`, `peer`, `store`, `metrics`, `traces`). | `skein-control-plane` (partially) |
 | R4 | llama-skein lease API | **answered** — `POST/DELETE /api/slots/lease`, in-memory, TTL, no renewal/list. | `skein-pool` lease task (partially) |
 | R5 | specsync ready-work / claimable query | **partial** — `changes --json` works (write-mostly); no dependency/claimable query; fork refusal needs `-repo`. | `auto-across-repos` ready-work task |
-| R6 | Which Go `skein` packages to reuse for the control plane | **open** | `skein-control-plane` scope |
-| R7 | PostgreSQL vs SQLite for the control plane (single-host vs distributed) | **open** | `skein-control-plane` scope |
+| R6 | Which Go `skein` packages to reuse for the control plane | **answered** — the control plane is largely built: `internal/domain` (WorkRef, ClaimRequest/AdmitClaim, WorkInventory, PortfolioSpec, P1–P5, checkpoints, dirty-path ownership, findings), `internal/funnel` (ready-task), `internal/supervisor` (admission/aging/antiloop/assignment), `internal/watchdog` (lease/stuck-recovery). Extract the pure domain primitives; reuse the rest. | `skein-control-plane` (unblocked) |
+| R7 | PostgreSQL vs SQLite for the control plane (single-host vs distributed) | **answered** — existing `internal/store` is SQLite (single-host runtime state). The distributed control plane uses PostgreSQL for cross-host claims/workflow; keep SQLite for single-host. ADR 6. | `skein-control-plane` (unblocked) |
 | R8 | AHP host build approach: `ahp-acp-gateway` vs `@ahpd/sdk` vs build on the TS client lib | **open** | `ahp-host` design.md |
-| R9 | Mission Control: extend OpenCode web UI vs small independent dashboard | **open** | `mission-control` |
-| R10 | OTel integration: SDK, exporter, correlation-ID propagation | **open** | `skein-observability` |
+| R9 | Mission Control: extend OpenCode web UI vs small independent dashboard | **answered** — `packages/web` is `@opencode-ai/web`, an Astro docs site, not a dashboard; no existing control dashboard. Build a small independent dashboard (ADR 10 option B). | `mission-control` (unblocked) |
+| R10 | OTel integration: SDK, exporter, correlation-ID propagation | **partial** — Go `skein` has `internal/metrics` (per-provider/model/stage, D1) + `internal/traces` but no OTel in go.mod. Add OTel where suitable, building on existing; correlation-ID set defined. Exact OTel SDK/exporter still open. | `skein-observability` (mostly unblocked) |
 | R11 | `archsync` integration (§10.4) — separate concept | **open** | `auto-across-repos` (optional) |
 
 ---
