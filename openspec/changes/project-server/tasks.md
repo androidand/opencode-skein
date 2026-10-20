@@ -32,6 +32,11 @@
 - [ ] 2.2 Re-adopt on server start; fresh child session per iteration; abandoned-turn handling.
 - [ ] 2.3 Test: kill -9 the server mid-iteration; restart; loop continues; no duplicate
       iteration; claim heartbeat lapses then resumes. Seen red against current code first.
+- [ ] 2.4 DurableAgentExecution record (charter §7.4): table + write-through on every
+      transition (executionId, sessionId, projectId, workItemId, status, currentStep,
+      attempt, heartbeatAt, leaseExpiresAt, updatedAt). Recovery reads this record plus the
+      actual repository state — never the chat transcript — and does not blindly rerun a
+      non-idempotent operation whose outcome is unknown.
 
 ## Phase 3: Agents without processes
 

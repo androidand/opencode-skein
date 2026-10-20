@@ -37,6 +37,16 @@ duplicating an iteration.
 - **WHEN** the server process is killed during an iteration and restarted
 - **THEN** the loop resumes with a fresh iteration and the abandoned turn is not counted as completed
 
+### Requirement: durable execution records, not transcripts
+The system SHALL persist a durable execution record per execution (status, current step,
+attempt, heartbeat, lease) and SHALL recover from that record plus actual repository state,
+not from the session conversation transcript.
+
+#### Scenario: recovery after crash
+- **WHEN** the server crashes while an execution is running and is later restarted
+- **THEN** it recovers the execution from the durable record and the actual repository
+  state, and does not blindly rerun a non-idempotent operation whose outcome is unknown
+
 ### Requirement: the server is secured
 The auto-started server SHALL bind only to loopback or a unix socket and SHALL require a
 generated password stored with owner-only permissions.
