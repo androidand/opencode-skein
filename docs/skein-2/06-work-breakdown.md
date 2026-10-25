@@ -15,6 +15,12 @@ Every row is grounded in a file, branch, or issue — nothing here is assumed.
 Repo: `androidand/opencode-skein`. All specsync commands pass `-repo androidand/opencode-skein`
 (fork of `anomalyco/opencode`; auto-detect refuses to target the upstream parent).
 
+**Revised 2026-10-25**: the phase structure below reflects the *original* charter
+roadmap. The opencode 2 pivot (see `skein2-plan-evaluation.md` §6 and the charter
+revision notes) replaced old Phases 1–2 with the plugin port (P1.0–P1.9) and re-scoped
+the AHP phase. Section 1a below records the revised mapping; the per-phase tables in
+§1 remain valid where the owning specs are unchanged, and are marked where not.
+
 ---
 
 ## 1. Phase → spec map
@@ -24,26 +30,43 @@ Repo: `androidand/opencode-skein`. All specsync commands pass `-repo androidand/
 | Deliverable (charter §3) | State | Where |
 |---|---|---|
 | `00-current-state.md` | done | this worktree, commit `9d2bb46597` |
-| `01-requirements.md` | new (planned) | next iteration |
-| `02-architecture-decisions.md` (12 ADRs, §22) | new (planned) | next iteration; ADR→spec map in §5 |
-| `03-target-architecture.md` | new (planned) | next iteration |
-| `04-gap-analysis.md` (evidence matrix) | partial | matrix in §2 below; `04` will expand it |
-| `05-migration-plan.md` | new (planned) | next iteration |
+| `01-requirements.md` | done | this worktree (written 2026-10-25), r-A/R-P/R-C IDs |
+| `02-architecture-decisions.md` (12 ADRs, §22) | done | this worktree, commit `20e45c5930`; ADR 3/4 resolution notes updated by the v2 pivot |
+| `03-target-architecture.md` | done | this worktree, committed with the ADR set |
+| `04-gap-analysis.md` (evidence matrix) | done | full matrix + v2-pivot gaps written 2026-10-25 |
+| `05-migration-plan.md` | done | this worktree, committed with the ADR set |
 | `06-work-breakdown.md` | **done** | this file |
-| `07-acceptance-tests.md` | new (planned) | next iteration; scenarios A–H in §3 |
-| `08-risk-register.md` | new (planned) | next iteration |
+| `07-acceptance-tests.md` | done | this worktree, committed with the ADR set |
+| `08-risk-register.md` | done | register written 2026-10-25 (K1–K16) |
+### Phase 1a — opencode 2 plugin port (revised plan; replaces old Phases 1–2)
 
-### Phase 1 — ACP modernization (§6)
+From the adjusted phase plan (`skein2-plan-evaluation.md` §6, walking skeleton in
+`skein2-p1.2-findings.md`). Each item is one OpenSpec change, one branch, one worktree.
+
+| Item | Content | State | Where |
+|---|---|---|---|
+| P1.0 | Unshallow, confirm ancestry, pin v2.1.3, record fork/upstream delta | new | `v2-rebaseline` |
+| P1.1 | Plugin repo layout decision (ADR 13) + crash-isolation verification of `core/src/plugin/supervisor.ts` | new | `plugin-repo-layout` |
+| P1.2 | Walking skeleton: tool, command, RPC, TUI route on pinned v2.1.3 | done | `skein-plugin-skeleton`, findings in `skein2-p1.2-findings.md`; verdict: go plugins |
+| P1.3 | Port `local/` (llama-skein provider, gallery, placement, ctx-fit; TUI dialogs) | new | `port-local-plugins` |
+| P1.4 | Port `peer/`; delegation correlation to durable storage during the port (§8.4) | new | `port-peer-plugin` |
+| P1.5 | Port `loop/` + `crew/` + `spec-queue/` (rewrite expected); claim fencing (§8.5), `worktree.transform` | new | `port-loop-crew-plugin` |
+| P1.6 | Port `beads/` | new | `port-beads-plugin` |
+| P1.7 | Adopt upstream ACP + `opencode service`; delete `acp/`, `context/`, `fork/`; verify §6.4/§7.6; gaps become upstream PRs or documented gaps | new | `adopt-upstream-acp-and-service` |
+| P1.8 | `skein` CLI over plugin RPC / server API (`status`, `projects`, `agents`, `work *`, `fleet`, `trace`, `doctor`) | new | `skein-cli` |
+| P1.9 | Reconcile the 26-change OpenSpec queue: continue/amend/supersede/archive each | new | `reconcile-openspec-queue-v2` |
+
+### Phase 1 — ACP modernization (§6) — superseded by Phase 1a
 
 | Deliverable | State | Where |
 |---|---|---|
-| Fluent ACP SDK implementation | done | branch `skein2/acp-sdk-1.8`, `docs/skein-2/01-acp-migration.md` |
-| Updated service adapters | done | same branch |
+| Fluent ACP SDK implementation | done (route cancelled) | branch `skein2/acp-sdk-1.8`, `docs/skein-2/01-acp-migration.md`; archived as sunk cost — upstream v2 ships ACP |
+| Updated service adapters | done (route cancelled) | same branch |
 | Compatibility tests (unit) | partial | unit tests exist; external-client leg missing |
-| External-client integration verification | **new** | `acp-external-verification` (created this iteration) |
-| Remove deprecated `AgentSideConnection` deps | partial | compat switch still present; removed after external verification |
+| External-client integration verification | **new** | `acp-external-verification` (created this iteration; re-anchored to upstream ACP) |
+| Remove deprecated `AgentSideConnection` deps | obsoleted | fork dirs deleted in P1.7 instead |
 
-### Phase 2 — Durable project execution (§7)
+### Phase 2 — Durable project execution (§7) — re-scoped: verify upstream first
 
 | Deliverable | State | Where |
 |---|---|---|
@@ -213,7 +236,7 @@ Repo: `androidand/opencode-skein`. All specsync commands pass `-repo androidand/
 | 11 | Observability (tracing, metrics, logs, audit) | `skein-observability` |
 | 12 | Deployment (local, headless, distributed homelab) | `skein-control-plane` + `skein-soak-hardening` |
 
-All twelve are written in `02-architecture-decisions.md` (next iteration).
+All twelve are written in `02-architecture-decisions.md`.
 
 ---
 
@@ -249,18 +272,53 @@ Critical path: `acp-external-verification` → `project-server` → `autonomous-
 `skein-observability`, `skein-pool`, `auto-across-repos` branch off `project-server` /
 `skein-control-plane` and can proceed in parallel where staffed.
 
+**Revised sequence (v2 pivot):**
+
+```
+P1.0 v2-rebaseline
+  ↓
+P1.1 plugin-repo-layout (ADR 13 + supervisor isolation proof)
+  ↓
+[P1.2 skeleton — done]
+  ↓
+P1.3 port-local  →  P1.4 port-peer  →  P1.5 port-loop-crew  →  P1.6 port-beads
+  ↓
+P1.7 adopt-upstream-acp-and-service  →  P1.8 skein-cli
+  ↓ (old roadmap resumes on units, not the fork)
+acp-external-verification · project-server(verify-first) · autonomous-swarm
+  ↓
+skein-control-plane → skein-pool → auto-across-repos
+  ↓
+ahp-host (blocked on the upstream desktop/UI evaluation) + mission-control
+  ↓
+skein-soak-hardening
+```
+
+`reconcile-openspec-queue-v2` (P1.9) is not on the port's own critical path — the
+ports are new code in a new repo — but it gates any further work executed **inside**
+opencode-skein.
+
 ---
 
 ## 7. New changes introduced by this breakdown
 
 | Slug | Phase | Scenario | Tracker |
 |---|---|---|---|
-| `acp-external-verification` | 1 | A | #118 |
-| `ahp-host` | 7 | G | #119 |
+| `acp-external-verification` | 1 (amended → upstream ACP) | A | #118 |
+| `ahp-host` | 7 (implementation blocked on the desktop/UI evaluation) | G | #119 |
 | `skein-control-plane` | 4 | (enables C, D, F, H) | #120 |
 | `mission-control` | 7 | (dashboard) | #121 |
 | `skein-observability` | cross | (metrics/CLI) | #122 |
 | `skein-soak-hardening` | 8 | D, H | #123 |
+| `v2-rebaseline` | 1a (P1.0) | — | pending sync |
+| `plugin-repo-layout` | 1a (P1.1) | — | pending sync |
+| `port-local-plugins` | 1a (P1.3) | — | pending sync |
+| `port-peer-plugin` | 1a (P1.4) | — | pending sync |
+| `port-loop-crew-plugin` | 1a (P1.5) | — | pending sync |
+| `port-beads-plugin` | 1a (P1.6) | — | pending sync |
+| `adopt-upstream-acp-and-service` | 1a (P1.7) | A, B | pending sync |
+| `skein-cli` | 1a (P1.8) | — | pending sync |
+| `reconcile-openspec-queue-v2` | 1a (P1.9) | — | pending sync |
 
 Plus: `project-server` amendment (`DurableAgentExecution`, §7.4, synced to #103) and
 `02-architecture-decisions.md` (12 ADRs, §22).
