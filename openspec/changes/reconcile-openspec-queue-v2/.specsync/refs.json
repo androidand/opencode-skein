@@ -1,0 +1,9 @@
+{
+  "github:androidand/opencode-skein": {
+    "provider": "github:androidand/opencode-skein",
+    "id": "132",
+    "url": "https://github.com/androidand/opencode-skein/issues/132",
+    "base_sha": "4b0fb2f4796ad216611f9e96588cdec2cac895eb5af2502d1df26e0a956d03a1",
+    "base": "# Tasks: reconcile the OpenSpec queue for the v2 route\n\nThe classification table is in this change's proposal; each task applies it.\n\n- [ ] 1.1 Amend the amend-rows' proposals with a dated revision note citing this\n      change (acp-external-verification, ahp-host, project-server first — they shape\n      the most trust).\n- [ ] 1.2 Write supersede headers into crew-loop, loop-done-handoff,\n      model-gallery-ui, per-model-placement-controls (\"carried into \u003cport slug\u003e\"),\n      and the matching \"carries\" citation in each port change's proposal.\n- [ ] 1.3 Merge `fix-queue-branch-awareness`'s open tasks into the loop port's queue\n      tasks; mark the original with the merge note.\n- [ ] 1.4 Archive `sidecar-orphan-cleanup` with the PR #113 evidence line.\n- [ ] 1.5 Re-anchor `long-session-memory-retention`'s proposal against upstream v2's\n      context behavior; record what was fork-internal and is now upstream.\n- [ ] 1.6 Mark the hold-rows (`loop-unattended-permission-asks`,\n      `models-picker-ux`) with their pending-verification dependency\n      (`adopt-upstream-acp-and-service` 1.1 evidence).\n- [ ] 1.7 Run `openspec validate` across the queue; specsync dry-run the changes;\n      re-sync changed rows (`specsync -change \u003cslug\u003e` per row or batch, owner's call on\n      when).\n- [ ] 1.8 Evidence: the queue listing with no unclassified active change; any row that\n      needed a decision the register lacked goes to `08-risk-register.md` decision\n      debt instead of a guess.\n"
+  }
+}

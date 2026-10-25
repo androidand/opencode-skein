@@ -1,0 +1,9 @@
+{
+  "github:androidand/opencode-skein": {
+    "provider": "github:androidand/opencode-skein",
+    "id": "126",
+    "url": "https://github.com/androidand/opencode-skein/issues/126",
+    "base_sha": "68c3aa699152c127ae5ef2b4ec02a05e08701caec4ed3914eb50e7e3a4440b53",
+    "base": "# Tasks: port local/ to plugins\n\nDepends on `plugin-repo-layout` 0.1–0.2 (isolation proof) for anything TUI-exposed.\n\n- [ ] 1.1 Move mDNS/LAN discovery and the llama-skein client into `skein-local`; keep\n      contract-first rules (AGENTS.md): OpenAPI is source of truth, `gen/` never\n      hand-edited, regenerated via `bun run build:llama-skein-client`.\n- [ ] 1.2 Register the provider/model domain surfaces via `rpc.register`; record the RPC\n      flavour choice in design.md and hold it (R-P5).\n- [ ] 1.3 Re-point `test/local/` + `test/server/` locally-owned cases at the plugin\n      package boundary; delete nothing silently — each dropped case is listed with why.\n- [ ] 1.4 Add the §11.4 placement regressions (model-ID verification in warm-peer\n      routing; idle-sorting policy; reuse context fits; no double-counted capacity).\n- [ ] 1.5 Port the 6 TUI dialogs as TUI-plugin routes with the debug-render guard\n      (trap 8) and location-aware RPC (trap 7); promote `tui-drive.py` into the CI kit.\n- [ ] 1.6 Live smoke (K11): one model-invoked tool execution with real credentials,\n      recorded with the transcript and the model/host used.\n- [ ] 1.7 Mark fork-side `src/local/` disposition (delete in P1.7 if nothing upstream\n      needs it; otherwise list retained delta in `00-current-state.md`).\n"
+  }
+}

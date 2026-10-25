@@ -1,0 +1,9 @@
+{
+  "github:androidand/opencode-skein": {
+    "provider": "github:androidand/opencode-skein",
+    "id": "131",
+    "url": "https://github.com/androidand/opencode-skein/issues/131",
+    "base_sha": "d5929691c82707ad5d3c661628075acfa812caf6b34001f6d573f53245346568",
+    "base": "# Tasks: skein CLI\n\n- [ ] 1.1 Record the language + transport decision in design.md (recommendation: Go;\n      transport: opencode server API + plugin RPC with explicit location handling\n      per the P1.2 traps 5/7).\n- [ ] 1.2 Implement `skein status`, `skein projects`, `skein agents` and the `skein\n      work ready|running|blocked` triple over server/plugin state.\n- [ ] 1.3 Implement `skein fleet` (runtime + inference slots via llama-skein read API)\n      and `skein trace \u003cexecution-id\u003e` (rendering available IDs; explicit about what is\n      absent).\n- [ ] 1.4 Implement `skein doctor`: plugin health probes (resolution, duplicate IDs,\n      exactly-one-effect), `opencode service` liveness, and the K15 planning-copy\n      freshness check.\n- [ ] 1.5 Retire the fork-subcommand interim parity from `port-beads-plugin` with\n      equivalence evidence (same records read/written).\n- [ ] 1.6 Charter §17 conformance: each command has a smoke test; unknown verbs fail\n      with usage, never a silent fix.\n"
+  }
+}

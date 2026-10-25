@@ -56,3 +56,4 @@ this class of bug became invisible in the first place. Fix it in llama-skein.
 Task 1 is a genuine open question, not a formality: putting per-model placement
 into the host-wide `DialogTuning` would repeat the conflation that hid this gap.
 Resolve it before writing UI code.
+- androidand/opencode-skein#126

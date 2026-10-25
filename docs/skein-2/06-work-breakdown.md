@@ -304,21 +304,21 @@ opencode-skein.
 
 | Slug | Phase | Scenario | Tracker |
 |---|---|---|---|
-| `acp-external-verification` | 1 (amended → upstream ACP) | A | #118 |
-| `ahp-host` | 7 (implementation blocked on the desktop/UI evaluation) | G | #119 |
+| `acp-external-verification` | 1 (amended → upstream ACP) | A | #118 (updated 2026-10-25) |
+| `ahp-host` | 7 (implementation blocked on the desktop/UI evaluation) | G | #119 (updated 2026-10-25) |
 | `skein-control-plane` | 4 | (enables C, D, F, H) | #120 |
 | `mission-control` | 7 | (dashboard) | #121 |
 | `skein-observability` | cross | (metrics/CLI) | #122 |
 | `skein-soak-hardening` | 8 | D, H | #123 |
-| `v2-rebaseline` | 1a (P1.0) | — | pending sync |
-| `plugin-repo-layout` | 1a (P1.1) | — | pending sync |
-| `port-local-plugins` | 1a (P1.3) | — | pending sync |
-| `port-peer-plugin` | 1a (P1.4) | — | pending sync |
-| `port-loop-crew-plugin` | 1a (P1.5) | — | pending sync |
-| `port-beads-plugin` | 1a (P1.6) | — | pending sync |
-| `adopt-upstream-acp-and-service` | 1a (P1.7) | A, B | pending sync |
-| `skein-cli` | 1a (P1.8) | — | pending sync |
-| `reconcile-openspec-queue-v2` | 1a (P1.9) | — | pending sync |
+| `v2-rebaseline` | 1a (P1.0) | — | #124 |
+| `plugin-repo-layout` | 1a (P1.1) | — | #125 |
+| `port-local-plugins` | 1a (P1.3) | — | #126 |
+| `port-peer-plugin` | 1a (P1.4) | — | #127 |
+| `port-loop-crew-plugin` | 1a (P1.5) | — | #128 |
+| `port-beads-plugin` | 1a (P1.6) | — | #129 |
+| `adopt-upstream-acp-and-service` | 1a (P1.7) | A, B | #130 |
+| `skein-cli` | 1a (P1.8) | — | #131 |
+| `reconcile-openspec-queue-v2` | 1a (P1.9) | — | #132 |
 
 Plus: `project-server` amendment (`DurableAgentExecution`, §7.4, synced to #103) and
 `02-architecture-decisions.md` (12 ADRs, §22).

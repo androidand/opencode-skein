@@ -1,0 +1,9 @@
+{
+  "github:androidand/opencode-skein": {
+    "provider": "github:androidand/opencode-skein",
+    "id": "129",
+    "url": "https://github.com/androidand/opencode-skein/issues/129",
+    "base_sha": "5218352ce3ed968d25e908a5c7082d7923d923022f44a794a9dab0a7bf423f63",
+    "base": "# Tasks: port beads/ to plugin\n\n- [ ] 1.1 Move the beads domain into `skein-beads`; register tools/commands/RPC per the\n      plugin flavour chosen per package (R-P5); probe registered via `Host.resolve`.\n- [ ] 1.2 Provide interim access to beads surfaces (command/RPC) equivalent to the old\n      subcommands until `skein-cli` (P1.8) lands; list any regression the interim path\n      cannot carry.\n- [ ] 1.3 Re-point existing beads tests; no silent deletion.\n- [ ] 1.4 Record disposition of fork-side `beads/` for P1.7.\n"
+  }
+}
