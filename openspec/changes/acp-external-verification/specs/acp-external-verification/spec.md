@@ -5,7 +5,8 @@ The system SHALL be verifiable by an ACP client built on a different official AC
 the agent's, speaking ACP protocol version 1 over the real wire with no mocked client.
 
 #### Scenario: external client completes Scenario A
-- **WHEN** an independent ACP client connects to a real opencode-skein ACP agent
+- **WHEN** an independent ACP client connects to a real opencode session over
+  upstream's native ACP (or the plugin stack standing on it)
 - **THEN** it can initialize, create a session, submit a prompt, receive streamed updates,
   respond to a permission request, and cancel an active turn, with every operation
   succeeding
@@ -19,10 +20,11 @@ SDK name and version as evidence.
 - **THEN** it records the negotiated protocol version and the client SDK version and
   stores the request/response transcript as an artifact
 
-### Requirement: deprecated connection dependency is gated on external verification
-The deprecated `AgentSideConnection` compatibility path SHALL NOT be removed until the
-independent-client verification passes.
+### Requirement: fork residue deletion is gated on external verification
+Fork-side ACP residue (`acp/`) SHALL NOT be deleted by `adopt-upstream-acp-and-service`
+until the independent-client verification of upstream's ACP passes.
 
 #### Scenario: gate holds
 - **WHEN** the independent-client test has not passed
-- **THEN** the deprecated compatibility switch remains in place
+- **THEN** the `acp/` residue stays listed and the adoption change's deletion tasks
+  remain gated

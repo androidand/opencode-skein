@@ -1,5 +1,12 @@
 # AHP host: synchronized multi-client view of managed sessions
 
+**Revision 2026-10-25 (opencode 2 pivot):** implementation is **blocked** on the
+re-scope decision: upstream opencode 2's `packages/desktop`, `gui-extensions`,
+`session-ui`, and `pair` must be evaluated first (charter §12 status note), because a
+multi-client upstream may make AHP redundant (evaluation decision). The requirements in
+this change stay as written for the evaluation's outcome; nothing is built while the
+evaluation is open.
+
 Parent: Phase 7 (AHP and Mission Control). Proves charter Scenario G.
 
 ## Why

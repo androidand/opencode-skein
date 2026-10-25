@@ -1,5 +1,16 @@
 # Project server: one supervisor per project, many agents
 
+**Revision 2026-10-25 (opencode 2 pivot):** upstream ≥ v2 moved this direction already —
+`opencode service` runs a server independent of the TUI. The build-out below is now
+**verify-first, gap-fill second** (charter §7 status note): the §7.6 ten lifecycle
+assertions are driven against `opencode service` (task owned by
+`adopt-upstream-acp-and-service` 1.1) before any of the "What Changes" build items are
+implemented; items upstream already covers are dropped from this change with the
+evidence row cited, and this change keeps only what the verification shows missing.
+The `DurableAgentExecution` record (§7.4 amendment) remains the contract for
+**plugin-owned durable loop state** (`port-loop-crew-plugin`), independent of who owns
+the server.
+
 Parent: `autonomous-swarm` (foundation; replaces the "depend on Go skein" assumption).
 
 ## Why

@@ -76,6 +76,15 @@ process-vs-instance scoping.
 
 ## ADR 3 — ACP adapter strategy
 
+**Resolution 2026-10-25 (opencode 2 pivot).** Superseded: upstream ships ACP natively,
+so the in-fork adapter is retired — adopting upstream is the ACP strategy. The
+migration to the fluent 1.8.0 SDK was completed and unit-proven on
+`skein2/acp-sdk-1.8`, then archived as sunk cost (evaluation decision 3). What remains
+is the verification half of this ADR, unchanged: an **independent external client**
+(different official SDK, protocol v1) proves upstream's ACP before fork residue is
+deleted — `acp-external-verification`, now feeding
+`adopt-upstream-acp-and-service`'s gap ledger.
+
 **Context.** The fork implemented ACP on the deprecated interface-based API. It has been
 migrated to the fluent SDK 1.8.0 (`skein2/acp-sdk-1.8`, `01-acp-migration.md`), but the
 compatibility tests mock the client side.
@@ -85,9 +94,13 @@ compatibility tests mock the client side.
 - B. Migrate to the fluent API and verify only with unit tests.
 - C. Migrate to the fluent API and verify with an independent external client.
 
-**Decision.** C. Keep the fluent API; prove it with a real external ACP client built on a
-*different* official SDK (Python or Rust, protocol v1) — `acp-external-verification`
-(#118). Remove the deprecated compatibility switch only after that passes.
+**Decision.** ~~C. Keep the fluent API...~~ Original decision text retained below for
+history; superseded by the resolution paragraph above.
+
+Original decision: C. Keep the fluent API; prove it with a real external ACP client
+built on a *different* official SDK (Python or Rust, protocol v1) —
+`acp-external-verification` (#118). Remove the deprecated compatibility switch only
+after that passes.
 
 **Rationale.** Charter §6.4 requires "compatibility with at least one independent ACP
 client" and validation "against the actual external protocol." A shared-SDK unit test
@@ -133,6 +146,12 @@ control plane, exposed via AHP extensions only where suitable.
 plane and ACP untouched.
 
 **needs-research.** R8 (which of A/B/C to build on).
+
+**Resolution 2026-10-25 (opencode 2 pivot).** Implementation is parked behind the
+upstream desktop/session-UI evaluation (charter §12 status note): before R8 is spent,
+`packages/desktop` / `gui-extensions` / `session-ui` / `pair` are evaluated for
+multi-client suitability; AHP may be redundant. R8 stays open behind that decision and
+the `ahp-host` change is amended accordingly.
 
 ---
 
@@ -383,3 +402,46 @@ is the default development and first production target.
 
 **Reversal strategy.** Modes are deployment configurations, not code forks; a deployment
 can move between modes.
+
+---
+
+## ADR 13 — Plugin repo layout (opencode 2 port; added 2026-10-25)
+
+**Context.** The opencode 2 pivot moves Skein's execution-plane surface into opencode 2
+plugins (P1.2 verified; charter §19-revised Phase 1a). The plugins share state
+(claims, delegation) and provider plumbing, and each must pin `effect` to the exact
+opencode release version (P1.2 trap 1). Where the plugin packages live decides how much
+that pin + release coupling costs on every opencode upgrade.
+
+**Alternatives.**
+- A. One repo (`androidand/skein-plugin`), one plugin per package (`skein-local`,
+  `skein-peer`, `skein-loop-crew`, `skein-beads`), `skein-cli` as a workspace package.
+- B. One repo per plugin package.
+- C. Keep building inside opencode-skein's tree.
+
+**Decision.** A — one repo, plugins as packages, shipping from one CI. Package
+boundaries follow the port order (P1.3–P1.6); B is rejected because all plugins are
+in-process in the host (no isolation win splits repos) and each extra repo multiplies
+the exact-pin/CI story; C is rejected because it drags the doomed fork layout along and
+denies a clean rename. Creating the remote repo awaits the operator's explicit
+publishing instruction (private by default until told otherwise).
+
+**Rationale.** One lockfile pays trap 1 once; cross-package registration
+(`worktree.transform` in P1.5, shared delegation ledger in P1.4) stays same-repo, and
+the release cadence is one coordinated bump.
+
+**Consequences.** One workspace, one CI. The `effect` pin upgrade becomes a deliberate,
+single-commit act per opencode release. `skein-plugin-skeleton` is promoted and retired
+as a scratch artifact.
+
+**Migration impact.** Landed before the first port (P1.3); recorded in
+`plugin-repo-layout` (with the P1.2 findings as annex).
+
+**Reversal strategy.** Package boundaries are workspace-internal; splitting a package
+into its own repo later is mechanical, so an initial one-repo choice never becomes
+load-bearing.
+
+**Unresolved sub-question.** Whether opencode 2's plugin supervisor actually isolates a
+crashing plugin — must be verified (`plugin-repo-layout` task 0.1) before the
+TUI-heavy ports, since a fails-open supervision would argue for smaller, less coupled
+plugin packages at runtime cost.

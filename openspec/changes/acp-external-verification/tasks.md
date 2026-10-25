@@ -1,13 +1,16 @@
 # Tasks: ACP external-client verification
 
+**Revised 2026-10-25:** re-anchored to upstream opencode 2's native ACP; the in-fork
+agent under test is gone with the cancelled migration (see proposal revision note).
+
 ## Phase 0: Choose and pin the independent client
 
 - [ ] 0.1 Pick the independent client SDK (Python or Rust official ACP SDK, protocol v1)
-      and record its version. It MUST be a different official SDK than the agent's
-      TypeScript SDK.
+      and record its version. It MUST be a different official SDK than the TypeScript SDK
+      upstream's agent uses internally.
 - [ ] 0.2 Confirm the agent negotiates `protocolVersion` 1 and record the value.
-- [ ] 0.3 Stand up a minimal real opencode-skein ACP agent under test (reuse the
-      `skein2/acp-sdk-1.8` agent; no business-logic changes).
+- [ ] 0.3 Stand up a real opencode (pinned v2.1.3, `opencode serve` / `opencode service`)
+      as the agent under test — upstream's native ACP, no fork agent.
 
 ## Phase 1: Scenario A sequence
 
@@ -24,8 +27,9 @@
 ## Phase 2: Evidence and gate
 
 - [ ] 2.1 Capture the full request/response transcript as a test artifact.
-- [ ] 2.2 Wire the test into CI against the agent on `skein2/acp-sdk-1.8`.
-- [ ] 2.3 On green: remove the deprecated `AgentSideConnection` compatibility switch in a
-      separate commit that references this change.
+- [ ] 2.2 Wire the test into CI against the pinned upstream release exercising the
+      plugin stack.
+- [ ] 2.3 Scan the result into `adopt-upstream-acp-and-service`'s gap ledger (any
+      failure becomes an upstream PR or a documented gap — never fork resurrection).
 - [ ] 2.4 Record evidence in `findings.md`: client SDK + version, negotiated
       `protocolVersion`, transcript path, CI run id.
