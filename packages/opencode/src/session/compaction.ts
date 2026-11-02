@@ -11,6 +11,7 @@ import { Agent } from "@/agent/agent"
 import { Plugin } from "@/plugin"
 import { Config } from "@/config/config"
 import { NotFoundError } from "@/storage/storage"
+import { NamedError } from "@opencode-ai/core/util/error"
 
 import { Effect, Layer, Context } from "effect"
 import { InstanceState } from "@/effect/instance-state"
@@ -216,6 +217,21 @@ export function clearLoopState(sessionID: SessionID): void {
 
 export function isLoopDead(sessionID: SessionID): boolean {
   return sessionLoopDead.has(sessionID)
+}
+
+// Runaway-stream ladder (see runaway-detect.ts): consecutive runaways with no
+// clean turn between them. 1 = nudge, 2 = compaction reset, 3 = give up.
+export const RunawayMaxPerSession = 3
+const sessionRunaways = new Map<SessionID, number>()
+
+export function noteRunaway(sessionID: SessionID): number {
+  const n = (sessionRunaways.get(sessionID) ?? 0) + 1
+  sessionRunaways.set(sessionID, n)
+  return n
+}
+
+export function clearRunaways(sessionID: SessionID): void {
+  sessionRunaways.delete(sessionID)
 }
 
 export const layer = Layer.effect(
@@ -482,10 +498,27 @@ export const layer = Layer.effect(
       // a compaction that cannot fit. Retry with just the most recent user turn,
       // and if even that overflows write a minimal summary, so the auto-continue
       // path below always has something to continue from.
+      // fork: a summary that ran away or hit the output cap (finish=length) is
+      // not a summary — it is the model echoing the transcript or repeating
+      // itself, and accepting it refills the next context with junk. Treat it
+      // like an overflow: the attempt gets an error (so it is never a
+      // completed compaction), then retry on minimal history.
+      const failedSummary = (r: typeof result, m: SessionV1.Assistant) =>
+        r === "compact" || r === "runaway" || m.finish === "length"
+      const failAttempt = Effect.fn("SessionCompaction.failAttempt")(function* (m: SessionV1.Assistant, r: string) {
+        if (r === "compact") return
+        m.error = new NamedError.Unknown({
+          message: r === "runaway" ? "Compaction output ran away and was cut" : "Compaction output hit the output limit",
+        }).toObject()
+        yield* session.updateMessage(m)
+      })
       let activeMessage = processor.message
-      if (result === "compact") {
-        yield* Effect.logWarning("compaction overflow, retrying with aggressive truncation", {
+      if (failedSummary(result, processor.message)) {
+        yield* failAttempt(processor.message, result === "runaway" ? "runaway" : processor.message.finish === "length" ? "length" : result)
+        yield* Effect.logWarning("compaction overflow or runaway, retrying with aggressive truncation", {
           sessionID: input.sessionID,
+          result,
+          finish: processor.message.finish,
         })
         const lastUser = msgs.findLast(
           (item) => item.info.role === "user" && !item.parts.some((part) => part.type === "compaction"),
@@ -520,16 +553,21 @@ export const layer = Layer.effect(
           model,
         })
         activeMessage = retryProcessor.message
-        if (retryResult === "compact") {
-          yield* Effect.logWarning("compaction retry also overflowed, using minimal summary", {
+        if (failedSummary(retryResult, retryProcessor.message)) {
+          yield* Effect.logWarning("compaction retry also failed, using minimal summary", {
             sessionID: input.sessionID,
           })
-          activeMessage.error = undefined
-          activeMessage.finish = "stop"
-          yield* session.updateMessage(activeMessage)
+          yield* failAttempt(
+            retryProcessor.message,
+            retryResult === "runaway" ? "runaway" : retryProcessor.message.finish === "length" ? "length" : retryResult,
+          )
+          // A fresh message: the failed attempt may hold a huge text part that
+          // must not become the summary.
+          const minimalMsg: SessionV1.Assistant = { ...msg, id: MessageID.ascending(), error: undefined, finish: "stop" }
+          activeMessage = yield* session.updateMessage(minimalMsg)
           yield* session.updatePart({
             id: PartID.ascending(),
-            messageID: retryMsg.id,
+            messageID: minimalMsg.id,
             sessionID: input.sessionID,
             type: "text",
             text: "Context exceeded. The conversation was too large to summarize automatically.",
@@ -632,11 +670,12 @@ export const layer = Layer.effect(
         }
       }
 
-      if (processor.message.error) return "stop"
+      if (activeMessage.error) return "stop"
       if (result === "continue") {
         yield* events.publish(Event.Compacted, { sessionID: input.sessionID })
       }
-      return result
+      // "compact" and "runaway" were consumed by the self-healing path above.
+      return result === "stop" ? ("stop" as const) : ("continue" as const)
     })
 
     const create = Effect.fn("SessionCompaction.create")(function* (input: {

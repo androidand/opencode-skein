@@ -1112,3 +1112,69 @@ itFragmentFailure.live("session.processor effect tests retain partial legacy par
     { config: cfg },
   ),
 )
+
+// ---------------------------------------------------------------------------
+// Runaway stream: the model finishes its answer and never emits a stop token
+// ---------------------------------------------------------------------------
+
+let runawayScript: LLMEvent[] = []
+const itRunaway = testEffect(
+  LayerNode.compile(root, [
+    ...replacements,
+    [LLM.node, Layer.succeed(LLM.Service, LLM.Service.of({ stream: () => Stream.make(...runawayScript) }))],
+  ]),
+)
+
+const invokeSpam = "</parameter>\n</invoke>\n"
+
+itRunaway.live("session.processor effect tests cut a runaway stream and keep the answer", () =>
+  provideTmpdirInstance(
+    (dir) =>
+      Effect.gen(function* () {
+        const { processors, session, provider } = yield* boot()
+        const answer = "Task 1 complete.\n<promise>COMPLETE</promise>\n"
+
+        runawayScript = [
+          LLMEvent.stepStart({ index: 0 }),
+          LLMEvent.textStart({ id: "text-1" }),
+          LLMEvent.textDelta({ id: "text-1", text: answer }),
+          // 600 deltas: far more than the detector needs; an uncut stream would keep all of them
+          ...Array.from({ length: 600 }, () => LLMEvent.textDelta({ id: "text-1", text: invokeSpam })),
+          LLMEvent.textEnd({ id: "text-1" }),
+          LLMEvent.stepFinish({ index: 0, reason: "stop" }),
+          LLMEvent.finish({ reason: "stop" }),
+        ]
+
+        const chat = yield* session.create({})
+        const parent = yield* user(chat.id, "go")
+        const msg = yield* assistant(chat.id, parent.id, path.resolve(dir))
+        const mdl = yield* provider.getModel(ref.providerID, ref.modelID)
+        const handle = yield* processors.create({ assistantMessage: msg, sessionID: chat.id, model: mdl })
+
+        const value = yield* handle.process({
+          user: {
+            id: parent.id,
+            sessionID: parent.sessionID,
+            role: "user" as const,
+            time: parent.time,
+            agent: parent.agent,
+            model: { providerID: ref.providerID, modelID: ref.modelID },
+          } satisfies SessionV1.User,
+          sessionID: parent.sessionID,
+          model: mdl,
+          agent: agent(),
+          system: [],
+          messages: [{ role: "user" as const, content: "go" }],
+          tools: {},
+        })
+        const parts = yield* MessageV2.parts(msg.id)
+        const text = parts.find((p): p is SessionV1.TextPart => p.type === "text")
+
+        expect(value).toBe("runaway")
+        expect(text?.text).toBe(answer + invokeSpam)
+        expect(handle.message.finish).toBe("runaway")
+        expect(handle.message.error).toBeUndefined()
+      }),
+    { config: cfg },
+  ),
+)
