@@ -1,8 +1,7 @@
 ## ADDED Requirements
 
 ### Requirement: Runaway streams are cut
-A text stream whose tail repeats a short unit at least 20 times over at least 400
-characters SHALL be closed and its stored text trimmed to the first instance.
+A text stream whose tail repeats a short unit at least 20 times over at least 400 characters SHALL be closed and its stored text trimmed to the first instance.
 
 #### Scenario: invoke spam after a finished answer
 - **WHEN** the model emits `</parameter>\n</invoke>\n` 600 times after its answer
