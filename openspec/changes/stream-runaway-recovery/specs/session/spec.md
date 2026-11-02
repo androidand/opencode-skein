@@ -15,5 +15,17 @@ characters SHALL be closed and its stored text trimmed to the first instance.
 ### Requirement: Recovery ladder
 After a runaway the session SHALL nudge, then reset by compaction, then stop; a clean turn resets the ladder.
 
+#### Scenario: second consecutive runaway
+- **WHEN** a turn runs away after a nudge with no clean turn in between
+- **THEN** an automatic compaction runs and the auto-continue prompt follows it
+
+#### Scenario: third consecutive runaway
+- **WHEN** a turn runs away after the compaction reset
+- **THEN** the run stops with an error and no further automatic recovery happens
+
 ### Requirement: Runaway compaction is not a summary
 A compaction ending `runaway` or `length` SHALL NOT count as a completed compaction.
+
+#### Scenario: compaction runs away
+- **WHEN** the compaction attempt and its retry both run away
+- **THEN** both carry an error and a minimal summary message becomes the only completed compaction
