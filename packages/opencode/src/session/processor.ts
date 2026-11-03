@@ -26,6 +26,7 @@ import { EventV2Bridge } from "@/event-v2-bridge"
 import { Database } from "@opencode-ai/core/database/database"
 import { Usage, type LLMEvent } from "@opencode-ai/llm"
 import { RunawayDetect } from "./runaway-detect"
+import { SessionRepeatDetect } from "./repeat-detect"
 
 const DOOM_LOOP_THRESHOLD = 3
 export type Result = "compact" | "stop" | "continue" | "runaway"
@@ -72,6 +73,7 @@ interface ProcessorContext extends Input {
   blocked: boolean
   needsCompaction: boolean
   runaway: RunawayDetect.Runaway | undefined
+  sentences: SessionRepeatDetect.TextRepeatDetector
   currentText: SessionV1.TextPart | undefined
   reasoningMap: Record<string, SessionV1.ReasoningPart>
 }
@@ -112,6 +114,7 @@ export const layer = Layer.effect(
         blocked: false,
         needsCompaction: false,
         runaway: undefined,
+        sentences: new SessionRepeatDetect.TextRepeatDetector(),
         currentText: undefined,
         reasoningMap: {},
       }
@@ -514,6 +517,14 @@ export const layer = Layer.effect(
                 yield* session.updatePart(ctx.currentText)
                 return
               }
+              // Sentence-level loops ("I'll wait for the notification." x3) are
+              // too short and too slow to trip the periodic-tail detector.
+              const sentence = ctx.sentences.feed(value.text)
+              if (sentence) {
+                ctx.runaway = { keep: ctx.currentText.text.length, unit: sentence.fragment, repeats: sentence.repeats }
+                yield* session.updatePart(ctx.currentText)
+                return
+              }
             }
             yield* session.updatePartDelta({
               sessionID: ctx.currentText.sessionID,
@@ -646,6 +657,7 @@ export const layer = Layer.effect(
         })
         ctx.needsCompaction = false
         ctx.runaway = undefined
+        ctx.sentences = new SessionRepeatDetect.TextRepeatDetector()
         ctx.shouldBreak = (yield* config.get()).experimental?.continue_loop_on_deny !== true
 
         return yield* Effect.gen(function* () {

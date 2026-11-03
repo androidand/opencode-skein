@@ -20,6 +20,10 @@ the next context.
   A turn that completes normally resets the ladder.
 - A compaction that runs away or ends `finish=length` is not a summary: it is
   retried with the minimal history, then replaced by the minimal summary.
+- Sentence-level loops (the 21 Oct `stream-loop` WIP: a short sentence, or an
+  alternating pair, repeated a few times) are cut through the same path.
+- Spec-queue briefs cap the inlined documents (unrelated fix carried from the
+  same working tree).
 - Overflow-compaction breaker (from the shared tree): stop after 2 consecutive
   overflow compactions with no completed turn.
 

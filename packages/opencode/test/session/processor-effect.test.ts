@@ -1178,3 +1178,65 @@ itRunaway.live("session.processor effect tests cut a runaway stream and keep the
     { config: cfg },
   ),
 )
+
+// A short sentence repeated a few times is a loop too, and is cut through the same path.
+const waitingLine = "The subagent is still running. I'll wait for the notification."
+
+itRunaway.live("session.processor effect tests cut a single stream repeating the same waiting text", () =>
+  provideTmpdirInstance(
+    (dir) =>
+      Effect.gen(function* () {
+        const { processors, session, provider } = yield* boot()
+        runawayScript = [
+          LLMEvent.stepStart({ index: 0 }),
+          LLMEvent.toolInputStart({ id: "call-1", name: "task" }),
+          LLMEvent.toolInputEnd({ id: "call-1", name: "task" }),
+          LLMEvent.toolCall({ id: "call-1", name: "task", input: { description: "inspect bug" } }),
+          LLMEvent.toolResult({
+            id: "call-1",
+            name: "task",
+            result: { type: "json", value: { output: "task started in background", title: "Background task" } },
+          }),
+          LLMEvent.textStart({ id: "text-1" }),
+          ...Array.from({ length: 10 }, () => LLMEvent.textDelta({ id: "text-1", text: waitingLine + "\n" })),
+          LLMEvent.textEnd({ id: "text-1" }),
+          LLMEvent.stepFinish({ index: 0, reason: "stop" }),
+          LLMEvent.finish({ reason: "stop" }),
+        ]
+        const chat = yield* session.create({})
+        const parent = yield* user(chat.id, "wait for the subagent")
+        const msg = yield* assistant(chat.id, parent.id, path.resolve(dir))
+        const mdl = yield* provider.getModel(ref.providerID, ref.modelID)
+        const handle = yield* processors.create({ assistantMessage: msg, sessionID: chat.id, model: mdl })
+
+        const value = yield* handle.process({
+          user: {
+            id: parent.id,
+            sessionID: parent.sessionID,
+            role: "user" as const,
+            time: parent.time,
+            agent: parent.agent,
+            model: { providerID: ref.providerID, modelID: ref.modelID },
+          } satisfies SessionV1.User,
+          sessionID: parent.sessionID,
+          model: mdl,
+          agent: agent(),
+          system: [],
+          messages: [{ role: "user" as const, content: "wait for the subagent" }],
+          tools: {},
+        })
+        const parts = yield* MessageV2.parts(msg.id)
+        const text = parts.find((p): p is SessionV1.TextPart => p.type === "text")
+        const call = parts.find((p): p is SessionV1.ToolPart => p.type === "tool")
+        const repeated = text?.text.split("\n").filter((l) => l.includes("still running")).length ?? 0
+
+        expect(value).toBe("runaway")
+        expect(repeated).toBeLessThanOrEqual(4)
+        expect(handle.message.finish).toBe("runaway")
+        expect(handle.message.error).toBeUndefined()
+        // the tool call that completed before the loop started survives the cut
+        expect(call?.state.status).toBe("completed")
+      }),
+    { config: cfg },
+  ),
+)
