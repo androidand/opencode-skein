@@ -165,6 +165,36 @@ describe("buildBrief", () => {
     expect(brief).not.toContain("Fleet capacity")
   })
 
+  test("a huge change is capped, keeping the open task and a pointer to the full file", () => {
+    // 3000 checked tasks, each with a long note, then one open task with its own
+    // note: the shape of a change that has been re-dispatched for a long time.
+    const done = Array.from({ length: 3000 }, (_, i) => `- [x] 1.${i} done task\n      ${"verified note ".repeat(20)}\n`)
+    const tasks = [
+      "## 1. Done work\n",
+      ...done,
+      "## 2. Open work\n",
+      "- [ ] 2.1 migrate the launchd label\n",
+      "      BLOCKED-NOTE: needs a human answer about the plist\n",
+      "- [ ] 2.2 a later task\n",
+    ].join("")
+    const root = fixtureTree({ big: { tasks } })
+    const dir = path.join(root, "openspec", "changes", "big")
+    fs.writeFileSync(path.join(dir, "proposal.md"), "proposal line\n".repeat(20_000))
+    fs.mkdirSync(path.join(dir, "specs", "big"), { recursive: true })
+    fs.writeFileSync(path.join(dir, "specs", "big", "spec.md"), "spec line\n".repeat(20_000))
+    const change = cursor(resolveQueue(root))!
+    expect(tasks.length).toBeGreaterThan(900_000)
+
+    const brief = buildBrief({ root, change, gate: "implement", idlePeers: [] })
+
+    expect(brief.length).toBeLessThan(60_000)
+    expect(brief).toContain("2.1 migrate the launchd label")
+    expect(brief).toContain("BLOCKED-NOTE: needs a human answer about the plist")
+    expect(brief).toContain("2.2 a later task")
+    expect(brief).toContain("openspec/changes/big/tasks.md")
+    expect(brief).toContain("openspec/changes/big/proposal.md")
+  })
+
   test("failure context is embedded verbatim", () => {
     const brief = buildBrief({
       change: fixtureChange().change, root: fixtureChange().root,

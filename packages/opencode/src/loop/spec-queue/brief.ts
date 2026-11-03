@@ -90,6 +90,74 @@ export interface BriefInput {
    crewMode?: boolean
 }
 
+// A change's documents are inlined because each iteration runs in a fresh child
+// session. They are not unbounded: a change that has been re-dispatched for a
+// long time accretes notes into tasks.md (one reached 3,000+ lines, ~220 KB),
+// and a brief bigger than the model's window is rejected before the model sees
+// it. Past these caps the agent gets a head or a digest plus the path to read.
+const MaxDocChars = 12_000
+const MaxSpecChars = 8_000
+const MaxNextTaskChars = 6_000
+const MaxLineChars = 160
+
+const CHECKBOX_LINE = /^\s*-\s*\[([ xX])\]/
+const HEADING_LINE = /^#{1,6}\s/
+
+function clip(text: string, max: number): string {
+  return text.length <= max ? text : `${text.slice(0, max)}…`
+}
+
+/** Head of `text` within `max`, with a pointer to the full file when cut. */
+function capDoc(text: string, max: number, relPath: string): string {
+  if (text.length <= max) return text
+  return `${text.slice(0, max)}\n\n[… ${text.length - max} more characters omitted — read the full file at ${relPath}]`
+}
+
+/**
+ * A tasks.md past the cap, reduced to what the next step needs: every heading
+ * and checklist line (the whole picture, one line each) plus the full block of
+ * the first open task, where its notes and blockers live. A plain head cut would
+ * show the oldest, already-checked notes and bury the open task.
+ */
+function digestTasks(content: string, relPath: string): string {
+  const entries: { text: string; checked: boolean }[] = []
+  const next: string[] = []
+  let capturing = false
+  let found = false
+  for (const line of content.split("\n")) {
+    const checkbox = line.match(CHECKBOX_LINE)
+    if (checkbox) {
+      capturing = false
+      entries.push({ text: clip(line, MaxLineChars), checked: checkbox[1] !== " " })
+      if (!found && checkbox[1] === " ") {
+        found = true
+        capturing = true
+        next.push(line)
+      }
+      continue
+    }
+    if (HEADING_LINE.test(line)) {
+      capturing = false
+      entries.push({ text: clip(line, MaxLineChars), checked: false })
+      continue
+    }
+    if (capturing) next.push(line)
+  }
+  // Even one line per task can outgrow the cap; checked tasks go first, since
+  // the open ones and the headings are what the next step is chosen from.
+  let lines = entries.map((entry) => entry.text)
+  if (lines.join("\n").length > MaxDocChars) {
+    const kept = entries.filter((entry) => !entry.checked)
+    lines = [`(${entries.length - kept.length} checked tasks omitted)`, ...kept.map((entry) => entry.text)]
+  }
+  return [
+    `[tasks.md is ${content.length} characters; showing its checklist and the first open task in full — read ${relPath} for the rest]`,
+    "",
+    ...lines,
+    ...(next.length > 0 ? ["", "### First open task, in full", "", capDoc(next.join("\n"), MaxNextTaskChars, relPath)] : []),
+  ].join("\n")
+}
+
 function readIfExists(file: string): string | undefined {
   if (!fs.existsSync(file)) return undefined
   return fs.readFileSync(file, "utf8")
@@ -279,14 +347,17 @@ export function buildBrief(input: BriefInput): string {
     parts.push(`Next unchecked task: ${next.id ? `${next.id} ` : ""}${next.text}`)
   }
 
-  const proposal = readChangeFile(input.root, change.slug, `openspec/changes/${change.slug}/proposal.md`)
-  if (proposal) parts.push(`## proposal.md\n\n${proposal}`)
+  const proposalPath = `openspec/changes/${change.slug}/proposal.md`
+  const proposal = readChangeFile(input.root, change.slug, proposalPath)
+  if (proposal) parts.push(`## proposal.md\n\n${capDoc(proposal, MaxDocChars, proposalPath)}`)
 
-  const tasks = readChangeFile(input.root, change.slug, `openspec/changes/${change.slug}/tasks.md`)
-  if (tasks) parts.push(`## tasks.md\n\n${tasks}`)
+  const tasksPath = `openspec/changes/${change.slug}/tasks.md`
+  const tasks = readChangeFile(input.root, change.slug, tasksPath)
+  if (tasks) parts.push(`## tasks.md\n\n${tasks.length > MaxDocChars ? digestTasks(tasks, tasksPath) : tasks}`)
 
   for (const file of specFiles(change.directory)) {
-    parts.push(`## ${path.relative(change.directory, file)}\n\n${fs.readFileSync(file, "utf8")}`)
+    const rel = path.relative(change.directory, file)
+    parts.push(`## ${rel}\n\n${capDoc(fs.readFileSync(file, "utf8"), MaxSpecChars, `openspec/changes/${change.slug}/${rel}`)}`)
   }
 
   if (input.peers && input.peers.length > 0) {
