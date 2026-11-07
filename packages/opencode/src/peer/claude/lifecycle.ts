@@ -14,11 +14,12 @@ import { SessionID } from "@/session/schema"
 import { SessionPrompt } from "@/session/prompt"
 import { formatPeerMessage } from "@/session/peers"
 import { settleTaskReply } from "@/peer/delegate"
-import { parsePeerEnvelope, settlePeerReply } from "@/peer/envelope"
+import { settlePeerReply } from "@/peer/envelope"
 import { parseHostedSubagentRequest } from "@/peer/hosted-subagent"
 import { PeerInbox } from "@/peer/inbox"
 import { Loop } from "@/loop/loop"
 import { RecentIDs } from "@/peer/recent-ids"
+import { deliverToLoop } from "./loop-route"
 import { claudePidOf, deliverToOpencodeSession, resolveOpencodeSender } from "@/peer/route"
 import { sendClaudeMessage } from "@/peer/claude/client"
 import { SessionStatus } from "@/session/status"
@@ -220,20 +221,9 @@ const layer = Layer.effect(
               // into the loop's inbox so they are surfaced in the next
               // iteration rather than injected as a raw prompt into the
               // session turn.
-              const loopInfo = (yield* loop.list()).find((l) => l.sessionID === inbound.sessionID)
-              if (loopInfo) {
-                const mode = (parsePeerEnvelope(inbound.text)?.envelope.mode === "request"
-                  ? "request"
-                  : "notify") as "notify" | "request"
-                const pid = claudePidOf(inbound.from)
-                yield* loop.inbox({
-                  loopID: loopInfo.id,
-                  from: { harness: "claude-code", id: pid ?? "unknown", name: inbound.fromName },
-                  mode,
-                  text: inbound.text,
-                })
-                return
-              }
+              // A loop that has finished no longer takes messages; fall
+              // through to prompt injection so the idle session still gets it.
+              if (yield* deliverToLoop(loop, inbound)) return
               const info = yield* session.get(SessionID.make(inbound.sessionID)).pipe(Effect.orElseSucceed(() => undefined))
               if (!info) {
                 yield* Effect.logWarning("claude sidecar: dropping inbound for unknown session", {
