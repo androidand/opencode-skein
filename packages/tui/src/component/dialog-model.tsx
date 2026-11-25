@@ -17,7 +17,7 @@ import { useProject } from "../context/project"
 import { createClient, createConfig } from "../local/llama-skein/gen/client"
 import { LlamaSkeinClient } from "../local/llama-skein/gen/sdk.gen"
 import type { FitReport } from "../local/llama-skein/gen/types.gen"
-import { extractMem, fmtGB, normalizeBaseURL } from "../local/model-fit"
+import { extractMem, fitIsNo, fitLabel, fmtGB, normalizeBaseURL, recommendedModelID } from "../local/model-fit"
 
 /**
  * Fetches a host's `/api/fit` report and caches it by provider id, the same
@@ -114,12 +114,15 @@ export function DialogModel(props: { providerID?: string }) {
         if (!provider) return []
         const model = provider.models[item.modelID]
         if (!model) return []
+        const report = fitReports()[provider.id]
+        const fit = fitLabel(report, item.modelID)
+        const cannotFit = fitIsNo(report, item.modelID)
         return [
           {
             key: item,
             value: { providerID: provider.id, modelID: model.id },
             title: model.name ?? item.modelID,
-            description: provider.name,
+            description: provider.name + (fit ? ` · ${cannotFit ? "⚠ " : ""}${fit}` : undefined),
             category,
             provenance: provider.name,
             disabled: provider.id === "opencode" && model.id.includes("-nano"),
@@ -151,29 +154,39 @@ export function DialogModel(props: { providerID?: string }) {
         (provider) => provider.id !== "opencode",
         (provider) => provider.name,
       ),
-      flatMap((provider) =>
-        pipe(
+      flatMap((provider) => {
+        const report = fitReports()[provider.id]
+        const recommended = recommendedModelID(report, (modelID) => (provider.models[modelID] as { sizeBytes?: number }).sizeBytes ?? 0)
+        const models = pipe(
           provider.models,
           entries(),
           filter(([_, info]) => info.status !== "deprecated"),
           filter(([_, info]) => (props.providerID ? info.providerID === props.providerID : true)),
-          map(([model, info]) => ({
-            value: { providerID: provider.id, modelID: model },
-            title: info.name ?? model,
-            releaseDate: info.release_date,
-            description: favorites.some((item) => item.providerID === provider.id && item.modelID === model)
-              ? "(Favorite)"
-              : undefined,
-            category: connected() ? providerLabel(provider.id, provider.name) : undefined,
-            provenance: provider.name,
-            disabled: provider.id === "opencode" && model.includes("-nano"),
-            footer:
-              formatModelSize((info as { sizeBytes?: number }).sizeBytes, vram()[provider.id]?.mb) ??
-              (info.cost?.input === 0 && provider.id === "opencode" ? "Free" : undefined),
-            onSelect() {
-              onSelect(provider.id, model)
-            },
-          })),
+          map(([model, info]) => {
+            const fit = fitLabel(report, model)
+            const cannotFit = fitIsNo(report, model)
+            const isRecommended = model === recommended
+            return {
+              value: { providerID: provider.id, modelID: model },
+              title: info.name ?? model,
+              releaseDate: info.release_date,
+              description:
+                (favorites.some((item) => item.providerID === provider.id && item.modelID === model)
+                  ? "(Favorite) "
+                  : "") +
+                (fit ? `${cannotFit ? "⚠ " : ""}${fit}` : "") +
+                (isRecommended ? " (Recommended)" : ""),
+              category: connected() ? providerLabel(provider.id, provider.name) : undefined,
+              provenance: provider.name,
+              disabled: provider.id === "opencode" && model.includes("-nano"),
+              footer:
+                formatModelSize((info as { sizeBytes?: number }).sizeBytes, vram()[provider.id]?.mb) ??
+                (info.cost?.input === 0 && provider.id === "opencode" ? "Free" : undefined),
+              onSelect() {
+                onSelect(provider.id, model)
+              },
+            }
+          }),
           filter((option) => {
             if (!showSections) return true
             if (
@@ -191,8 +204,9 @@ export function DialogModel(props: { providerID?: string }) {
             return true
           }),
           (options) => sortModelOptions(options, props.providerID !== undefined),
-        ),
-      ),
+        )
+        return models
+      }),
     )
 
     const popularProviders = !connected()

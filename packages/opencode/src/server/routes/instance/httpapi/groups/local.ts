@@ -36,6 +36,13 @@ export const LocalOffloadPayload = Schema.Struct({
   cpu_moe: Schema.optional(Schema.Boolean),
   cpu_offload_gb: Schema.optional(Schema.Int),
   override_tensor: Schema.optional(Schema.String),
+  // Remove every pinned placement flag (-ngl, --n-cpu-moe, -ot, ...) so
+  // llama-skein's planner owns placement: full GPU when the model fits, host-RAM
+  // offload only when it does not. The explicit "allow offload" action.
+  unpin_placement: Schema.optional(Schema.Boolean),
+  // An explicit, deliberate --n-gpu-layers. 0 is a real value (all layers on the
+  // CPU) and is written as such — it never means "remove" (that is unpin_placement).
+  n_gpu_layers: Schema.optional(Schema.Int.check(Schema.isGreaterThanOrEqualTo(0))),
 }).annotate({ identifier: "LocalOffloadPayload" })
 
 export const LocalOffloadRecommendation = Schema.Struct({

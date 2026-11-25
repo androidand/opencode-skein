@@ -1,10 +1,11 @@
 import { Effect, Schema, Scope } from "effect"
+import * as Option from "effect/Option"
 import { RuntimeFlags } from "@/effect/runtime-flags"
 import { Permission } from "@/permission"
 import { sendClaudeMessage } from "@/peer/claude/client"
 import { resolveClaudeTarget } from "@/peer/claude/resolve"
 import { settleTaskReply } from "@/peer/delegate"
-import { formatPeerEnvelope, newMessageID, peerBody, type PeerMode } from "@/peer/envelope"
+import { formatPeerEnvelope, newContextID, newMessageID, type PeerMode } from "@/peer/envelope"
 import { PeerInbox } from "@/peer/inbox"
 import { RepeatGuard } from "@/peer/repeat-guard"
 import {
@@ -68,9 +69,13 @@ const SESSION_ID_RE = /^ses_[A-Za-z0-9]+$/
  * reply expectation. The id is generated once here and reused as the transport
  * frame's `msg_id` so the two never diverge.
  */
-function resolveSendMode(mode: PeerSendMode | undefined): { mode: PeerSendMode; messageID: string | undefined } {
-  if (mode === "request") return { mode: "request", messageID: newMessageID() }
-  return { mode: "notify", messageID: undefined }
+function resolveSendMode(mode: PeerSendMode | undefined): {
+  mode: PeerSendMode
+  messageID: string | undefined
+  contextID: string | undefined
+} {
+  if (mode === "request") return { mode: "request", messageID: newMessageID(), contextID: newContextID() }
+  return { mode: "notify", messageID: undefined, contextID: undefined }
 }
 
 /** The fields the peer roster projection needs; `list` and `listGlobal` both supply them. */
@@ -140,9 +145,9 @@ export const SendPeerMessageTool = Tool.define(
            // rides inside the text because both transports reuse the plain
            // message frame with no metadata slot, so a header that only survived
            // one path would not be a header at all.
-           const { mode: sendMode, messageID } = resolveSendMode(params.mode)
+           const { mode: sendMode, messageID, contextID } = resolveSendMode(params.mode)
            const envelope = sendMode === "request" && messageID
-             ? { mode: sendMode as PeerMode, messageID }
+             ? { mode: sendMode as PeerMode, messageID, contextID }
              : undefined
            const deliveredText = envelope
              ? formatPeerEnvelope(envelope, message)
@@ -312,11 +317,10 @@ export const SendPeerMessageTool = Tool.define(
             }
           }
 
-           // settleTaskReply matches the older `[peer-task-result <id>]` marker
-           // anchored at the START of the text; once a request carries a header
-           // that anchor no longer matches and every delegated task would time
-            // out silently, so strip the header first. See peerBody's contract.
-            if (settleTaskReply(peerBody(message))) {
+           // The task id rides in the reply's structured envelope header, so
+           // the correlation reads the header rather than a marker at the start
+           // of the body. Pass the raw message so the header is not stripped.
+            if (settleTaskReply(message)) {
               return {
                 title: `Task result delivered to ${peer.title}`,
                 metadata: { sessionID: peer.sessionID, accepted: true },
@@ -394,6 +398,40 @@ export const SendPeerMessageTool = Tool.define(
           // target's busy status is a mirrored snapshot, not live, so it is not
           // gated here at all: the owning process's own inbound path decides,
           // with the same real-time information this branch just used.
+          // When the target session runs a crew loop, route into the loop's
+          // inbox so the message is surfaced in the next iteration.
+          // Dynamic import breaks the static cycle through tool/registry.
+          const { Loop } = yield* Effect.promise(() => import("@/loop/loop"))
+          const loopOption = yield* Effect.serviceOption(Loop.Service)
+          if (Option.isSome(loopOption)) {
+            const loop = Option.getOrUndefined(loopOption)!
+            const activeLoop = (yield* loop.list()).find(
+              (l: { sessionID: string; status: string; id: string }) =>
+                l.sessionID === peer.sessionID && (l.status === "running" || l.status === "paused"),
+            )
+            if (activeLoop) {
+              const accepted = yield* loop.inbox({
+                loopID: activeLoop.id,
+                from: { harness: "opencode-skein", id: ctx.sessionID, name: caller?.title ?? ctx.sessionID },
+                mode: sendMode,
+                text: deliveredText,
+              })
+              if (!accepted) {
+                return {
+                  title: "Loop no longer active",
+                  metadata: { sessionID: peer.sessionID, accepted: false },
+                  output: `The crew loop for ${peer.sessionID} ("${peer.title}") is no longer running. The message was not delivered.`,
+                }
+              }
+              return {
+                title: `Message queued for ${peer.title}`,
+                metadata: { sessionID: peer.sessionID, accepted: true, messageID },
+                output:
+                  `Accepted for delivery to the crew loop for ${peer.sessionID} ("${peer.title}"). ` +
+                  "The message will be surfaced in the next iteration.",
+              }
+            }
+          }
           const outcome = yield* deliverToOpencodeSession({
             targetSessionID: peer.sessionID,
             fromSessionID: ctx.sessionID,

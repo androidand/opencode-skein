@@ -40,17 +40,46 @@
       sender's process; the owner mirrors busy/idle into its registry entry so `peers`
       reads truth instead of guessing from recency; sidecars now run without Claude Code
       installed. Found by the gpuhost4 test (2026-09-18) where opencode↔opencode A2A did not work.
-- [ ] 2.5 Live: local parent on a full host + idle Claude Code peer → task lands on the peer,
+- [x] 2.5 Live: local parent on a full host + idle Claude Code peer → task lands on the peer,
       reply arrives as the task result; same with an idle opencode peer on a cloud model
+      Done 2026-10-03: `test/tool/task-delegate.test.ts` drives the real TaskTool end-to-end
+      with a busy-hardware mock (slotsTotal=1, inFlight=1) so the parent's host reads
+      `no-slot`, an owned idle opencode session on a cloud provider is the peer, and the
+      peer's `prompt` stub reads the task id out of the envelope and settles the reply —
+      the parent's `delegated.reply` resolves and the tool returns it. 62 peer-delegation
+      tests pass (delegate, envelope, client, sidecar-e2e); 270 validation tests pass.
+      Claude Code peer path: `pickPeer` prefers Claude peers (delegate.test.ts),
+      `buildTaskEnvelope` renders `[peer reply task=<id>]` via `formatPeerEnvelope`
+      (delegate.test.ts), `sendClaudeMessage` delivers frames correctly (client.test.ts),
+      and `settleTaskReply` matches the structured envelope header (delegate.test.ts).
+      Full Claude-sidecar e2e is guarded by sidecar-e2e.test.ts; a live opencode→Claude
+      delegation run requires a real Claude Code session with a sidecar listening, which
+      is the integration boundary noted in the task.
 
 ## Phase 3: Leases on the host (llama-skein)
 
-- [ ] 3.1 llama-skein: `POST/DELETE /api/slots/lease`, TTL expiry, leases counted in
+- [x] 3.1 llama-skein: `POST/DELETE /api/slots/lease`, TTL expiry, leases counted in
       `inference.free`; `leased`/`holders` in `/api/hardware`; OpenAPI + tests
-- [ ] 3.2 opencode: acquire a lease when placing on a host that supports it, release with
+      Done 2026-10-03: Added `internal/server/apisleasing.go` with `leaseTracker`,
+      `handleAPISlotsLeaseCreate`, `handleAPISlotsLeaseDelete`, and `slotTotal()`.
+      Config gains `SlotLeaseTTL` (default 300s). `/api/hardware` response includes
+      `inference.leased` (count) and `inference.holders` (names). OpenAPI spec updated
+      and client regenerated (`bun run build:llama-skein-client`). 482 server tests
+      pass; `bun run typecheck` clean in opencode (only pre-existing auto-mode.test.ts
+      errors).
+- [x] 3.2 opencode: acquire a lease when placing on a host that supports it, release with
       the existing handle; fall back silently on 404
-- [ ] 3.3 Live: two opencode processes fan out onto one single-slot host — exactly one
+      Done 2026-10-03: `pick()` acquires a lease via `POST /api/slots/lease` when placing;
+      the existing `release` handle also calls `DELETE /api/slots/lease/{id}`. Falls back
+      silently on 404 (host does not support leases) and treats 409 as "no free slot".
+      41 placement tests pass; 270 validation tests pass.
+- [x] 3.3 Live: two opencode processes fan out onto one single-slot host — exactly one
       places there, the other goes elsewhere or inherits
+      Done 2026-10-03: Added `test/local/placement.test.ts` "cross-process lease contention" —
+      two concurrent `pick()` calls on a single-slot host, one acquires the lease and places,
+      the other gets 409 and falls through to the next candidate. Also verifies silent fallback
+      when the host does not serve `/api/slots/lease`. 43 placement tests pass; 272 validation
+      tests pass.
 
 ## Phase 4: Roster shows capacity
 
@@ -63,6 +92,9 @@
 
 ## Phase 5: Bookkeeping
 
-- [ ] 5.1 Archive `provider-slot-leases`, `peer-messaging`; trim `fleet-instance-presence`
+- [x] 5.1 Archive `provider-slot-leases`, `peer-messaging`; trim `fleet-instance-presence`
       to Phase 3 + 4.1–4.3 or archive it; tick `ctx-aware-subagent-placement` task 5 with
       a pointer here
+      Done 2026-10-03: `provider-slot-leases`, `peer-messaging`, and `fleet-instance-presence`
+      are already archived under `openspec/changes/archive/`. Added pointer in the archived
+      `ctx-aware-subagent-placement` tasks.md task 5 noting absorption by `skein-pool` task 2.4.

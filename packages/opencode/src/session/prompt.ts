@@ -67,6 +67,7 @@ import { LLMEvent } from "@opencode-ai/llm"
 // inside loop.ts's module-scope LayerNode.make — the app graph then crashes
 // every boot ("undefined is not an object (evaluating 'e.dependencies')").
 import { LoopDetect } from "./loop-detect"
+import { RunawayDetect } from "./runaway-detect"
 
 // @ts-ignore
 globalThis.AI_SDK_LOG_WARNINGS = false
@@ -82,6 +83,31 @@ const LoopMaxStreak = 3
 // default step cap to prevent it from running indefinitely. The agent's own
 // steps setting takes precedence if explicitly configured.
 const DefaultSubAgentSteps = 50
+
+// fork: overflow compaction breaker — when every request overflows, the loop
+// compacts, auto-continues, and overflows again forever: the compaction never
+// shrinks the prompt that the loop re-sends. Stop after this many overflow
+// compactions in a row with no completed turn in between.
+const MaxConsecutiveOverflowCompactions = 2
+
+// Counts the overflow compactions since the last turn that produced output.
+// `messages` is newest-first. Empty assistant turns, compaction summaries and
+// the auto-continue prompts neither count nor end the run; a completed turn or
+// a non-overflow compaction does.
+export function consecutiveOverflowCompactions(messages: readonly SessionV1.WithParts[]) {
+  let count = 0
+  for (const message of messages) {
+    const compaction = message.parts.find((part) => part.type === "compaction")
+    if (compaction) {
+      if (compaction.overflow !== true) break
+      count++
+      continue
+    }
+    if (message.info.role !== "assistant" || message.info.mode === "compaction") continue
+    if (message.info.tokens.output > 0) break
+  }
+  return count
+}
 
 const decodeMessageInfo = Schema.decodeUnknownExit(SessionV1.Info)
 const decodeMessagePart = Schema.decodeUnknownExit(SessionV1.Part)
@@ -1476,8 +1502,63 @@ export const layer = Layer.effect(
               }
             }
 
+            if (result !== "runaway") SessionCompaction.clearRunaways(sessionID)
+            if (result === "runaway") {
+              // fork: a stream that never stopped. First a nudge, then a
+              // compaction-based reset (the cut turn is already trimmed, so the
+              // spam is not in the history; the auto-continue prompt is the
+              // "go on"), then stop for a human.
+              const attempt = SessionCompaction.noteRunaway(sessionID)
+              yield* Effect.logWarning("runaway recovery", { "session.id": sessionID, attempt })
+              if (attempt >= SessionCompaction.RunawayMaxPerSession) {
+                handle.message.error = new NamedError.Unknown({
+                  message: `The model ran away (repeated output without stopping) ${attempt} times in a row, including after a compaction reset. Send a new message to retry, or switch model.`,
+                }).toObject()
+                yield* sessions.updateMessage(handle.message)
+                yield* events.publish(Session.Event.Error, { sessionID, error: handle.message.error })
+                return "break" as const
+              }
+              if (attempt === 1) {
+                const nudgeMsg: SessionV1.User = {
+                  id: MessageID.ascending(),
+                  sessionID,
+                  role: "user",
+                  time: { created: Date.now() },
+                  agent: lastUser.agent,
+                  model: lastUser.model,
+                }
+                yield* sessions.updateMessage(nudgeMsg)
+                yield* sessions.updatePart({
+                  id: PartID.ascending(),
+                  messageID: nudgeMsg.id,
+                  sessionID,
+                  type: "text",
+                  text: RunawayDetect.nudgeText,
+                  synthetic: true,
+                } satisfies SessionV1.TextPart)
+              } else {
+                yield* compaction.create({
+                  sessionID,
+                  agent: lastUser.agent,
+                  model: lastUser.model,
+                  auto: true,
+                })
+              }
+              return "continue" as const
+            }
             if (result === "stop") return "break" as const
             if (result === "compact") {
+              const overflows = consecutiveOverflowCompactions(
+                yield* sessions.messages({ sessionID, limit: 50 }).pipe(Effect.orDie),
+              )
+              if (overflows >= MaxConsecutiveOverflowCompactions) {
+                handle.message.error ??= new SessionV1.ContextOverflowError({
+                  message: `Context still overflows after ${overflows} compactions in a row; stopping instead of compacting again`,
+                }).toObject()
+                yield* sessions.updateMessage(handle.message)
+                yield* events.publish(Session.Event.Error, { sessionID, error: handle.message.error })
+                return "break" as const
+              }
               yield* compaction.create({
                 sessionID,
                 agent: lastUser.agent,
@@ -1516,7 +1597,16 @@ export const layer = Layer.effect(
             const currentTurn: LoopDetect.TurnSnapshot = {
               text: currentText,
               toolSignature: LoopDetect.toolCallSignature(
-                toolParts.map((p) => ({ tool: p.tool, input: p.state.input })),
+                toolParts.map((p) => ({
+                  tool: p.tool,
+                  input: p.state.input,
+                  result:
+                    p.state.status === "completed"
+                      ? p.state.output
+                      : p.state.status === "error"
+                        ? p.state.error
+                        : undefined,
+                })),
               ),
             }
             const result = LoopDetect.detectRepeat(currentTurn, lastTurn, LoopSimilarityThreshold)

@@ -14,7 +14,7 @@ import { Cause, Context, Deferred, Effect, Layer, Ref, Result, Schema, Scope } f
 import { EventV2Bridge } from "@/event-v2-bridge"
 import { Identifier } from "@/id/id"
 import { SessionPrompt } from "@/session/prompt"
-import { SessionID } from "@/session/schema"
+import { SessionID, MessageID, PartID } from "@/session/schema"
 import { Session } from "@/session/session"
 import { SessionStatus } from "@/session/status"
 import { Unattended } from "@/session/unattended"
@@ -24,12 +24,13 @@ import { Agent as AgentSvc } from "@/agent/agent"
 import { deriveSubagentSessionPermission } from "@/agent/subagent-permissions"
 import { Permission } from "@/permission"
 import { describePeer, resolvePeers } from "@/session/peers"
-import { baseURLOf, parentCapacity } from "@/local/placement"
+import { baseURLOf, hostCapacity as hostCapacityFn, parentCapacity } from "@/local/placement"
 import { PermissionV1 } from "@opencode-ai/core/v1/permission"
 import { ModelV2 } from "@opencode-ai/core/model"
 import { ProviderV2 } from "@opencode-ai/core/provider"
+import { ProjectV2 } from "@opencode-ai/core/project"
 
-import { buildBrief, type Gate } from "./spec-queue/brief"
+import { buildBrief, type FleetJoin, type Gate } from "./spec-queue/brief"
 import {
   evaluateCommit,
   evaluateImplement,
@@ -52,6 +53,9 @@ import {
 import { getWorkItems, claimChange, releaseChange } from "./spec-queue/work-source"
 import { QueueAuthority, QueueDenyRules, withoutCredentials } from "./spec-queue/authority"
 import { AgentGates, readVerdict, resolvePersonas, type PersonaBindings } from "./spec-queue/personas"
+import { Claim } from "./crew/claims"
+import { Project } from "@/project/project"
+import { deliverToOpencodeSession, foreignRoster, returnAddressFor } from "@/peer/route"
 
 import { contractPart, DEFAULT_COMPLETION_TOKEN, matchesCompletion, promptDisablesCompletion } from "./completion"
 
@@ -125,53 +129,56 @@ export const IterationInfo = Schema.Struct({
 })
 export type IterationInfo = Schema.Schema.Type<typeof IterationInfo>
 
-export const Mode = Schema.Literals(["prompt", "queue", "auto"])
+export const Mode = Schema.Literals(["prompt", "queue", "crew", "auto"])
 export type Mode = Schema.Schema.Type<typeof Mode>
 
- export const Info = Schema.Struct({
-   id: LoopID,
-   directory: Schema.String,
-   sessionID: SessionID,
-   parentSessionID: Schema.optional(SessionID),
-   prompt: Schema.String,
-   status: Status,
-   maxIterations: Schema.Int,
-   interval: Schema.optional(Schema.Finite),
-   noProgressLimit: Schema.Int,
-   completionToken: Schema.String,
-   // loop-eternal-by-default: when true (the default) a plain-mode loop that
-   // completes checks the openspec backlog before finalizing, and continues as
-   // a queue run if planned work remains instead of stopping. false restores
-   // the pre-existing stop-on-completion behavior exactly.
-   eternal: Schema.Boolean,
-   iteration: Schema.Int,
-   iterations: Schema.Array(IterationInfo),
-   // The most recent iteration's child session. Iterations run in fresh child
-   // sessions of `sessionID` so context never accumulates across iterations;
-   // this is the handle a client needs to navigate to (or abort) the turn
-   // that is actually executing.
-   iterationSessionID: Schema.optional(SessionID),
-   mode: Schema.optional(Mode),
-   // Queue mode progress for UI: the change being worked and its gate.
-   currentChange: Schema.optional(Schema.String),
-   currentGate: Schema.optional(Schema.String),
-   // End-of-run report for queue mode (design D7).
-   report: Schema.optional(Schema.String),
-   // loop-done-handoff: the queue drained but the run was asked to keep watching,
-   // so it is alive and quiet rather than finished. Not a stall and not terminal.
-   watching: Schema.optional(Schema.Boolean),
-   startedAt: Schema.Finite,
-   lastRunAt: Schema.optional(Schema.Finite),
-   finishedAt: Schema.optional(Schema.Finite),
-   // Auto mode: directory to scan for repositories. Sibling directories of
-   // this path with openspec changes are scanned. Defaults to the loop's
-   // directory (the server's working directory).
-   autoDirectory: Schema.optional(Schema.String),
-   // Auto mode: restrict which repositories to scan. When provided, only
-   // these repositories are scanned; otherwise all sibling directories with
-   // openspec changes are scanned.
-   autoRepos: Schema.optional(Schema.mutable(Schema.Array(Schema.String))),
- }).annotate({ identifier: "Loop" })
+/** True when the loop drives the openspec backlog rather than a free-form prompt. */
+export const isQueueMode = (mode: Mode | undefined): mode is "queue" | "crew" => mode === "queue" || mode === "crew"
+
+export const Info = Schema.Struct({
+  id: LoopID,
+  directory: Schema.String,
+  sessionID: SessionID,
+  parentSessionID: Schema.optional(SessionID),
+  prompt: Schema.String,
+  status: Status,
+  maxIterations: Schema.Int,
+  interval: Schema.optional(Schema.Finite),
+  noProgressLimit: Schema.Int,
+  completionToken: Schema.String,
+  // loop-eternal-by-default: when true (the default) a plain-mode loop that
+  // completes checks the openspec backlog before finalizing, and continues as
+  // a queue run if planned work remains instead of stopping. false restores
+  // the pre-existing stop-on-completion behavior exactly.
+  eternal: Schema.Boolean,
+  iteration: Schema.Int,
+  iterations: Schema.Array(IterationInfo),
+  // The most recent iteration's child session. Iterations run in fresh child
+  // sessions of `sessionID` so context never accumulates across iterations;
+  // this is the handle a client needs to navigate to (or abort) the turn
+  // that is actually executing.
+  iterationSessionID: Schema.optional(SessionID),
+  mode: Schema.optional(Mode),
+  // Queue mode progress for UI: the change being worked and its gate.
+  currentChange: Schema.optional(Schema.String),
+  currentGate: Schema.optional(Schema.String),
+  // End-of-run report for queue mode (design D7).
+  report: Schema.optional(Schema.String),
+  // loop-done-handoff: the queue drained but the run was asked to keep watching,
+  // so it is alive and quiet rather than finished. Not a stall and not terminal.
+  watching: Schema.optional(Schema.Boolean),
+  startedAt: Schema.Finite,
+  lastRunAt: Schema.optional(Schema.Finite),
+  finishedAt: Schema.optional(Schema.Finite),
+  // Auto mode: directory to scan for repositories. Sibling directories of
+  // this path with openspec changes are scanned. Defaults to the loop's
+  // directory (the server's working directory).
+  autoDirectory: Schema.optional(Schema.String),
+  // Auto mode: restrict which repositories to scan. When provided, only
+  // these repositories are scanned; otherwise all sibling directories with
+  // openspec changes are scanned.
+  autoRepos: Schema.optional(Schema.mutable(Schema.Array(Schema.String))),
+}).annotate({ identifier: "Loop" })
 export type Info = Schema.Schema.Type<typeof Info>
 
  export const CreateInput = Schema.Struct({
@@ -254,6 +261,11 @@ export interface Interface {
   readonly cancel: (id: LoopID) => Effect.Effect<boolean>
   /** Append a correction carried into every subsequent iteration. */
   readonly nudge: (id: LoopID, text: string) => Effect.Effect<boolean>
+  /**
+   * Append an inbound peer message to the loop's inbox. A durable copy is
+   * written as a synthetic session message so a crash does not lose it.
+   */
+  readonly inbox: (input: { loopID: LoopID; from: { harness: string; id: string; name?: string }; mode: "notify" | "request"; text: string }) => Effect.Effect<boolean>
 }
 
 export class Service extends Context.Service<Service, Interface>()("@opencode/Loop") {}
@@ -304,6 +316,9 @@ type QueueState = {
   outcomes: ChangeOutcome[]
   consecutiveQuarantines: number
   anyGatePassed: boolean
+  // Consecutive empty-board ticks — drives the idle backoff so the no-progress
+  // guard does not mistake a quiet board for a stalled run.
+  consecutiveIdle: number
 }
 
 type Record_ = {
@@ -332,6 +347,18 @@ type Record_ = {
   // unbounded retry — one extra, harder-worded iteration per loop lifetime,
   // never more.
   stallReprieve?: "pending" | "used"
+  // Inbox of inbound peer messages delivered while the loop is running.
+  // Each entry carries sender metadata and the text; drained into the brief
+  // at the top of the next iteration, then cleared. Durable copy is written
+  // as a synthetic session message so a crash does not lose it.
+  inbox: InboxEntry[]
+}
+
+export interface InboxEntry {
+  at: number
+  from: { harness: string; id: string; name?: string }
+  mode: "notify" | "request"
+  text: string
 }
 
 export const layer = Layer.effect(
@@ -345,6 +372,8 @@ export const layer = Layer.effect(
     const provider = yield* Provider.Service
     const agents = yield* AgentSvc.Service
     const permission = yield* Permission.Service
+    const project = yield* Project.Service
+    const crewClaim = yield* Claim.Service
     const scope = yield* Scope.Scope
 
     const state = yield* Ref.make<Map<LoopID, Record_>>(new Map())
@@ -867,30 +896,46 @@ export const layer = Layer.effect(
         }).map(describePeer)
       }).pipe(Effect.orElseSucceed(() => [] as string[]))
 
-    // Idle local peers for the brief's fan-out nudge (design D9). Only
-    // providers with a local baseURL are probed; errors read as "not idle".
-    const idlePeers = Effect.gen(function* () {
+    // Fleet join for the brief's routing order and fleet display (task 2a.2).
+    // Only providers with a local baseURL are probed; errors read as unreachable.
+    const fleetJoin = Effect.gen(function* () {
       const cfg = yield* config.get().pipe(Effect.orElseSucceed(() => ({}) as never))
       if (
         (cfg as { experimental?: { local_subagent_placement?: boolean } }).experimental?.local_subagent_placement ===
         false
       )
-        return [] as string[]
+        return undefined as FleetJoin | undefined
       const providers = yield* provider.list().pipe(Effect.orElseSucceed(() => ({}) as Record<string, Provider.Info>))
-      const local = Object.entries(providers).filter(([, info]) => baseURLOf(info) !== undefined)
-      const idle: string[] = []
-      for (const [id] of local) {
-        const capacity = yield* Effect.promise(() =>
-          parentCapacity({
-            parent: { providerID: ProviderV2.ID.make(id), modelID: ModelV2.ID.make("probe") },
-            providers,
-            timeoutMs: 1_000,
-          }),
-        ).pipe(Effect.orElseSucceed(() => "unknown" as const))
-        if (capacity === "free") idle.push(id)
-      }
-      return idle
-    })
+      const hosts = yield* Effect.promise(() => hostCapacityFn(providers)).pipe(Effect.orElseSucceed(() => []))
+      // Collect peers bound to each host from the roster.
+      // resolvePeers is a pure function, not an Effect.
+      const allPeers = resolvePeers({
+        sessions: [],
+        statuses: new Map(),
+        pendingPermission: new Set(),
+        loops: [],
+        callerID: "",
+        foreign: new Map(),
+        live: new Set(),
+        now: Date.now(),
+      })
+      const fleetPeers = allPeers
+        .filter((p): p is typeof p & { provider: string } => p.provider !== undefined)
+        .map((p) => ({
+          sessionID: p.sessionID,
+          title: p.title,
+          status: p.status,
+          provider: p.provider,
+          model: p.model,
+        }))
+      return { hosts, peers: fleetPeers } as FleetJoin
+    }).pipe(Effect.orElseSucceed(() => undefined as FleetJoin | undefined))
+
+    // Idle local peers for the brief's fan-out nudge (design D9). Derived from
+    // the fleet join above; empty → no fan-out nudge.
+    const idlePeers = Effect.map(fleetJoin, (fleet) =>
+      fleet ? fleet.hosts.filter((h) => h.reachable && h.free > 0).map((h) => h.providerID) : [],
+    )
 
     const buildReport = (queue: QueueState, ending: string) => {
       const lines: string[] = [`# Queue run report`, "", `Ending: ${ending}`, ""]
@@ -952,9 +997,19 @@ export const layer = Layer.effect(
         while (true) {
           const record = (yield* Ref.get(state)).get(id)
           if (!record) return undefined
+          // Drain the inbox: extract pending messages and clear them so the
+          // next iteration starts with an empty inbox. Emit loop.updated so
+          // the TUI badge can reflect the unread count.
+          const inbox = record.inbox.length > 0 ? [...record.inbox] : undefined
+          if (inbox) {
+            yield* patch(id, (current) => ({ ...current, inbox: [] }))
+            yield* emit(id)
+          }
           const peers = yield* idlePeers
+          const fleet = yield* fleetJoin
           const neighbours = yield* activePeers(changeSessionID, record.info.directory)
           const brief = buildBrief({
+            root: record.info.directory,
             change,
             gate,
             failure,
@@ -963,6 +1018,8 @@ export const layer = Layer.effect(
             guidance: record.queue?.guidance,
             steers: record.steers,
             persona,
+            inbox,
+            fleet,
             stopNudge: ladderNudge(record.lastOutcome?.stop ?? "other"),
           })
           const result = yield* runIteration(record, { promptText: brief, sessionID: changeSessionID })
@@ -1147,15 +1204,31 @@ export const layer = Layer.effect(
       })
 
 
-    const runQueue = (id: LoopID): Effect.Effect<void> =>
+    const runQueue = (id: LoopID) =>
       Effect.gen(function* () {
         const initial = (yield* Ref.get(state)).get(id)
         const exec = execIn(yield* gateCwd(initial))
+        // Resolve the project so claims can be scoped to it. A missing project
+        // degrades gracefully: claims are best-effort and a failed claim does
+        // not halt the run.
+        const projectResult = yield* project.fromDirectory(initial?.info.directory ?? "").pipe(
+          Effect.orElseSucceed(() =>
+            ({
+              project: { id: ProjectV2.ID.make("global"), worktree: "", vcs: "", name: "", sandboxes: [], commands: undefined, icon_url: undefined, icon_url_override: undefined, icon_color: undefined, time_created: 0, time_updated: 0, time_initialized: undefined },
+              sandbox: "",
+            }) as { project: { id: ProjectV2.ID; worktree: string; vcs: string; name: string; sandboxes: never[]; commands: undefined; icon_url: undefined; icon_url_override: undefined; icon_color: undefined; time_created: number; time_updated: number; time_initialized: undefined }; sandbox: string },
+          ),
+        )
+        const projectID = projectResult.project.id
+        // Live claims from all members in this project — their slugs are excluded
+        // from the cursor so two members never both pick the same change.
+        const liveClaims = yield* crewClaim.listLive(projectID).pipe(Effect.orElseSucceed(() => [] as import("./crew/claims").ClaimInfo[]))
+        const claimedSlugs = new Set(liveClaims.map((c) => c.slug))
         // The spec requires the resolved order be reported before the first
         // iteration: an unattended run is only auditable if you can see what it
         // decided to work, and in what order, up front.
         if (initial) {
-          const firstPass = resolveQueue(initial.info.directory, initial.queue?.only)
+          const firstPass = resolveQueue(initial.info.directory, initial.queue?.only, claimedSlugs)
           // "Nothing eligible" and "this is not an openspec repo" are the same
           // empty queue but completely different situations. Reporting the
           // second as a drained backlog tells someone their work is done when
@@ -1182,7 +1255,7 @@ export const layer = Layer.effect(
               "queue.retried": retried.join(", "),
             })
           }
-          const first = resolveQueue(initial.info.directory, initial.queue?.only)
+          const first = resolveQueue(initial.info.directory, initial.queue?.only, claimedSlugs)
           yield* Effect.logInfo("queue resolved", {
             "queue.order": first.eligible.map((c) => c.slug).join(", ") || "(nothing eligible)",
             "queue.quarantined": first.quarantined.join(", ") || "(none)",
@@ -1225,6 +1298,7 @@ export const layer = Layer.effect(
             }
           })
 
+        let currentClaimID: Claim.ClaimID | undefined
         // Idle-watch backoff, in ms; reset whenever work is found.
         let watchMs = 0
         while (true) {
@@ -1232,10 +1306,32 @@ export const layer = Layer.effect(
           if (!record?.queue) return
           const queueState = record.queue
 
+          // Re-resolve live claims each iteration so inter-member visibility
+          // is up to date, then re-resolve the queue with the current claim set.
+          const refreshedClaims = yield* crewClaim.listLive(projectID).pipe(Effect.orElseSucceed(() => [] as import("./crew/claims").ClaimInfo[]))
+          const refreshedSlugs = new Set(refreshedClaims.map((c) => c.slug))
+          // Drop the claim if the holder is gone and it is no longer in the
+          // refreshed set — the next iteration will pick a new change.
+          if (currentClaimID && !refreshedClaims.some((c) => c.id === currentClaimID)) {
+            currentClaimID = undefined
+          }
+          // Heartbeat the current claim so it stays live across iterations.
+          if (currentClaimID) {
+            yield* crewClaim.heartbeat(currentClaimID).pipe(
+              Effect.catch((err: unknown) => {
+                const e = err as { _tag?: string }
+                if (e._tag === "ClaimReleasedError" || e._tag === "ClaimNotFoundError") {
+                  currentClaimID = undefined
+                  return Effect.void
+                }
+                return Effect.fail(err)
+              }),
+            )
+          }
           // The queue is re-resolved from disk every time a change is chosen
           // (design D1/D8): restarts resume, mid-run additions join, and a
           // drained resolution is the only clean ending.
-          const resolved = resolveQueue(record.info.directory, queueState.only)
+          const resolved = resolveQueue(record.info.directory, queueState.only, refreshedSlugs)
           const change = cursor(resolved)
           if (!change) {
             // Nothing attempted and nothing complete is not a finished
@@ -1288,7 +1384,34 @@ export const layer = Layer.effect(
               }
               continue
             }
-            yield* finishQueue(id, "completed", "queue drained — every change is complete or quarantined")
+            if (queueState.outcomes.length === 0) {
+              // Everything was already complete — clean drain, not idle.
+              yield* finishQueue(id, "completed", "queue drained — every change is complete or quarantined")
+              return
+            }
+            if (resolved.eligible.length === 0 && resolved.complete.length === 0) {
+              // All remaining changes are quarantined — drain, not idle.
+              yield* finishQueue(id, "completed", "queue drained — every change is complete or quarantined")
+              return
+            }
+            if (resolved.complete.length > 0) {
+              // Remaining changes are complete — drain, not idle.
+              yield* finishQueue(id, "completed", "queue drained — every change is complete or quarantined")
+              return
+            }
+            // Board is empty but work has been done — idle with backoff instead
+            // of completing. The no-progress guard does not count this as a stall.
+            // Backoff: 30 s → 2 min, cap 10 min. Resets when a change appears
+            // or an inbox message arrives.
+            const hasInbox = record.inbox.length > 0
+            const nextIdle = hasInbox ? 0 : queueState.consecutiveIdle + 1
+            yield* patch(id, (current) => ({
+              ...current,
+              queue: { ...current.queue!, consecutiveIdle: nextIdle },
+              noProgressStreak: 0,
+            }))
+            const stages = [30_000, 120_000]
+            yield* waitBetween(id, stages[Math.min(nextIdle, stages.length) - 1] ?? 600_000)
             return
           }
 
@@ -1299,12 +1422,92 @@ export const layer = Layer.effect(
           }))
           yield* emit(id)
 
-          // Work this change through its gates until it completes, is
-          // quarantined, or the loop leaves "running".
-          let gate: Gate = "implement"
-          let failure: { gate: Gate; output: string } | undefined
-          const failCounts: Partial<Record<Gate, number>> = {}
-          let iterations = 0
+          // Record a claim so other members (and this run after a restart) know
+          // this change is being worked and must not be picked again.
+          const claimResult = yield* crewClaim
+            .claim({
+              projectID,
+              slug: change.slug,
+              holderSession: record.info.sessionID,
+              gate: "implement",
+            })
+            .pipe(
+              Effect.catch((err: unknown) => {
+                // Another member claimed it in the same tick — re-pick.
+                if ((err as { _tag?: string })._tag === "ClaimExistsError") return Effect.succeed(undefined)
+                return Effect.fail(err)
+              }),
+            )
+           currentClaimID = claimResult?.id
+           if (!currentClaimID) {
+             // Lost the claim race; re-resolve and try the next eligible change.
+             continue
+           }
+
+           // Announce the claim to other live crew members (task 3.4).
+           if (record.info.mode === "crew") {
+             const roster = yield* Effect.promise(() => foreignRoster())
+             for (const peer of roster.peers) {
+               if (peer.sessionID === record.info.sessionID) continue
+               Effect.gen(function* () {
+                 const outcome = yield* deliverToOpencodeSession({
+                   targetSessionID: peer.sessionID,
+                   fromSessionID: record.info.sessionID,
+                   fromName: record.info.sessionID,
+                   text: `I took ${change.slug} (implement)`,
+                   owned: false,
+                   local: () => Effect.void,
+                 })
+                 if (outcome.via !== "unaddressable") yield* Effect.logDebug("crew claim announced", { peer: peer.sessionID })
+               }).pipe(Effect.forkIn(scope, { startImmediately: true }), Effect.ignore)
+             }
+           }
+
+           // Announce a blocker to other live crew members (task 3.4).
+           // Guard: one announcement per quarantine event, none for heartbeats.
+           const announceBlocker = (slug: string, cause: string) => {
+             if (record.info.mode !== "crew") return
+             Effect.gen(function* () {
+               const roster = yield* Effect.promise(() => foreignRoster())
+               for (const peer of roster.peers) {
+                 if (peer.sessionID === record.info.sessionID) continue
+                 yield* deliverToOpencodeSession({
+                   targetSessionID: peer.sessionID,
+                   fromSessionID: record.info.sessionID,
+                   fromName: record.info.sessionID,
+                   text: `Blocked ${slug}: ${cause}`,
+                   owned: false,
+                   local: () => Effect.void,
+                 }).pipe(Effect.ignore)
+               }
+             }).pipe(Effect.forkIn(scope, { startImmediately: true }), Effect.ignore)
+           }
+
+           // Announce a handoff to other live crew members (task 3.4).
+           const announceHandoff = (slug: string, reason: string) => {
+             if (record.info.mode !== "crew") return
+             Effect.gen(function* () {
+               const roster = yield* Effect.promise(() => foreignRoster())
+               for (const peer of roster.peers) {
+                 if (peer.sessionID === record.info.sessionID) continue
+                 yield* deliverToOpencodeSession({
+                   targetSessionID: peer.sessionID,
+                   fromSessionID: record.info.sessionID,
+                   fromName: record.info.sessionID,
+                   text: `Released ${slug} (${reason})`,
+                   owned: false,
+                   local: () => Effect.void,
+                 }).pipe(Effect.ignore)
+               }
+             }).pipe(Effect.forkIn(scope, { startImmediately: true }), Effect.ignore)
+           }
+
+           // Work this change through its gates until it completes, is
+           // quarantined, or the loop leaves "running".
+           let gate: Gate = "implement"
+           let failure: { gate: Gate; output: string } | undefined
+           const failCounts: Partial<Record<Gate, number>> = {}
+           let iterations = 0
           // Object property rather than a let: quarantineNow mutates it from
           // inside an Effect closure, which TS flow narrowing cannot see.
           const ending: {
@@ -1340,13 +1543,14 @@ export const layer = Layer.effect(
             const live = yield* running()
             if (!live) return
 
-            if (iterations >= live.info.maxIterations) {
-              yield* quarantineNow(
-                `max_reached: ${live.info.maxIterations} iterations without completing`,
-                failure?.output ?? "",
-              )
-              break change
-            }
+             if (iterations >= live.info.maxIterations) {
+               yield* quarantineNow(
+                 `max_reached: ${live.info.maxIterations} iterations without completing`,
+                 failure?.output ?? "",
+               )
+               announceBlocker(change.slug, `max_reached: ${live.info.maxIterations} iterations`)
+               break change
+             }
 
             yield* patch(id, (current) => ({
               ...current,
@@ -1388,6 +1592,7 @@ export const layer = Layer.effect(
                   }
                   if (matchesCompletion(attempt.output, BLOCKED_TOKEN, "")) {
                     yield* quarantineNow("model signalled BLOCKED", attempt.output.slice(-2_000))
+                    announceBlocker(change.slug, "model signalled BLOCKED")
                     break change
                   }
                   // Re-run the gate that failed; its own strike counter decides
@@ -1412,13 +1617,14 @@ export const layer = Layer.effect(
                   return
                 }
                 if (result.error) {
-                  if (yield* fail("implement", "iteration failed: the model turn ended in an error")) break change
+                  if (yield* fail("implement", "iteration failed: the model turn ended in an error")) { announceBlocker(change.slug, failure!.output); break change }
                   continue
                 }
-                if (matchesCompletion(result.output, BLOCKED_TOKEN, "")) {
-                  yield* quarantineNow("model signalled BLOCKED", result.output.slice(-2_000))
-                  break change
-                }
+                  if (matchesCompletion(result.output, BLOCKED_TOKEN, "")) {
+                    yield* quarantineNow("model signalled BLOCKED", result.output.slice(-2_000))
+                    announceBlocker(change.slug, "model signalled BLOCKED")
+                    break change
+                  }
                 const after = evaluateImplement(change)
                 if (after.passed) {
                   failCounts.implement = 0
@@ -1433,7 +1639,7 @@ export const layer = Layer.effect(
                   const detail = claimed
                     ? `You signalled completion, but verification failed: ${after.output}`
                     : after.output
-                  if (yield* fail("implement", detail)) break change
+                  if (yield* fail("implement", detail)) { announceBlocker(change.slug, failure!.output); break change }
                 }
                 continue
               }
@@ -1446,7 +1652,7 @@ export const layer = Layer.effect(
                   queueState.gatesPassed.add("test")
                   continue
                 }
-                if (yield* fail("test", result.output)) break change
+                if (yield* fail("test", result.output)) { announceBlocker(change.slug, failure!.output); break change }
                 continue
               }
               case "verify": {
@@ -1464,7 +1670,7 @@ export const layer = Layer.effect(
                   queueState.gatesPassed.add("verify")
                   continue
                 }
-                if (yield* fail("verify", result.output)) break change
+                if (yield* fail("verify", result.output)) { announceBlocker(change.slug, failure!.output); break change }
                 continue
               }
               case "commit": {
@@ -1485,7 +1691,7 @@ export const layer = Layer.effect(
                   ending.outcome = "completed"
                   break change
                 }
-                if (yield* fail("commit", after.output)) break change
+                if (yield* fail("commit", after.output)) { announceBlocker(change.slug, failure!.output); break change }
                 continue
               }
             }
@@ -1526,6 +1732,21 @@ export const layer = Layer.effect(
             iterations,
             cause: ending.cause,
           })
+          // Release the claim so the change becomes available again (quarantined)
+          // or stays released (completed). A failed release is logged but does
+          // not change the outcome — the queue state already recorded it.
+          if (currentClaimID) {
+            const reason = ending.outcome === "completed" ? ("completed" as const) : ("quarantined" as const)
+            yield* crewClaim.release(currentClaimID, reason).pipe(
+              Effect.catch((err: unknown) => Effect.logWarning("queue claim release failed", { "claim.id": currentClaimID, error: err })),
+            )
+            currentClaimID = undefined
+          }
+          // Announce the handoff to other live crew members (task 3.4).
+          if (record.info.mode === "crew") {
+            const reason = ending.outcome === "completed" ? "completed" : `quarantined: ${ending.cause ?? "unknown"}`
+            announceHandoff(change.slug, reason)
+          }
           // Push the completed change's branch. The commit gate has already
           // established that a commit exists, that it touches this change, that
           // the tree is clean, and that we are NOT on the default branch — so
@@ -1622,6 +1843,7 @@ export const layer = Layer.effect(
       outcomes: [],
       consecutiveQuarantines: 0,
       anyGatePassed: false,
+      consecutiveIdle: 0,
     })
 
     // The one-queue-per-directory rule, in one place (loop-done-handoff 0.3).
@@ -1638,7 +1860,7 @@ export const layer = Layer.effect(
     const activeQueueOver = Effect.fnUntraced(function* (directory: string, exceptID?: LoopID) {
       return Array.from((yield* Ref.get(state)).values()).find(
         (record) =>
-          record.info.mode === "queue" &&
+          isQueueMode(record.info.mode) &&
           record.info.directory === directory &&
           !isTerminal(record.info.status) &&
           record.info.id !== exceptID,
@@ -1992,7 +2214,7 @@ export const layer = Layer.effect(
 
          yield* finishQueue(id, "completed", "auto drained — all changes processed")
        })
-     const runPromptThenMaybeQueue = (id: LoopID): Effect.Effect<void> =>
+    const runPromptThenMaybeQueue = (id: LoopID) =>
       Effect.gen(function* () {
         yield* run(id)
         const record = (yield* Ref.get(state)).get(id)
@@ -2030,7 +2252,7 @@ export const layer = Layer.effect(
         yield* patch(id, (current) => ({
           ...current,
           queue: defaultQueueState(),
-          info: { ...current.info, status: "running", mode: "queue", finishedAt: undefined },
+          info: { ...current.info, status: "running", mode: "crew", finishedAt: undefined },
         }))
         yield* emit(id)
 
@@ -2064,14 +2286,14 @@ export const layer = Layer.effect(
           directory = existing?.directory ?? ""
         } else {
           const parent = yield* session.create({
-            title: mode === "queue" ? "auto: openspec backlog" : `loop: ${promptHead(prompt)}`,
+            title: isQueueMode(mode) ? "auto: openspec backlog" : `loop: ${promptHead(prompt)}`,
           })
           sessionID = parent.id
           parentSessionID = undefined
           directory = parent.directory
         }
-        if (mode === "queue") {
-// Two queue loops over one directory would fight over the same
+        if (isQueueMode(mode)) {
+          // Two queue-shaped loops over one directory would fight over the same
         // derived cursor and working tree (design D1) — refuse the second.
         const active = yield* activeQueueOver(directory)
         if (active) {
@@ -2114,8 +2336,9 @@ export const layer = Layer.effect(
             info,
             noProgressStreak: 0,
             steers: [],
+            inbox: [],
             queue:
-              mode === "queue"
+              isQueueMode(mode)
                 ? {
                     only: input.queue?.length ? [...input.queue] : undefined,
                     guidance: input.queueGuidance,
@@ -2127,6 +2350,7 @@ export const layer = Layer.effect(
                     syncs: [],
                     pushes: [],
                     outcomes: [],
+                    consecutiveIdle: 0,
                     consecutiveQuarantines: 0,
                     anyGatePassed: false,
                   }
@@ -2163,7 +2387,7 @@ export const layer = Layer.effect(
         // all (found in review): "scoped" means in-project, and publishing is outside the project.
         // `full` and `off` are explicit choices that leave a plain loop as it was; a queue run is always
         // fenced. The explicit denies are what the policy's "always wins" rests on, so they must exist.
-        const fenced = mode === "queue" || mode === "auto" || policy.mode === "scoped"
+        const fenced = isQueueMode(mode) || mode === "auto" || policy.mode === "scoped"
         const priorPermission = fenced
           ? ((yield* session.get(sessionID).pipe(Effect.orElseSucceed(() => undefined)))?.permission ?? [])
           : []
@@ -2173,7 +2397,7 @@ export const layer = Layer.effect(
             .pipe(Effect.ignore)
         }
 
-        const driver = mode === "queue" ? runQueue(id) : mode === "auto" ? runAuto(id) : runPromptThenMaybeQueue(id)
+        const driver = isQueueMode(mode) ? runQueue(id) : mode === "auto" ? runAuto(id) : runPromptThenMaybeQueue(id)
         yield* driver
           .pipe(
             Effect.catchCause((cause) =>
@@ -2286,7 +2510,43 @@ export const layer = Layer.effect(
         return true
       })
 
-    return Service.of({ create, list, get, pause, resume, cancel, nudge })
+    const inbox = (input: { loopID: LoopID; from: { harness: string; id: string; name?: string }; mode: "notify" | "request"; text: string }) =>
+      Effect.gen(function* () {
+        const { loopID, from, mode, text } = input
+        const trimmed = text.trim()
+        if (trimmed === "") return false
+        const record = (yield* Ref.get(state)).get(loopID)
+        if (!record) return false
+        if (record.info.status !== "running" && record.info.status !== "paused") return false
+        // Append to the in-memory inbox so the next brief surfaces it.
+        yield* patch(loopID, (current) => ({
+          ...current,
+          inbox: [...current.inbox, { at: Date.now(), from, mode, text: trimmed }],
+        }))
+        // Write a durable synthetic session message so a crash does not lose it.
+        const sessionID = record.info.sessionID
+        const userMsg: SessionV1.User = {
+          id: MessageID.ascending(),
+          sessionID,
+          role: "user",
+          time: { created: Date.now() },
+          agent: "crew-inbox",
+          model: { providerID: ProviderV2.ID.make("none"), modelID: ModelV2.ID.make("none") },
+        }
+        yield* session.updateMessage(userMsg)
+        yield* session.updatePart({
+          id: PartID.ascending(),
+          messageID: userMsg.id,
+          sessionID,
+          type: "text",
+          text: `[peer ${mode}] ${trimmed}`,
+          synthetic: true,
+        } satisfies SessionV1.TextPart)
+        yield* Effect.logInfo("loop inbox", { "loop.id": loopID, "inbox.length": record.inbox.length + 1, "peer.mode": mode })
+        return true
+      })
+
+    return Service.of({ create, list, get, pause, resume, cancel, nudge, inbox })
   }),
 )
 
@@ -2302,6 +2562,8 @@ export const node = LayerNode.make({
     AgentSvc.node,
     Permission.node,
     EventV2Bridge.node,
+    Project.node,
+    Claim.node,
   ],
 })
 

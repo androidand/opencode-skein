@@ -28,6 +28,8 @@ export interface ParsedLoopArgs {
   completionToken?: string
   /** true when --queue was passed; the prompt tokens are then change slugs */
   queue: boolean
+  /** true when --crew was passed (crew mode: queue plus claims and inbox) */
+  crew: boolean
   /** true when --sync was passed (queue mode: specsync completed changes) */
   sync: boolean
   /** false when --no-push was passed (queue mode: push completed branches) */
@@ -70,6 +72,7 @@ export function parseLoopArgs(input: string): ParsedLoopArgs {
   let noProgressLimit: number = LoopArgDefaults.noProgressLimit
   let completionToken: string | undefined
   let queue = false
+  let crew = false
   let sync = false
   let push = true
   let eternal = true
@@ -92,6 +95,10 @@ export function parseLoopArgs(input: string): ParsedLoopArgs {
     const token = tokens[i]
     if (token === "--queue") {
       queue = true
+      continue
+    }
+    if (token === "--crew") {
+      crew = true
       continue
     }
     if (token === "--sync") {
@@ -164,6 +171,7 @@ export function parseLoopArgs(input: string): ParsedLoopArgs {
     noProgressLimit,
     completionToken,
     queue,
+    crew,
     sync,
     gateCwd,
     testCommand,

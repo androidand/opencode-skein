@@ -210,3 +210,38 @@ durable record of where A left off and cannot continue from there.
   gate on the claim and add a resume path (design §4, §Abandoned).
 
 These are the three gaps the claims + inbox + worktree-lifecycle phases close.
+
+## Collision: two `claims` migrations, one table
+
+Two implementations of `CREATE TABLE \`claims\`` exist against the same base
+`a77701b5ee` ("spike — NOT READY", 2026-09-19 15:32), ~57 minutes apart, neither
+landed in origin/dev:
+
+- `20260919154721_aromatic_jigsaw` — `packages/core/src/database/migration/20260919154721_aromatic_jigsaw.ts`, carried in a local stash (tree `88747b6894`, 2026-10-02 23:22).
+- `20260919055032_add_claims` — `packages/core/src/database/migration/20260919055032_add_claims.ts`, on branch `crew-loop/claims` (`e3d0a05577`, 2026-09-19 17:50).
+
+The **schema** is identical: 19 columns, 4 indexes. The only difference between the
+two migration files is the `id` string and a backtick-vs-quote on the unique-index
+`WHERE` clause. Whichever runs second fails on a fresh database or silently no-ops
+depending on the runner — that is the hazard, not the schema.
+
+The **`claims.ts` implementations** are not identical, and that is what decides it:
+
+- `e3d0a05577` (+40/-5 vs the spike) is a strict superset of the stash copy (+25/-19 vs the spike): it carries the same heartbeat/release guarded-UPDATE fix (`ClaimReleasedError`, `.returning().get()`, release narrowed to `isNull(released_at)`) **plus** `worktree: AbsolutePath | null` branding via `AbsolutePath.make` in `fromRow`, **plus** the rationale comments on why heartbeat/release must not silently no-op.
+- The stash copy drops the `AbsolutePath` branding (`worktree` reverted to `string | null`) and omits the comments.
+
+The only signal favoring the stash copy is its newer timestamp — and that is
+misleading: the file descends from the pre-fix Sept-19 spike, so the recency lives
+in the stash commit, not in the file.
+
+**Reconciliation (decided, not merged):** keep `e3d0a05577`'s `claims.ts` and its
+`20260919055032_add_claims` migration; drop `88747b6894`'s `20260919154721_aromatic_jigsaw`.
+The winning copy's `heartbeat` now returns `ClaimNotFoundError | ClaimReleasedError`.
+The loop WIP (`loop.ts`, `spec-queue/queue.ts`, `spec-queue/work-source.ts`,
+`cli/cmd/loop.ts`) was checked: none of these files reference `Claim`/`crew`/
+`heartbeat` (0 matches), so the expanded error type does not require a code change
+on this side. The stash copy's `claims.ts` and its test remain in the stash untouched;
+drop them when the stash is cleared after the worktree is built.
+
+Recorded here so the next rebase onto origin/dev does not rediscover this as a
+merge conflict.

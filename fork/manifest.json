@@ -182,8 +182,6 @@
     "packages/opencode/test/local/placement-policy.test.ts",
     "packages/opencode/test/local/placement.test.ts",
     "packages/opencode/test/local/skein-independence.test.ts",
-    "packages/opencode/test/local/ctx-fit.test.ts",
-    "packages/opencode/test/local/llama-skein-client-smoke.test.ts",
     "packages/opencode/test/local/sync.test.ts",
     "packages/opencode/test/loop/auto-mode.test.ts",
     "packages/opencode/test/loop/branch-read.test.ts",
@@ -200,7 +198,6 @@
     "packages/opencode/test/loop/queue-mode.test.ts",
     "packages/opencode/test/loop/similarity.test.ts",
     "packages/opencode/test/loop/spec-queue.test.ts",
-    "packages/opencode/test/loop/branch-read.test.ts",
     "packages/opencode/test/loop/stop-reason.test.ts",
     "packages/opencode/test/loop/work-source.test.ts",
     "packages/opencode/test/util/git-branch-repo.test.ts",
@@ -247,7 +244,6 @@
     "packages/opencode/test/tool/send-peer-message-text.test.ts",
     "packages/opencode/test/tool/task-delegate.test.ts",
     "packages/opencode/test/tui/jsx-component-contract.test.ts",
-    "packages/opencode/test/util/git-branch-repo.test.ts",
     "packages/tui/src/component/dialog-gallery.tsx",
     "packages/tui/src/component/dialog-loop-list.tsx",
     "packages/tui/src/component/dialog-model-ctx.tsx",
@@ -279,104 +275,44 @@
     "packages/tui/test/ui/dialog-model-footer.test.ts",
     "packages/tui/test/ui/dialog-select-footer.test.ts",
     "packages/tui/test/ui/sidebar-context.test.ts",
-    "packages/opencode/src/agent/presence-claude.ts",
-    "packages/opencode/test/agent/presence-claude.test.ts",
-    "packages/opencode/src/peer/claude/registry.ts",
-    "packages/opencode/src/peer/claude/codec.ts",
-    "packages/opencode/src/peer/claude/client.ts",
-    "packages/opencode/src/peer/claude/resolve.ts",
-    "packages/opencode/src/peer/claude/sidecar-registry.ts",
-    "packages/opencode/test/peer/claude/registry.test.ts",
-    "packages/opencode/test/peer/claude/codec.test.ts",
-    "packages/opencode/test/peer/claude/client.test.ts",
-    "packages/opencode/test/peer/claude/sidecar-registry.test.ts",
-    "packages/opencode/src/util/git-branch.ts",
-    "packages/opencode/src/cli/cmd/agents.ts",
-    "packages/opencode/src/peer/claude/sidecar-server.ts",
-    "packages/opencode/src/peer/claude/sidecar-entry.ts",
-    "packages/opencode/src/peer/claude/sidecar-manager.ts",
-    "packages/opencode/test/peer/claude/sidecar-e2e.test.ts",
-    "packages/opencode/test/peer/claude/sidecar-manager.test.ts",
-    "packages/opencode/test/peer/claude/lifecycle-inject.test.ts",
-    "packages/opencode/src/peer/claude/lifecycle.ts",
-    "packages/opencode/src/peer/delegate.ts",
-    "packages/opencode/test/peer/delegate.test.ts",
-    "packages/opencode/script/build-local.ts",
-    "packages/opencode/src/cli/cmd/debug/claude-sidecar-entry.ts",
-    "packages/opencode/src/local/ignored.ts",
-    "packages/opencode/test/local/ignored.test.ts",
-    "packages/opencode/test/local/sync.test.ts",
-    "packages/opencode/test/config/env-reference-survives.test.ts",
-    "packages/opencode/src/peer/route.ts",
-    "packages/opencode/test/peer/route.test.ts",
-    "packages/opencode/src/peer/envelope.ts",
-    "packages/opencode/test/peer/envelope.test.ts",
-    "packages/opencode/src/peer/inbox.ts",
-    "packages/opencode/test/peer/inbox.test.ts",
-    "packages/opencode/src/peer/recent-ids.ts",
-    "packages/opencode/test/loop/stop-reason.test.ts",
-    "packages/opencode/test/peer/recent-ids.test.ts",
-    "packages/opencode/src/peer/repeat-guard.ts",
-    "packages/opencode/test/peer/repeat-guard.test.ts",
-    "packages/opencode/test/peer/route-delivery.test.ts",
-    "packages/opencode/test/peer/claude/pty-repro.test.ts",
-    "packages/opencode/test/peer/claude/probe-deliver-runtime.mts",
-    "packages/opencode/test/peer/claude/sidecar-diagnostic-routing.test.ts",
-    "packages/opencode/test/peer/claude/sidecar-server-name.test.ts",
     "packages/opencode/test/peer/claude/sidecar-startup-race.test.ts",
-    "packages/opencode/src/local/model-gallery/search.ts",
-    "packages/opencode/src/local/model-gallery/install.ts",
-    "packages/opencode/src/local/model-gallery/operations.ts",
-    "packages/opencode/test/local/model-gallery-install.test.ts",
-    "packages/app/src/components/settings-v2/models-discover.tsx",
-    "packages/app/src/components/settings-v2/models-operations.tsx",
-    "packages/opencode/test/peer/lead.test.ts",
-    "packages/opencode/test/policy/drivers.test.ts",
-    "packages/opencode/test/policy/merge-run.test.ts",
-    "packages/opencode/test/policy/publish-policy-cache.test.ts",
-    "packages/opencode/test/policy/publish-policy-git.test.ts",
-    "packages/opencode/test/policy/publish-policy.test.ts",
-    "packages/opencode/test/policy/push-run.test.ts",
-    "packages/opencode/test/policy/review-record.test.ts",
     "packages/opencode/test/policy/review-gate.test.ts",
-    "packages/opencode/test/session/unattended.test.ts",
-    "packages/opencode/test/tool/send-peer-message-ladder.test.ts",
-    "packages/tui/src/component/dialog-gallery.tsx",
-    "packages/opencode/src/local/model-gallery/manage.ts",
-    "packages/opencode/test/local/model-gallery-manage.test.ts",
-    "packages/tui/src/component/dialog-model-manage.tsx",
-    "packages/app/src/components/settings-v2/models-gallery.ts",
-    "packages/app/src/components/settings-v2/models-gallery.test.ts",
-    "packages/app/src/components/settings-v2/models-hosts.tsx",
-    "packages/app/src/components/settings-v2/models-installed.tsx",
-    "packages/opencode/test/peer/lead-confirm.test.ts",
-    "packages/opencode/test/peer/lead-issue.test.ts",
-    "packages/opencode/test/peer/lead-runtime.test.ts",
-    "packages/opencode/test/tool/send-peer-message-text.test.ts",
-    "packages/opencode/test/tool/task-delegate.test.ts",
-    "packages/opencode/test/loop/loop-defaults.test.ts"
+    "packages/opencode/src/loop/crew/board.ts",
+    "packages/opencode/src/peer/claude/loop-route.ts",
+    "packages/opencode/src/peer/delivery-state.ts",
+    "packages/opencode/src/peer/hosted-subagent.ts",
+    "packages/opencode/src/provider/local-silence.ts",
+    "packages/opencode/src/session/repeat-detect.ts",
+    "packages/opencode/src/session/runaway-detect.ts",
+    "packages/opencode/test/cli/heap.test.ts",
+    "packages/opencode/test/local/placement-ownership.test.ts",
+    "packages/opencode/test/loop/crew/board.test.ts",
+    "packages/opencode/test/peer/claude/loop-route.test.ts",
+    "packages/opencode/test/peer/delivery-state.test.ts",
+    "packages/opencode/test/peer/pty-exchange.ts",
+    "packages/opencode/test/provider/local-silence.test.ts",
+    "packages/opencode/test/server/local-unpin-placement.test.ts",
+    "packages/opencode/test/session/overflow-breaker.test.ts",
+    "packages/opencode/test/session/repeat-detect.test.ts",
+    "packages/opencode/test/session/runaway-detect.test.ts",
+    "packages/opencode/test/tool/task-verify.test.ts",
+    "packages/tui/test/feature-plugins/sidebar-mem-breakdown.test.tsx",
+    "packages/tui/test/live/fit-contract.live.ts"
   ],
   "_ownedRemoved_2026-09-05": {
     "note": "packages/opencode/src/session/stream-stalled.ts, packages/opencode/src/session/tool-activity.ts, and packages/opencode/test/session/tool-activity.test.ts were deleted by a90c49880b \u2014 confirmed intentional, not a merge regression: a full, reasoned commit message explains that the stream-inactivity watchdog these files implemented only ever fired on false positives (host-paced hybrid loads, foreground subagents, compaction's single big call, cold-load chunks \u2014 each already special-cased before this commit finished the trend) and never once caught a genuinely wedged socket, while its false positives were abandoning working turns fleet-wide. Same commit also removed the fork patches this manifest tracked in llm.ts (marker @/local/skein-loading \u2014 the SkeinLoading cold-load liveness tick that fed only this watchdog), message-v2.ts (marker StreamStalledError \u2014 the error-mapping case for the watchdog's failure type; message-v2.ts no longer diverges from upstream at all and was fully removed from `patched`), and tools.ts (marker \"fork: the stream watchdog must not count\" \u2014 the per-tool-call liveness ticks). llm.ts and tools.ts each still diverge from upstream for unrelated, still-live fork reasons and were re-registered in `patched` with fresh markers (see those entries) rather than dropped \u2014 only the watchdog-specific tracking was retired.",
-    "commits": [
-      "a90c49880b"
-    ]
+    "commits": ["a90c49880b"]
   },
   "_ownedRemoved_2026-08-14": {
     "note": "packages/opencode/src/util/sync-log.ts was deleted in the origin/dev merge \u2014 confirmed intentional, not a merge regression. It was added by 21c1ac9dd6 to give non-Effect call sites (provider.ts, local/placement.ts) a TUI-safe logger after the core/util/log shim was deleted. The dev-side design solved the same problem differently: those helpers now return outcomes (PickOutcome, DiscoveryResult.warnings) and the Effect caller logs (tool/task.ts, provider.ts). That left zero call sites, so the file was removed rather than carried as dead code.",
-    "commits": [
-      "21c1ac9dd6"
-    ]
+    "commits": ["21c1ac9dd6"]
   },
   "_ownedRemoved_2026-08-13": {
     "note": "packages/core/src/util/log.ts (the legacy-logger compatibility shim, upstream's own module removed in #31310) was deleted 2026-08-12 \u2014 confirmed intentional, not a merge regression: upstream now has its own logger, making the shim genuinely obsolete."
   },
   "_ownedRemoved_2026-08-12": {
     "note": "auto-reply.ts, automation-features.ts, pattern-detection.ts (+ its two CLI commands), scheduler.ts, and hook.ts were deliberately deleted 2026-08-07 (commits 88731dfc6f, 0530944759) for being dead/broken code, not lost in a merge. fork:verify was reporting all 7 as regressions because this manifest was never updated at deletion time. Removed here, not re-added.",
-    "commits": [
-      "88731dfc6f",
-      "0530944759"
-    ]
+    "commits": ["88731dfc6f", "0530944759"]
   },
   "patched": [
     {
@@ -963,13 +899,16 @@
       "file": "packages/opencode/src/session/llm/request.ts",
       "marker": "PublishPolicy.composeSystem",
       "note": "Injects the standing publish authorization into the system prompt, and only when a valid policy exists. Without a grant the prompt is byte-for-byte what it was before."
+    },
+    {
+      "file": "packages/opencode/test/session/processor-effect.test.ts",
+      "marker": "const itRunaway = testEffect(",
+      "note": "Fork edit to an upstream test: runaway-stream recovery cases for the session processor (session/runaway-detect.ts, session/repeat-detect.ts)."
     }
   ],
   "divergence": {
     "note": "Ratchet for the failure this fork keeps hitting: a merge silently deleting a fork feature (see the self-healing compaction entry). Any file under `scope` that differs from baseline.upstreamRef and is neither owned/patched nor listed in `accepted` fails fork:verify. `accepted` is the divergence that already existed when the gate was added \u2014 classify those as feature or drift over time; new files must be classified immediately. The single remaining accepted entry is packages/core/src/effect/dfdf, which upstream committed by accident \u2014 its contents are an editor's \"File to save in:\" prompt. It is deleted here on purpose; it stays accepted rather than registered because there is no file left to carry a marker. Re-baseline deliberately with `bun run fork:verify --accept-divergence`.",
-    "scope": [
-      "^packages/[^/]+/(src|test)/"
-    ],
+    "scope": ["^packages/[^/]+/(src|test)/"],
     "accepted": [
       "packages/core/src/background-job.ts",
       "packages/core/src/control-plane/move-session.ts",

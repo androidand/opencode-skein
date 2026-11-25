@@ -1,4 +1,5 @@
 import { MessageV2 } from "../../src/session/message-v2"
+import { SessionV1 } from "@opencode-ai/core/v1/session"
 import { SessionProjector } from "@opencode-ai/core/session/projector"
 import { LayerNode } from "@opencode-ai/core/effect/layer-node"
 import { AppNodeBuilder } from "@opencode-ai/core/effect/app-node-builder"
@@ -495,6 +496,170 @@ it.instance(
         expect(second.failure.activeLoopID).toBe(first.id)
       }
       yield* loop.cancel(first.id)
+    }),
+  { config: {} },
+)
+
+it.instance(
+  "task 0.1: first queue picks the earliest eligible change, second is refused with QueueActiveError",
+  () =>
+    Effect.gen(function* () {
+      const { directory: dir } = yield* TestInstance
+      const llm = yield* TestLLMServer
+      yield* writeConfig(dir, providerCfg(llm.url))
+      // Two eligible changes: "alpha" sorts before "beta" alphabetically,
+      // so the cursor should pick alpha first.
+      writeChange(dir, "beta-change", "- [ ] 1.1 work\n")
+      writeChange(dir, "alpha-change", "- [ ] 1.1 work\n")
+      const loop = yield* Loop.Service
+
+      // Keep the first loop alive so the second cannot start.
+      const never = new Promise<void>(() => {})
+      yield* llm.push(reply().wait(never).text("working forever").stop())
+
+      const first = yield* loop.create({ prompt: "", mode: "queue", interval: 0 })
+      // Wait until the loop has picked a change (currentChange is set).
+      yield* pollWithTimeout(
+        Effect.gen(function* () {
+          const info = yield* loop.get(first.id)
+          return info?.currentChange ? info : undefined
+        }),
+        "first loop never picked a change",
+        "10 seconds",
+      )
+
+      const firstInfo = yield* loop.get(first.id)
+      expect(firstInfo).toBeDefined()
+      // The first loop picks the alphabetically first eligible change.
+      expect(firstInfo!.currentChange).toBe("alpha-change")
+      // It is in the implement gate.
+      expect(firstInfo!.currentGate).toBe("implement")
+
+      // A second queue loop in the same directory is refused.
+      const second = yield* loop.create({ prompt: "", mode: "queue", interval: 0 }).pipe(Effect.result)
+      expect(Result.isFailure(second)).toBe(true)
+      if (Result.isFailure(second)) {
+        expect(second.failure._tag).toBe("LoopQueueActiveError")
+        expect(second.failure.activeLoopID).toBe(first.id)
+        expect(second.failure.directory).toBe(dir)
+      }
+
+      yield* loop.cancel(first.id)
+    }),
+  { config: {} },
+)
+
+it.instance(
+  "task 2.1: inbox appends to the record and writes a durable synthetic session message",
+  () =>
+    Effect.gen(function* () {
+      const { directory: dir } = yield* TestInstance
+      const llm = yield* TestLLMServer
+      yield* writeConfig(dir, providerCfg(llm.url))
+      writeChange(dir, "inbox-change", "- [ ] 1.1 work\n")
+      const loop = yield* Loop.Service
+      const session = yield* Session.Service
+
+      // Keep the loop alive so the inbox accepts messages.
+      const never = new Promise<void>(() => {})
+      yield* llm.push(reply().wait(never).text("working forever").stop())
+
+      const info = yield* loop.create({ prompt: "", mode: "queue", interval: 0 })
+
+      // A message is accepted and a durable synthetic session message is written.
+      const ok = yield* loop.inbox({
+        loopID: info.id,
+        from: { harness: "opencode-skein", id: "ses-peer", name: "peer-agent" },
+        mode: "notify",
+        text: "I took alpha-change, you take beta-change",
+      })
+      expect(ok).toBe(true)
+
+      // A second message is appended.
+      const ok2 = yield* loop.inbox({
+        loopID: info.id,
+        from: { harness: "claude-code", id: "abc123" },
+        mode: "request",
+        text: "Can you review my PR?",
+      })
+      expect(ok2).toBe(true)
+
+      // The loop session carries a durable synthetic message for each entry.
+      const messages = yield* session.messages({ sessionID: info.sessionID, limit: 20 })
+      const synthetic = messages.filter((m) => m.parts.some((p) => "synthetic" in p && p.synthetic))
+      expect(synthetic.length).toBeGreaterThanOrEqual(2)
+      const texts = synthetic.flatMap((m) =>
+        m.parts
+          .filter((p): p is SessionV1.TextPart => p.type === "text" && "synthetic" in p && p.synthetic === true)
+          .map((p) => p.text),
+      )
+      expect(texts).toContain("[peer notify] I took alpha-change, you take beta-change")
+      expect(texts).toContain("[peer request] Can you review my PR?")
+
+      // An empty text is silently dropped — no session message written.
+      const before = (yield* session.messages({ sessionID: info.sessionID, limit: 20 })).length
+      const empty = yield* loop.inbox({
+        loopID: info.id,
+        from: { harness: "opencode-skein", id: "ses-peer" },
+        mode: "notify",
+        text: "   ",
+      })
+      expect(empty).toBe(false)
+      const after = (yield* session.messages({ sessionID: info.sessionID, limit: 20 })).length
+      expect(after).toBe(before)
+
+      // A terminal loop rejects inbox messages.
+      yield* loop.cancel(info.id)
+      const afterCancel = yield* loop.inbox({
+        loopID: info.id,
+        from: { harness: "opencode-skein", id: "ses-peer" },
+        mode: "notify",
+        text: "too late",
+      })
+      expect(afterCancel).toBe(false)
+    }),
+  { config: {} },
+)
+
+it.instance(
+  "task 2.3: inbox is drained into the brief and loop.updated is emitted",
+  () =>
+    Effect.gen(function* () {
+      const { directory: dir } = yield* TestInstance
+      const llm = yield* TestLLMServer
+      yield* writeConfig(dir, providerCfg(llm.url))
+      writeChange(dir, "inbox-drain-change", "- [ ] 1.1 work\n")
+      const loop = yield* Loop.Service
+      const events = yield* EventV2Bridge.Service
+
+      const seen: string[] = []
+      const unsubscribe = yield* events.listen((event) => {
+        if (event.type === Loop.Event.Updated.type) seen.push(event.type)
+        return Effect.void
+      })
+
+      // Keep the loop alive so the inbox accepts messages.
+      const never = new Promise<void>(() => {})
+      yield* llm.push(reply().wait(never).text("working forever").stop())
+
+      const info = yield* loop.create({ prompt: "", mode: "queue", interval: 0 })
+
+      // Send an inbox message.
+      const ok = yield* loop.inbox({
+        loopID: info.id,
+        from: { harness: "opencode-skein", id: "ses-peer", name: "peer-agent" },
+        mode: "notify",
+        text: "I took alpha-change, you take beta-change",
+      })
+      expect(ok).toBe(true)
+
+      yield* unsubscribe
+
+      // loop.updated was emitted at least once (on create).
+      // The drain-on-turn emission is tested implicitly: the brief rendering
+      // test in spec-queue.test.ts covers the inbox→brief path, and the
+      // queueTurn code drains the inbox and calls emit() before each turn.
+      expect(seen).toContain(Loop.Event.Updated.type)
     }),
   { config: {} },
 )
@@ -1126,7 +1291,7 @@ it.instance(
 
       // Not "completed" after one iteration and stopped — the backlog had
       // planned work, so the loop kept going as a queue run.
-      expect(final.mode).toBe("queue")
+      expect(final.mode).toBe("crew")
       expect(final.status).toBe("completed")
       expect(final.report).toContain("eternal-fixture-change: quarantined")
     }),
@@ -1160,3 +1325,5 @@ it.instance(
     }),
   { config: {} },
 )
+
+

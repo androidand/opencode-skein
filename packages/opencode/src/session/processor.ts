@@ -25,9 +25,11 @@ import { isRecord } from "@/util/record"
 import { EventV2Bridge } from "@/event-v2-bridge"
 import { Database } from "@opencode-ai/core/database/database"
 import { Usage, type LLMEvent } from "@opencode-ai/llm"
+import { RunawayDetect } from "./runaway-detect"
+import { SessionRepeatDetect } from "./repeat-detect"
 
 const DOOM_LOOP_THRESHOLD = 3
-export type Result = "compact" | "stop" | "continue"
+export type Result = "compact" | "stop" | "continue" | "runaway"
 
 export interface Handle {
   readonly message: SessionV1.Assistant
@@ -70,6 +72,8 @@ interface ProcessorContext extends Input {
   snapshot: string | undefined
   blocked: boolean
   needsCompaction: boolean
+  runaway: RunawayDetect.Runaway | undefined
+  sentences: SessionRepeatDetect.TextRepeatDetector
   currentText: SessionV1.TextPart | undefined
   reasoningMap: Record<string, SessionV1.ReasoningPart>
 }
@@ -109,6 +113,8 @@ export const layer = Layer.effect(
         snapshot: initialSnapshot,
         blocked: false,
         needsCompaction: false,
+        runaway: undefined,
+        sentences: new SessionRepeatDetect.TextRepeatDetector(),
         currentText: undefined,
         reasoningMap: {},
       }
@@ -500,6 +506,26 @@ export const layer = Layer.effect(
             if (!ctx.currentText) return
             ctx.currentText.text += value.text
             if (value.providerMetadata) ctx.currentText.metadata = value.providerMetadata
+            // fork: a stream that repeats a short unit forever (no stop token) is
+            // cut here; the stored text keeps only the first instance so the
+            // spam never reaches the next prompt. See runaway-detect.ts.
+            if (!ctx.runaway) {
+              const hit = RunawayDetect.findRunaway(ctx.currentText.text)
+              if (hit) {
+                ctx.runaway = hit
+                ctx.currentText.text = ctx.currentText.text.slice(0, hit.keep)
+                yield* session.updatePart(ctx.currentText)
+                return
+              }
+              // Sentence-level loops ("I'll wait for the notification." x3) are
+              // too short and too slow to trip the periodic-tail detector.
+              const sentence = ctx.sentences.feed(value.text)
+              if (sentence) {
+                ctx.runaway = { keep: ctx.currentText.text.length, unit: sentence.fragment, repeats: sentence.repeats }
+                yield* session.updatePart(ctx.currentText)
+                return
+              }
+            }
             yield* session.updatePartDelta({
               sessionID: ctx.currentText.sessionID,
               messageID: ctx.currentText.messageID,
@@ -630,6 +656,8 @@ export const layer = Layer.effect(
           messageID: input.assistantMessage.id,
         })
         ctx.needsCompaction = false
+        ctx.runaway = undefined
+        ctx.sentences = new SessionRepeatDetect.TextRepeatDetector()
         ctx.shouldBreak = (yield* config.get()).experimental?.continue_loop_on_deny !== true
 
         return yield* Effect.gen(function* () {
@@ -641,7 +669,7 @@ export const layer = Layer.effect(
 
             yield* stream.pipe(
               Stream.tap((event) => handleEvent(event)),
-              Stream.takeUntil(() => ctx.needsCompaction),
+              Stream.takeUntil(() => ctx.needsCompaction || ctx.runaway !== undefined),
               Stream.runDrain,
             )
           }).pipe(
@@ -677,6 +705,18 @@ export const layer = Layer.effect(
           )
 
           if (ctx.needsCompaction) return "compact"
+          if (ctx.runaway) {
+            yield* Effect.logWarning("runaway stream cut", {
+              "session.id": ctx.sessionID,
+              messageID: ctx.assistantMessage.id,
+              unit: JSON.stringify(ctx.runaway.unit.slice(0, 80)),
+              repeats: ctx.runaway.repeats,
+            })
+            ctx.assistantMessage.finish = "runaway"
+            ctx.assistantMessage.time.completed = Date.now()
+            yield* session.updateMessage(ctx.assistantMessage)
+            return "runaway"
+          }
           if (ctx.blocked || ctx.assistantMessage.error) return "stop"
           return "continue"
         })

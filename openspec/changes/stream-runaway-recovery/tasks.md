@@ -1,0 +1,6 @@
+- [x] 1. runaway-detect.ts + unit tests (fires on invoke spam, silent on rules/tables/prose)
+- [x] 2. processor: cut + "runaway" result, test with scripted LLM stream
+- [x] 3. prompt.ts ladder (nudge, compaction reset, terminal), clean turn resets
+- [x] 4. compaction: runaway/length is not a summary
+- [x] 5. overflow-compaction breaker carried from the shared tree (with its test)
+- [ ] 6. merge, deploy binary atomically, live check against a real stream
