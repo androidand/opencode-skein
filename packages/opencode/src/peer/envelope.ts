@@ -31,7 +31,17 @@
 
 import { randomUUID } from "crypto"
 
+import { InvalidTransition, PeerDelivery, type PeerDeliveryState } from "./delivery-state"
+
 export type PeerMode = "notify" | "request" | "reply"
+
+/**
+ * The kind of request this envelope carries. `task` is the existing
+ * delegation path (the peer runs the task in its own session). `host` is the
+ * hosted-subagent path: the peer creates a fresh child session with the
+ * host's provider/model and runs the task there under the host's permissions.
+ */
+export type PeerRequestKind = "task" | "host"
 
 export interface PeerEnvelope {
   mode: PeerMode
@@ -46,12 +56,18 @@ export interface PeerEnvelope {
   /** How long the sender will wait before treating a request as timed out. Requests only. */
   deadlineMinutes?: number
   /**
-   * The delegated-task id, when this exchange is one. `peer/delegate.ts` still
-   * correlates its pool-overflow tasks with the older `[peer-task-result <id>]`
-   * marker; carrying the id here lets both be matched during migration without
-   * this module having to know that marker's grammar.
+   * The delegated-task id, when this exchange is one. `peer/delegate.ts`
+   * correlates pool-overflow tasks by this field on a `[peer reply]` header, so
+   * the id no longer rides in a separate `[peer-task-result <id>]` marker: the
+   * two reply paths now share the one structured header.
    */
   taskID?: string
+  /**
+   * The kind of request. `task` (default) runs the work in the peer's own
+   * session. `host` creates a fresh child session with the host's provider
+   * and model, so the peer's own transcript stays clean.
+   */
+  kind?: PeerRequestKind
 }
 
 // Values are percent-encoded rather than scrubbed. An earlier version replaced
@@ -156,6 +172,7 @@ export function formatHeader(envelope: PeerEnvelope): string {
     envelope.contextID ? field("context", envelope.contextID) : undefined,
     envelope.inReplyTo ? field("in-reply-to", envelope.inReplyTo) : undefined,
     envelope.taskID ? field("task", envelope.taskID) : undefined,
+    envelope.kind ? field("kind", envelope.kind) : undefined,
   ].filter((entry): entry is string => entry !== undefined)
   // Only a request has anything waiting on it, so only a request carries a
   // deadline. Clamped, because a peer must not be told to wait for a year.
@@ -230,6 +247,9 @@ export function parsePeerEnvelope(text: string): ParsedPeerMessage | undefined {
       case "task":
         envelope.taskID = value
         break
+      case "kind":
+        if (value === "task" || value === "host") envelope.kind = value
+        break
       case "deadline": {
         // Ignored on anything but a request: nothing is waiting on a notify or
         // a reply, so a deadline there is noise at best.
@@ -255,10 +275,9 @@ export function parsePeerEnvelope(text: string): ParsedPeerMessage | undefined {
 
 /**
  * The message without its header, for readers that match on the body's own
- * shape. `peer/delegate.ts` correlates pool-overflow tasks with a
- * `[peer-task-result <id>]` marker anchored at the START of the text; once
- * messages carry a header that anchor no longer matches, delegation silently
- * stops settling and every delegated task times out instead. Anything matching
+ * shape. A task reply no longer carries its correlation in the body: `peer/
+ * delegate.ts` matches the task id in the reply's header instead, so this is
+ * only used by readers that match on the body's own shape. Anything matching
  * on message text must go through this.
  */
 export function peerBody(text: string): string {
@@ -272,53 +291,88 @@ export function expectsReply(envelope: PeerEnvelope): boolean {
 
 // ── reply correlation ────────────────────────────────────────────────────────
 //
-// `settleTaskReply` in peer/delegate.ts correlates pool-overflow tasks with
-// the older `[peer-task-result <id>]` marker. This is the envelope counterpart:
-// when a reply arrives carrying `[peer reply id=<mid> in-reply-to=<orig>]`,
-// match it against a pending request so the sender can await a synchronous
-// answer. The marker remains the fallback during migration; this path only
-// fires when the peer includes the structured envelope in its reply text.
+// Task replies and request replies both settle through envelopes now. `peer/
+// delegate.ts` matches a task reply by the `task` field of its `[peer reply]`
+// header; this is the counterpart — when a reply arrives carrying
+// `[peer reply id=<mid> in-reply-to=<orig>]`, match it against a pending request
+// so the sender can await a synchronous answer.
 //
 // Both registries are in-memory and process-scoped. A sidecar restart loses
 // all correlations — see tasks 2.3/2.4 for the durability discussion.
 
 export type PeerReplyResult = { ok: true; text: string } | { ok: false; reason: "timeout" | "cancelled" }
 
-const pendingReplies = new Map<string, { settle: (r: PeerReplyResult) => void; timer: ReturnType<typeof setTimeout> }>()
+/** A pending reply registration: the promise resolver, the timer, and the delivery state machine. */
+type PendingReply = {
+  settle: (r: PeerReplyResult) => void
+  timer: ReturnType<typeof setTimeout>
+  delivery: PeerDelivery
+}
+
+const pendingReplies = new Map<string, PendingReply>()
 
 /**
- * Register a pending request by its `messageID` and return a Promise that
- * resolves when a reply carrying `in-reply-to=<messageID>` arrives.
+ * Register a pending request by its `messageID` and return a `{ promise,
+ * delivery }` pair. The promise resolves when a reply carrying
+ * `in-reply-to=<messageID>` arrives. The `delivery` object owns the bounded
+ * state machine: it transitions accepted → acknowledged → working → replied
+ * through terminal states (failed, timed out, unreachable) and refuses any
+ * transition the sequence does not allow.
  */
-export function awaitPeerReply(messageID: string, timeoutMs: number): Promise<PeerReplyResult> {
-  return new Promise((resolve) => {
-    const settle = (result: PeerReplyResult) => {
-      // Resolve directly — cancelPeerReply deletes the entry before calling
-      // settle, and a timeout that races a settle would otherwise find nothing
-      // and return without resolving. The entry is cleaned up by the caller
-      // (timeout timer, cancelPeerReply, or settlePeerReply) so we never
-      // double-resolve.
-      resolve(result)
-    }
-    const timer = setTimeout(() => {
-      pendingReplies.delete(messageID)
-      settle({ ok: false, reason: "timeout" })
-    }, timeoutMs)
-    ;(timer as { unref?: () => void }).unref?.()
-    pendingReplies.set(messageID, { settle, timer })
-  })
+export function awaitPeerReply(messageID: string, timeoutMs: number): {
+  promise: Promise<PeerReplyResult>
+  delivery: PeerDelivery
+} {
+  const delivery = new PeerDelivery()
+  return {
+    promise: new Promise<PeerReplyResult>((resolve) => {
+      const settle = (result: PeerReplyResult) => {
+        // Resolve directly — cancelPeerReply deletes the entry before calling
+        // settle, and a timeout that races a settle would otherwise find
+        // nothing and return without resolving. The entry is cleaned up by the
+        // caller (timeout timer, cancelPeerReply, or settlePeerReply) so we
+        // never double-resolve.
+        resolve(result)
+      }
+      const timer = setTimeout(() => {
+        pendingReplies.delete(messageID)
+        try {
+          delivery.transition("timed out")
+        } catch {
+          // A late reply already settled the conversation; the timeout is
+          // superseded and silently ignored.
+        }
+        settle({ ok: false, reason: "timeout" })
+      }, timeoutMs)
+      ;(timer as { unref?: () => void }).unref?.()
+      pendingReplies.set(messageID, { settle, timer, delivery })
+    }),
+    delivery,
+  }
 }
 
 /**
  * True when the text carries a structured envelope reply, and if so whether it
  * settled a pending request. A reply whose `in-reply-to` does not match any
  * pending request is ignored (not consumed).
+ *
+ * When the pending request has already terminalised (timed out, failed, or
+ * already replied), the reply is recorded as superseded and the state machine
+ * refuses the flip — the return value is `false` so the caller treats it as
+ * "no pending request was settled" rather than throwing.
  */
 export function settlePeerReply(text: string): boolean {
   const parsed = parsePeerEnvelope(text)
   if (!parsed || parsed.envelope.mode !== "reply" || !parsed.envelope.inReplyTo) return false
   const entry = pendingReplies.get(parsed.envelope.inReplyTo)
   if (!entry) return false
+  try {
+    entry.delivery.transition("replied")
+  } catch {
+    // A terminal state (timed out, failed, already replied) refuses the flip.
+    // The reply is superseded; drop it silently.
+    return false
+  }
   entry.settle({ ok: true, text: parsed.body })
   return true
 }
@@ -327,7 +381,10 @@ export function settlePeerReply(text: string): boolean {
 export function cancelPeerReply(messageID: string): void {
   const entry = pendingReplies.get(messageID)
   if (!entry) return
-  clearTimeout(entry.timer)
-  pendingReplies.delete(messageID)
+  try {
+    entry.delivery.transition("failed")
+  } catch {
+    // Already in a terminal state — the cancel is a no-op for state purposes.
+  }
   entry.settle({ ok: false, reason: "cancelled" })
 }

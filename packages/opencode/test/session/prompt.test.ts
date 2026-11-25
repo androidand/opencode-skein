@@ -822,6 +822,60 @@ it.instance("static loop consumes queued replies across turns", () =>
   }),
 )
 
+it.instance("prompt returns assistant parented to user message, loop does not double-process", () =>
+  Effect.gen(function* () {
+    const { llm } = yield* useServerConfig(providerCfg)
+    const prompt = yield* SessionPrompt.Service
+    const sessions = yield* Session.Service
+    const session = yield* sessions.create({
+      title: "Answered check",
+      permission: [{ permission: "*", pattern: "*", action: "allow" }],
+    })
+
+    // First prompt: persists user message, loop processes it, prompt returns
+    // the assistant. The answered-check (prompt.ts:1158-1166) verifies that
+    // the loop result is an assistant parented to the user message — if not,
+    // a second run is started. This test locks in that invariant: the first
+    // prompt returns an assistant with the correct parentID, and a subsequent
+    // loop call does not re-process the same message.
+    const firstUser = yield* prompt.prompt({
+      sessionID: session.id,
+      agent: "build",
+      noReply: true,
+      parts: [{ type: "text", text: "hello" }],
+    })
+    yield* llm.text("world")
+
+    const firstResult = yield* prompt.loop({ sessionID: session.id })
+    expect(firstResult.info.role).toBe("assistant")
+    if (firstResult.info.role === "assistant") {
+      expect(firstResult.info.parentID).toBe(firstUser.info.id)
+      expect(firstResult.parts.some((part) => part.type === "text" && part.text === "world")).toBe(true)
+    }
+
+    // Second prompt with a new message: should create a new assistant, not
+    // re-process the first one.
+    const secondUser = yield* prompt.prompt({
+      sessionID: session.id,
+      agent: "build",
+      noReply: true,
+      parts: [{ type: "text", text: "again" }],
+    })
+    yield* llm.text("resp")
+
+    const secondResult = yield* prompt.loop({ sessionID: session.id })
+    expect(secondResult.info.role).toBe("assistant")
+    if (secondResult.info.role === "assistant") {
+      expect(secondResult.info.parentID).toBe(secondUser.info.id)
+      expect(secondResult.parts.some((part) => part.type === "text" && part.text === "resp")).toBe(true)
+      // Must not be parented to the first user message.
+      expect(secondResult.info.parentID).not.toBe(firstUser.info.id)
+    }
+
+    expect(yield* llm.hits).toHaveLength(2)
+  }),
+)
+
 it.instance("loop continues when finish is tool-calls", () =>
   Effect.gen(function* () {
     const { llm } = yield* useServerConfig(providerCfg)
@@ -2642,3 +2696,61 @@ noLLMServer.instance(
   30_000,
 )
 
+
+const runawayReply = "Done.\n" + "</parameter>\n</invoke>\n".repeat(600)
+
+it.instance("loop nudges after a runaway stream and carries on, without the spam in the next request", () =>
+  Effect.gen(function* () {
+    const { llm } = yield* useServerConfig((url) => providerCfg(url))
+    const prompt = yield* SessionPrompt.Service
+    const sessions = yield* Session.Service
+    const chat = yield* sessions.create({ title: "Runaway" })
+
+    yield* prompt.prompt({ sessionID: chat.id, agent: "build", noReply: true, parts: [{ type: "text", text: "go" }] })
+    yield* llm.text(runawayReply)
+    yield* llm.text("back on track")
+
+    const result = yield* prompt.loop({ sessionID: chat.id })
+    const hits = yield* llm.hits
+    const messages = yield* sessions.messages({ sessionID: chat.id })
+
+    expect(hits).toHaveLength(2)
+    const second = JSON.stringify(hits[1])
+    expect(second).toContain("Get a hold of yourself")
+    expect((second.match(/<\/invoke>/g) ?? []).length).toBeLessThanOrEqual(2)
+    expect(result.parts).toEqual(
+      expect.arrayContaining([expect.objectContaining({ type: "text", text: "back on track" })]),
+    )
+    expect(messages.some((m) => m.info.role === "assistant" && m.info.finish === "runaway")).toBe(true)
+  }),
+)
+
+it.instance("loop resets by compaction on the second runaway and stops on the third", () =>
+  Effect.gen(function* () {
+    const { llm } = yield* useServerConfig((url) => providerCfg(url))
+    const prompt = yield* SessionPrompt.Service
+    const sessions = yield* Session.Service
+    const chat = yield* sessions.create({ title: "Runaway ladder" })
+
+    yield* prompt.prompt({ sessionID: chat.id, agent: "build", noReply: true, parts: [{ type: "text", text: "go" }] })
+    yield* llm.text(runawayReply) // build: nudge
+    yield* llm.text(runawayReply) // build: compaction reset
+    yield* llm.text(runawayReply) // compaction attempt runs away
+    yield* llm.text(runawayReply) // compaction retry runs away -> minimal summary
+    yield* llm.text(runawayReply) // build after the reset: third runaway -> stop
+
+    const result = yield* prompt.loop({ sessionID: chat.id })
+    const messages = yield* sessions.messages({ sessionID: chat.id })
+
+    expect(yield* llm.hits).toHaveLength(5)
+    expect(result.info.role).toBe("assistant")
+    if (result.info.role === "assistant") expect(JSON.stringify(result.info.error)).toContain("ran away")
+    // a runaway compaction is never a completed summary: every compaction
+    // assistant that is not the minimal fallback carries an error
+    const summaries = messages.filter((m) => m.info.role === "assistant" && m.info.mode === "compaction")
+    expect(summaries.length).toBeGreaterThanOrEqual(2)
+    expect(summaries.filter((m) => m.info.role === "assistant" && !m.info.error)).toHaveLength(1)
+    const ok = summaries.find((m) => m.info.role === "assistant" && !m.info.error)!
+    expect(JSON.stringify(ok.parts)).not.toContain("</invoke>")
+  }),
+)

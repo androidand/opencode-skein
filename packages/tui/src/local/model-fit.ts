@@ -204,3 +204,156 @@ export function extractMem(hw: ResourceSnapshot): MemSnapshot | null {
   }
   return null
 }
+
+/**
+ * One-line placement summary for the ctx dialog: where the weights live and,
+ * when automatic offload is off for this model, why. null when there is
+ * nothing worth saying (plain full-GPU, or fit unknown).
+ */
+export function describePlacement(fit: ModelFit | null | undefined): string | null {
+  if (!fit) return null
+  const hostMb = fit.host_resident_mb ?? 0
+  if (hostMb > 0) {
+    const where = `weights ${fmtGB(fit.gpu_resident_mb ?? 0)} GB GPU + ${fmtGB(hostMb)} GB RAM`
+    return fit.placement?.perf_class === "cpu-bound-hybrid" || fit.placement?.perf_class === "cpu-only"
+      ? `${where} (offloaded, slow)`
+      : `${where} (offloaded)`
+  }
+  // `custom` = the command pins -ngl/--n-cpu-moe/-ot/...: llama-skein will not
+  // offload by itself, so ctx past the VRAM ceiling is simply unreachable.
+  if (fit.placement?.mode === "custom") return "offload pinned off (--n-gpu-layers etc. in command)"
+  return null
+}
+
+export type PlacementAction = {
+  /** "unpin" is actionable; "info" explains why nothing can be done. */
+  kind: "unpin" | "info"
+  title: string
+  description: string
+}
+
+const RELOAD_NOTE = "reloads the model and drops its loaded state"
+
+/**
+ * What the ctx dialog should offer for a model's offload, from the fit report
+ * alone — the client never plans placement. Only a model whose command pins
+ * placement flags (`placement.mode == "custom"`) has anything to offer: an
+ * unpinned one is already placed by llama-skein.
+ *
+ * Asks "could this load with offload?", not "is it slow?": `if_unpinned` is the
+ * server's own counterfactual plan, so a refuse is reported as "won't load even
+ * with offload" rather than implying the pin is the problem.
+ */
+export function placementAction(fit: ModelFit | null | undefined): PlacementAction | null {
+  if (!fit || fit.placement?.mode !== "custom") return null
+  const alt = fit.placement.if_unpinned
+  if (!alt) return null
+  if (alt.loadable === false) {
+    return {
+      kind: "info",
+      title: "Offload would not help",
+      description: "won't load even with offload — weights exceed VRAM plus safe host RAM",
+    }
+  }
+  if (alt.mode === "gpu") {
+    return {
+      kind: "unpin",
+      title: "Remove the placement pin",
+      description: `fits fully on the GPU without it, and llama-skein re-plans if that ever stops being true · ${RELOAD_NOTE}`,
+    }
+  }
+  const host = alt.est_host_mb ?? 0
+  const slow = alt.perf_class === "cpu-bound-hybrid" || alt.perf_class === "cpu-only"
+  return {
+    kind: "unpin",
+    title: "Allow offload to RAM",
+    description: `loads with ~${fmtGB(host)} GB of weights in RAM${slow ? " (slow, host-bandwidth bound)" : ""} · ${RELOAD_NOTE}`,
+  }
+}
+
+export type PlacementIndicator = { text: string }
+
+/**
+ * The sidebar's avoidable-offload indicator. Prefers the host's own
+ * `under_offloaded`; for a host that predates it, falls back to the mechanical
+ * pair derivable from /api/fit (cpu_offload while the GPU share would have
+ * fit). It must stay silent for a model that genuinely needs host RAM and for
+ * a fully resident one — a warning on a correct hybrid teaches people to
+ * ignore it. Names the host-resident amount so the cost is legible.
+ */
+export function placementIndicator(fit: ModelFit | null | undefined): PlacementIndicator | null {
+  if (!fit) return null
+  const hostMb = fit.host_resident_mb ?? 0
+  if (hostMb <= 0) return null
+  const avoidable =
+    fit.under_offloaded !== undefined
+      ? fit.under_offloaded === true
+      : fit.run_mode === "cpu_offload" &&
+        (fit.vram_required_mb ?? Infinity) <= (fit.vram_total_mb ?? 0)
+  if (!avoidable) return null
+  return { text: `⚠ ${fmtGB(hostMb)} GB of weights in RAM — avoidable` }
+}
+
+/** Parses an operator-typed GPU layer count. null = not a usable value. */
+export function parseGpuLayers(input: string): number | null {
+  const t = input.trim()
+  if (!/^\d+$/.test(t)) return null
+  const n = Number(t)
+  return Number.isSafeInteger(n) ? n : null
+}
+
+export type CtxRow = {
+  value: number
+  title: string
+  description: string | undefined
+  category: string
+  highlight: boolean
+}
+
+/**
+ * The context-size rows of the per-model dialog, as a pure function of what the
+ * host reported — so what the operator is shown can be tested against real
+ * payloads instead of being assumed.
+ *
+ * Nothing here computes a limit: `maxPhysical` is llama-skein's figure and is
+ * only displayed and annotated, never replaced or second-guessed. Rows above it
+ * are annotated, never hidden or blocked (the estimate has been wrong in both
+ * directions).
+ */
+export function buildCtxRows(input: {
+  current: number
+  recommended: number | null
+  maxPhysical: number
+  mem: MemSnapshot | null
+}): CtxRow[] {
+  const { current: cur, recommended: rec, maxPhysical: physMax, mem: m } = input
+  const kvPerToken = m && cur > 0 && m.kvEstMb > 0 ? m.kvEstMb / cur : null
+  const extra = new Set(cur > 0 ? [cur] : [])
+  if (rec) extra.add(rec)
+  if (physMax > 0) extra.add(physMax)
+  const sizes = [...new Set([...PRESETS, ...extra])].sort((a, b) => a - b)
+  return sizes.map((n) => {
+    let description: string | undefined
+    if (aboveCeiling(n, physMax)) {
+      description = `⚠ above estimated ceiling (${fmtCtxK(physMax)}) — may not load`
+      if (n === cur) description = `current · ${description}`
+    } else if (n === cur && n === rec) {
+      description = "current · recommended"
+    } else if (n === cur) {
+      description = "current"
+    } else if (n === rec) {
+      description = "recommended for this model + VRAM"
+    } else if (n === physMax) {
+      description = "physical max — no safety margin, expect ~100% VRAM"
+    } else if (n < MIN_WORKFLOW_CTX) {
+      description = "⚠ too small — MCP tools fill this before meaningful work"
+    } else if (n > cur && m && kvPerToken) {
+      const extraKvMb = (n - cur) * kvPerToken
+      description = `+${fmtCtxK(n - cur)}`
+      if (extraKvMb > m.freeMb) {
+        description += ` · ⚠ exceeds free ${m.label} (${fmtGB(m.freeMb)} GB)`
+      }
+    }
+    return { value: n, title: fmtCtxK(n), description, category: "Context", highlight: n === cur || n === rec || n === physMax }
+  })
+}

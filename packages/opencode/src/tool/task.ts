@@ -32,6 +32,7 @@ import {
   type TaskReplyResult,
 } from "@/peer/delegate"
 import { deliverToOpencodeSession, foreignRoster } from "@/peer/route"
+import { route } from "@/loop/crew/route"
 
 export interface TaskPromptOps {
   cancel(sessionID: SessionID): Effect.Effect<void>
@@ -286,16 +287,26 @@ export const TaskTool = Tool.define(
       const outcome =
         !provider || next.model || session || (cfg.experimental?.local_subagent_placement === false && !params.provider)
           ? null
-          : yield* provider.list().pipe(
-              Effect.flatMap((providers) =>
-                Effect.promise(() =>
-                  LocalPlacement.pick({
-                    parent: inherited,
-                    providers,
-                    promptText: params.prompt,
-                    target: params.provider,
-                    prefer: rolePlacement,
-                  }),
+          : yield* sessions.list().pipe(
+              Effect.flatMap((all) =>
+                provider.list().pipe(
+                  Effect.flatMap((providers) =>
+                    Effect.promise(() =>
+                      LocalPlacement.pick({
+                        parent: inherited,
+                        providers,
+                        promptText: params.prompt,
+                        target: params.provider,
+                        prefer: rolePlacement,
+                        ownership: all
+                          .flatMap((item) =>
+                            item.model?.providerID
+                              ? [{ providerID: item.model.providerID as string, modelID: item.model.id as string | undefined }]
+                              : [],
+                          ),
+                      }),
+                    ),
+                  ),
                 ),
               ),
             )
@@ -439,7 +450,7 @@ export const TaskTool = Tool.define(
           deadlineMs: SUBAGENT_TASK_TIMEOUT_MS,
         })
         // Register before sending so a fast reply cannot land first.
-        const reply = awaitTaskReply(nextSession.id, SUBAGENT_TASK_TIMEOUT_MS)
+        const { promise: reply } = awaitTaskReply(nextSession.id, SUBAGENT_TASK_TIMEOUT_MS)
         if (isClaude) {
           const sent = yield* Effect.promise(() =>
             sendClaudeMessage({
@@ -496,6 +507,77 @@ export const TaskTool = Tool.define(
         return { peer, reply }
       })
       if (willInherit && placementRan) {
+        // Promote the pool-overflow path to the normal route when a warm
+        // member is idle, behind the existing `experimental.peer_delegation`
+        // switch. The routing decision (design.md): warm member > cloud
+        // member > free host > skip. Delegation is tried before the
+        // subagent is inherited, so an idle warm colleague is preferred
+        // over taking a slot on the already-busy parent host.
+           if (cfg.experimental?.peer_delegation !== false) {
+             if (sessionStatus && permission) {
+               const [all, statuses, permissions, providers, foreign] = yield* Effect.all([
+                 sessions.list(),
+                 sessionStatus.list(),
+                 permission.list(),
+                 provider ? provider.list() : Effect.succeed({} as Record<string, Provider.Info>),
+                 Effect.promise(() => foreignRoster()),
+               ])
+               const localProviderIDs = new Set(
+                 Object.values(providers)
+                   .filter((info) => LocalPlacement.baseURLOf(info))
+                   .map((info) => info.id as string),
+               )
+               const opencodePeers = resolveMessageTargets({
+                 sessions: foreign.merge(all.map((item) => ({
+                   id: item.id,
+                   parentID: item.parentID,
+                   directory: item.directory,
+                   title: item.title,
+                   agent: item.agent,
+                   model: item.model ? { providerID: item.model.providerID, id: item.model.id } : undefined,
+                   updatedAt: item.time.updated,
+                 }))),
+                 statuses,
+                 pendingPermission: new Set(permissions.map((item) => item.sessionID)),
+                 loops: [],
+                 callerID: ctx.sessionID,
+                 foreign: foreign.statuses,
+                 now: Date.now(),
+               }).map(
+                 (peer): PeerCandidate => ({
+                   owner: "opencode-skein",
+                   id: peer.sessionID,
+                   name: peer.title,
+                   status: peer.status,
+                   provider: peer.provider,
+                   idleForMs: peer.idleForMs,
+                 }),
+               )
+               // A Claude peer can only reply to a session Claude can see — one with
+               // a sidecar of its own. A nested subagent has none.
+               const replyName = sidecarNameFor(ctx.sessionID)
+               const claudePeers =
+                 replyName && !flags.disableClaudeCodePeerMessaging
+                   ? (yield* Effect.promise(() =>
+                       fetchClaudeAgentRecords({ enabled: !flags.disableClaudeCodePeerSource }),
+                     )).map(
+                       (record): PeerCandidate => ({
+                         owner: "claude-code",
+                         id: String(record.pid),
+                         name: record.name ?? `pid ${record.pid}`,
+                         status: record.status ?? "busy",
+                       }),
+                     )
+                   : []
+               const model = next.model?.modelID ?? inherited.modelID
+               const decision = route([...claudePeers, ...opencodePeers], localProviderIDs, model)
+               if (decision.kind === "warm" || decision.kind === "cloud") {
+                 delegated = yield* delegate()
+               }
+             }
+           }
+        // Capacity probe: if delegation was not taken (or not configured) and
+        // the parent host is full, either try delegation as fallback or refuse.
         const capacity = yield* provider
           .list()
           .pipe(
@@ -503,20 +585,26 @@ export const TaskTool = Tool.define(
               Effect.promise(() => LocalPlacement.parentCapacity({ parent: inherited, providers })),
             ),
           )
-        // Block inheritance only when the parent is KNOWN busy. A probe failure
-        // returns "unknown", and an unreachable probe is not evidence of a full
-        // queue: failing closed there turns any transient probe blip — or a
-        // provider that simply does not answer /api/fit, like a test mock or a
-        // non-llama-skein openai-compatible endpoint — into a hard subagent
-        // failure. The hang this guard protects against needs a real single-slot
-        // server that is really busy, and "no-slot" is what says so.
+        // A probe failure returns "unknown". An unreachable probe is not
+        // evidence of a full queue, so failing closed would turn any transient
+        // probe blip — or a provider that simply does not answer /api/fit, like
+        // a test mock or a non-llama-skein openai-compatible endpoint — into a
+        // hard subagent failure. The hang this guard protects against needs a
+        // real single-slot server that is really busy, and "no-slot" is what
+        // says so.
+        //
+        // "unknown" still ranks below a visible peer (design.md): if we can
+        // reach an idle peer agent, that is a better fallback than inheriting
+        // onto a parent whose slot state we cannot read. Try delegation for
+        // both "no-slot" and "unknown"; only fail when "no-slot" and
+        // delegation is unavailable.
         if (capacity === "unknown")
-          yield* Effect.logWarning("subagent capacity probe unreachable, inheriting parent anyway", {
+          yield* Effect.logWarning("subagent capacity probe unreachable, trying peer delegation before inheriting", {
             provider: inherited.providerID,
           })
-        if (capacity === "no-slot") {
+        if ((capacity === "no-slot" || capacity === "unknown") && !delegated) {
           if (cfg.experimental?.peer_delegation !== false) delegated = yield* delegate()
-          if (!delegated)
+          if (!delegated && capacity === "no-slot")
             return yield* Effect.fail(
               new Error(
                 `No capacity for subagent: local provider "${inherited.providerID}" has no free slot, ` +

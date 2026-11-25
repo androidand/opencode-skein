@@ -18,6 +18,8 @@
      backstop is `SUBAGENT_TASK_TIMEOUT_MS = 10 * 60 * 1000`
      (`packages/opencode/src/tool/task.ts:36`), which reads to a human as
      "hung forever". Bound it far tighter and re-place on timeout.)
+     (Absorbed by `skein-pool` task 2.4 — the deadline mechanism for peer
+     delegation covers the same wall-clock ceiling for the delegated path.)
 - [x] 6. Tests (`test/local/placement.test.ts`): tiny-ctx model never selected
      even when resident/perfect/fastest; no adequate model → null;
      `freeSlots` slot/in-flight/reservation accounting; `estimateRequiredCtx`.

@@ -15,11 +15,15 @@ import { SessionID } from "@/session/schema"
 import { SessionPrompt } from "@/session/prompt"
 import { formatPeerMessage } from "@/session/peers"
 import { settleTaskReply } from "@/peer/delegate"
-import { peerBody, settlePeerReply } from "@/peer/envelope"
+import { settlePeerReply } from "@/peer/envelope"
+import { parseHostedSubagentRequest } from "@/peer/hosted-subagent"
 import { PeerInbox } from "@/peer/inbox"
+import { Loop } from "@/loop/loop"
 import { leadVerdictFor } from "@/peer/lead-runtime"
 import { RecentIDs } from "@/peer/recent-ids"
-import { claudePidOf, resolveOpencodeSender } from "@/peer/route"
+import { deliverToLoop } from "./loop-route"
+import { claudePidOf, deliverToOpencodeSession, resolveOpencodeSender } from "@/peer/route"
+import { sendClaudeMessage } from "@/peer/claude/client"
 import { SessionStatus } from "@/session/status"
 import {
   ensureSidecar,
@@ -50,6 +54,7 @@ const layer = Layer.effect(
     const instanceStore = yield* InstanceStore.Service
     const sessionStatus = yield* SessionStatus.Service
     const config = yield* Config.Service
+    const loop = yield* Loop.Service
 
     // Everything below runs from plain callbacks (a child process's stdout,
     // an exit handler), outside any Effect fiber. Forking on the DEFAULT
@@ -69,12 +74,10 @@ const layer = Layer.effect(
       // A frame `msg_id` is a real correlation id: the same id twice is one
       // message retried or replayed, and the session must see it once.
       if (inbound.msgID && !recent.admit(`${inbound.sessionID}:${inbound.msgID}`)) return
-      // Through peerBody, not the raw text: delegate.ts anchors its
-      // `[peer-task-result <id>]` marker at the START of the message, so once
-      // messages carry a correlation header the anchor stops matching and
-      // every delegated task times out instead of settling. A no-op today,
-      // because a message without a header comes back unchanged.
-      if (settleTaskReply(peerBody(inbound.text))) return
+      // The task id rides in the reply's structured envelope header, so the
+      // correlation reads the header, not a marker anchored at the start of the
+      // body. Pass the raw text so the header (and its task id) is not stripped.
+      if (settleTaskReply(inbound.text)) return
       // Structured envelope replies carry `in-reply-to` so a sender can await
       // a synchronous answer. Match against pending requests before injecting
       // the message as a prompt. Falls through to prompt injection when there
@@ -102,11 +105,128 @@ const layer = Layer.effect(
         )
         return
       }
+      // Hosted-subagent requests (`kind=host`) are handled specially: the host
+      // creates a fresh child session with its own provider/model and runs the
+      // task there under the host's permissions. The host's own session records
+      // one line; the task text never appears in the host's transcript.
+      const hosted = parseHostedSubagentRequest(inbound.text)
+      if (hosted) {
+        runFork(
+          instanceStore
+            .provide(
+              { directory },
+              Effect.gen(function* () {
+                const hostSession = yield* session.get(SessionID.make(inbound.sessionID)).pipe(
+                  Effect.orElseSucceed(() => undefined),
+                )
+                if (!hostSession) {
+                  yield* Effect.logWarning("hosted subagent: host session not found", {
+                    "session.id": inbound.sessionID,
+                    taskID: hosted.taskID,
+                  })
+                  return
+                }
+                // Create a child session and run the task there.
+                const childSession = yield* session.create({
+                  parentID: SessionID.make(inbound.sessionID),
+                  title: `[hosted] ${hosted.description}`,
+                  agent: hostSession.agent,
+                })
+                yield* promptSvc
+                  .prompt({
+                    sessionID: childSession.id,
+                    agent: hostSession.agent,
+                    parts: [{ type: "text", synthetic: true, text: inbound.text }],
+                  })
+                  .pipe(Effect.ignore)
+                // Record one line in the host's session that a task was hosted.
+                yield* promptSvc
+                  .prompt({
+                    sessionID: SessionID.make(inbound.sessionID),
+                    agent: hostSession.agent,
+                    parts: [
+                      {
+                        type: "text",
+                        synthetic: true,
+                        text: `[hosted] Task ${hosted.taskID} for session ${hosted.callerID} completed.`,
+                      },
+                    ],
+                  })
+                  .pipe(Effect.ignore)
+                // Send the result back through the correlation header. The
+                // caller is waiting on a reply with `task=<taskID>`.
+                const replyText = `[peer reply task=${hosted.taskID}]\n\nTask completed in child session ${childSession.id}.`
+                const replyEnvelope = formatPeerMessage(
+                  { sessionID: inbound.sessionID, title: "hosted-subagent", reply: { target: hosted.replyTo } },
+                  replyText,
+                )
+                // Send reply using the same transport the caller used.
+                if (hosted.replyTool === "SendMessage") {
+                  const sent = yield* Effect.promise(() =>
+                    sendClaudeMessage({
+                      targetPid: Number(hosted.replyTo),
+                      fromSessionID: inbound.sessionID,
+                      fromName: "hosted-subagent",
+                      fromMode: "prompting",
+                      text: replyEnvelope,
+                    }),
+                  )
+                  if (!sent.ok) {
+                    yield* Effect.logWarning("hosted subagent: reply send failed", {
+                      taskID: hosted.taskID,
+                      reason: sent.reason,
+                    })
+                  }
+                } else {
+                  const target = yield* session.get(SessionID.make(hosted.replyTo)).pipe(
+                    Effect.orElseSucceed(() => undefined),
+                  )
+                  const deliveryOutcome = yield* deliverToOpencodeSession({
+                    targetSessionID: hosted.replyTo,
+                    fromSessionID: inbound.sessionID,
+                    fromName: "hosted-subagent",
+                    text: replyEnvelope,
+                    owned: true,
+                    local: () =>
+                      promptSvc
+                        .prompt({
+                          sessionID: SessionID.make(hosted.replyTo),
+                          agent: target?.agent ?? hostSession.agent,
+                          parts: [{ type: "text", synthetic: true, text: replyEnvelope }],
+                        })
+                        .pipe(Effect.asVoid),
+                  })
+                  if (deliveryOutcome.via === "socket" && !deliveryOutcome.result.ok) {
+                    yield* Effect.logWarning("hosted subagent: reply send failed", {
+                      taskID: hosted.taskID,
+                      reason: deliveryOutcome.result.reason,
+                    })
+                  }
+                }
+              }),
+            )
+            .pipe(Effect.catchCause((cause) =>
+              Effect.logError("hosted subagent: failed to handle request", {
+                "session.id": inbound.sessionID,
+                msgID: inbound.msgID,
+                cause,
+              }),
+            )),
+        )
+        return
+      }
       runFork(
         instanceStore
           .provide(
             { directory },
             Effect.gen(function* () {
+              // When the target session runs a crew loop, route peer messages
+              // into the loop's inbox so they are surfaced in the next
+              // iteration rather than injected as a raw prompt into the
+              // session turn.
+              // A loop that has finished no longer takes messages; fall
+              // through to prompt injection so the idle session still gets it.
+              if (yield* deliverToLoop(loop, inbound)) return
               const info = yield* session.get(SessionID.make(inbound.sessionID)).pipe(Effect.orElseSucceed(() => undefined))
               if (!info) {
                 yield* Effect.logWarning("claude sidecar: dropping inbound for unknown session", {
@@ -281,7 +401,7 @@ const layer = Layer.effect(
 export const node = LayerNode.make({
   service: Service,
   layer,
-  deps: [Config.node, EventV2Bridge.node, Session.node, SessionPrompt.node, RuntimeFlags.node, InstanceStore.node, SessionStatus.node],
+  deps: [Config.node, EventV2Bridge.node, Session.node, SessionPrompt.node, RuntimeFlags.node, InstanceStore.node, SessionStatus.node, Loop.node],
 })
 
 // No standalone `defaultLayer` composition: `InstanceStore` is a "global

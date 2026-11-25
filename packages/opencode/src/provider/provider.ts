@@ -1,3 +1,4 @@
+import { raiseDefaultForPrompt } from "./local-silence"
 import { LayerNode } from "@opencode-ai/core/effect/layer-node"
 import os from "os"
 import fuzzysort from "fuzzysort"
@@ -2364,12 +2365,14 @@ export const layer = Layer.effect(
         const customFetch = options["fetch"]
         // fork: default chunk timeout for local providers — catches a model
         // that started streaming but then hung (e.g. endlessly "Thinking...")
+        const chunkTimeoutIsDefault = options["chunkTimeout"] === undefined || options["chunkTimeout"] === null
         const chunkTimeout =
           options["chunkTimeout"] ??
           (model.api.npm === "@ai-sdk/openai-compatible" ? LOCAL_PROVIDER_CHUNK_TIMEOUT_DEFAULT : undefined)
         // fork: default local/llama-skein providers to a header timeout when
         // the user hasn't set one (?? only falls through on null/undefined,
         // so an explicit `headerTimeout: false` opt-out is preserved).
+        const headerTimeoutIsDefault = options["headerTimeout"] === undefined || options["headerTimeout"] === null
         const headerTimeout =
           options["headerTimeout"] ??
           (model.api.npm === "@ai-sdk/openai-compatible" ? LOCAL_PROVIDER_HEADER_TIMEOUT_DEFAULT : undefined)
@@ -2414,12 +2417,21 @@ export const layer = Layer.effect(
           // chunk timer gets the same floor the LLM-event watchdog uses. Without
           // this, the 1800s watchdog floor is dead code: the 120s chunk timer
           // kills the stream first.
-          const effectiveChunkTimeout =
+          // fork: prefill is silent and scales with the prompt (measured: 80k
+          // tokens = 217 s on a 27B), so the DEFAULT silence allowances are
+          // raised to what this request's own size needs. A user-configured
+          // value is never touched. See provider/local-silence.ts.
+          const promptBody = typeof opts.body === "string" ? opts.body : undefined
+          const hostPacedChunkTimeout =
             typeof chunkTimeout === "number" &&
             requestModelID !== undefined &&
             isHostPaced(model.providerID, requestModelID)
               ? Math.max(chunkTimeout, HOST_PACED_STREAM_DEADLINE_SECONDS * 1000)
               : chunkTimeout
+          const effectiveChunkTimeout =
+            typeof hostPacedChunkTimeout === "number"
+              ? raiseDefaultForPrompt(hostPacedChunkTimeout, chunkTimeoutIsDefault, promptBody)
+              : hostPacedChunkTimeout
 
           const chunkAbortCtl =
             typeof effectiveChunkTimeout === "number" && effectiveChunkTimeout > 0 ? new AbortController() : undefined
@@ -2439,8 +2451,12 @@ export const layer = Layer.effect(
             (isHostPaced(model.providerID, requestModelID) || isSlowColdStart(model.providerID, requestModelID))
               ? Math.max(headerTimeoutMs, HOST_PACED_STREAM_DEADLINE_SECONDS * 1000)
               : headerTimeoutMs
+          const promptAwareHeaderTimeout =
+            typeof effectiveHeaderTimeout === "number"
+              ? raiseDefaultForPrompt(effectiveHeaderTimeout, headerTimeoutIsDefault, promptBody)
+              : effectiveHeaderTimeout
           const headerTimeoutCtl =
-            typeof effectiveHeaderTimeout === "number" ? timeoutController(effectiveHeaderTimeout) : undefined
+            typeof promptAwareHeaderTimeout === "number" ? timeoutController(promptAwareHeaderTimeout) : undefined
           const signals: AbortSignal[] = []
 
           if (opts.signal) signals.push(opts.signal)

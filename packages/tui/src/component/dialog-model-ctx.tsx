@@ -4,18 +4,20 @@ import { useSync } from "../context/sync"
 import { useSDK } from "../context/sdk"
 import { useToast } from "../ui/toast"
 import { DialogSelect } from "../ui/dialog-select"
+import { DialogPrompt } from "../ui/dialog-prompt"
 import { createClient, createConfig } from "../local/llama-skein/gen/client"
 import { LlamaSkeinClient } from "../local/llama-skein/gen/sdk.gen"
 import type { ModelFit } from "../local/llama-skein/gen/types.gen"
 import {
-  aboveCeiling,
   computeRecommendedCtx,
   extractMem,
   fmtCtxK,
   fmtGB,
-  MIN_WORKFLOW_CTX,
   normalizeBaseURL,
-  PRESETS,
+  describePlacement,
+  parseGpuLayers,
+  buildCtxRows,
+  placementAction,
   type MemSnapshot,
 } from "../local/model-fit"
 
@@ -86,41 +88,31 @@ export function DialogModelCtx(props: { providerID: string; modelID: string }) {
     const m = mem()
     const rec = recommended()
     const physMax = maxPhysical()
-    const kvPerToken = m && cur > 0 && m.kvEstMb > 0 ? m.kvEstMb / cur : null
-    const extra = new Set(cur > 0 ? [cur] : [])
-    if (rec) extra.add(rec)
-    if (physMax > 0) extra.add(physMax)
-    const sizes = [...new Set([...PRESETS, ...extra])].sort((a, b) => a - b)
-    const ceiling = physMax
-    return sizes.map((n) => {
-      let description: string | undefined
-      // fork: PRESETS is hand-authored and runs to 1M, so it offers sizes no
-      // model can load — this is how `--ctx-size 98304` got written onto a
-      // 32k-trained model. Annotate loudly instead of hiding the row (a model
-      // already misconfigured above the ceiling needs its `current` row visible),
-      // and refuse the selection in apply().
-      if (aboveCeiling(n, ceiling)) {
-        description = `⚠ above ceiling (${fmtCtxK(ceiling)}) — backend cannot load this`
-        if (n === cur) description = `current · ${description}`
-      } else if (n === cur && n === rec) {
-        description = "current · recommended"
-      } else if (n === cur) {
-        description = "current"
-      } else if (n === rec) {
-        description = "recommended for this model + VRAM"
-      } else if (n === physMax) {
-        description = "physical max — no safety margin, expect ~100% VRAM"
-      } else if (n < MIN_WORKFLOW_CTX) {
-        description = "⚠ too small — MCP tools fill this before meaningful work"
-      } else if (n > cur && m && kvPerToken) {
-        const extraKvMb = (n - cur) * kvPerToken
-        description = `+${fmtCtxK(n - cur)}`
-        if (extraKvMb > m.freeMb) {
-          description += ` · ⚠ exceeds free ${m.label} (${fmtGB(m.freeMb)} GB)`
-        }
-      }
-      return { value: n, title: fmtCtxK(n), description, highlight: n === cur || n === rec || n === physMax }
-    })
+    const rows = buildCtxRows({ current: cur, recommended: rec, maxPhysical: physMax, mem: m })
+    // Offload is a model setting, not a context one — it lives here only because
+    // this is the per-model settings surface (per-model-placement-controls D1).
+    const act = placementAction(fit())
+    const placementRows: Array<{ value: number | "unpin" | "info" | "layers"; title: string; description: string; category: string; disabled?: boolean }> = []
+    if (act) {
+      placementRows.push({
+        value: act.kind === "unpin" ? "unpin" : "info",
+        title: `⚙ ${act.title}`,
+        description: act.description,
+        category: "Placement",
+        disabled: act.kind === "info",
+      })
+    }
+    // A deliberate pin: always available for a local llama-skein model, so the
+    // operator can state an exact layer count rather than only clear one.
+    if (fit()) {
+      placementRows.push({
+        value: "layers",
+        title: "⚙ Pin GPU layers…",
+        description: `write an explicit --n-gpu-layers (a deliberate pin; stops automatic placement for this model) · ${"reloads the model and drops its loaded state"}`,
+        category: "Placement",
+      })
+    }
+    return [...placementRows, ...rows]
   })
 
   const titleSuffix = createMemo(() => {
@@ -131,21 +123,88 @@ export function DialogModelCtx(props: { providerID: string; modelID: string }) {
     if (m) parts.push(`${fmtGB(m.freeMb)}/${fmtGB(m.totalMb)} GB ${m.label} free`)
     if (ceiling > 0) parts.push(`max ${fmtCtxK(ceiling)}`)
     if (safe > 0 && safe !== ceiling) parts.push(`safe ~${fmtCtxK(safe)}`)
+    const placed = describePlacement(fit())
+    if (placed) parts.push(placed)
     return parts.length ? ` · ${parts.join(" · ")}` : ""
   })
 
+  function unpin() {
+    if (busy()) return
+    setBusy(true)
+    dialog.clear()
+    toast.show({ variant: "info", message: `Allowing offload for ${modelName()} — reloading model…` })
+    sdk.client.local.model
+      .setOffload(
+        {
+          providerID: props.providerID,
+          modelID: props.modelID,
+          directory: sdk.directory,
+          localOffloadPayload: { unpin_placement: true },
+        },
+        { throwOnError: true },
+      )
+      .then((res) => {
+        if (res.data === false) {
+          toast.show({ variant: "error", message: "Offload change rejected — provider has no base URL" })
+          return
+        }
+        void sync.refreshProviders()
+      })
+      .catch((e: unknown) => {
+        const msg = e instanceof Error ? e.message : String(e)
+        toast.show({ variant: "error", message: `Failed to allow offload: ${msg}` })
+      })
+      .finally(() => {
+        setBusy(false)
+      })
+  }
+
+  function pinLayers() {
+    dialog.replace(() => (
+      <DialogPrompt
+        title={`Pin GPU layers — ${modelName()}`}
+        placeholder="e.g. 99 (all layers on the GPU), 0 (CPU only)"
+        description={() => (
+          <text>Writes --n-gpu-layers verbatim and reloads the model. Cancel to leave placement alone.</text>
+        )}
+        onConfirm={(value) => {
+          const n = parseGpuLayers(value)
+          if (n === null) {
+            toast.show({ variant: "error", message: `"${value.trim()}" is not a layer count (a whole number ≥ 0)` })
+            return
+          }
+          setBusy(true)
+          dialog.clear()
+          toast.show({ variant: "info", message: `Pinning ${modelName()} to ${n} GPU layers — reloading model…` })
+          sdk.client.local.model
+            .setOffload(
+              {
+                providerID: props.providerID,
+                modelID: props.modelID,
+                directory: sdk.directory,
+                localOffloadPayload: { n_gpu_layers: n },
+              },
+              { throwOnError: true },
+            )
+            .then((res) => {
+              if (res.data === false) {
+                toast.show({ variant: "error", message: "Layer pin rejected — provider has no base URL" })
+                return
+              }
+              void sync.refreshProviders()
+            })
+            .catch((e: unknown) => {
+              toast.show({ variant: "error", message: `Failed to pin layers: ${e instanceof Error ? e.message : String(e)}` })
+            })
+            .finally(() => setBusy(false))
+        }}
+        onCancel={() => dialog.clear()}
+      />
+    ))
+  }
+
   function apply(ctx_size: number) {
     if (busy()) return
-    const ceiling = maxPhysical()
-    if (aboveCeiling(ctx_size, ceiling)) {
-      // Refuse without closing so a valid size can still be picked. Server-side
-      // this is enforced again in local.model.setCtxSize.
-      toast.show({
-        variant: "error",
-        message: `${fmtCtxK(ctx_size)} exceeds what this model can load here (max ${fmtCtxK(ceiling)})`,
-      })
-      return
-    }
     setBusy(true)
     // Close immediately so the UI feels responsive; the model reload is slow.
     dialog.clear()
@@ -164,7 +223,7 @@ export function DialogModelCtx(props: { providerID: string; modelID: string }) {
         if (res.data === false) {
           toast.show({
             variant: "error",
-            message: "Context size rejected — provider has no base URL, or the size is above the model's ceiling",
+            message: "Context size rejected — provider has no base URL",
           })
           return
         }
@@ -188,13 +247,16 @@ export function DialogModelCtx(props: { providerID: string; modelID: string }) {
   }
 
   return (
-    <DialogSelect<number>
-      title={`Context — ${modelName()}${titleSuffix()}`}
+    <DialogSelect<number | "unpin" | "info" | "layers">
+      title={`${modelName()}${titleSuffix()}`}
       options={options()}
-      flat={true}
       skipFilter={true}
       current={current()}
-      onSelect={(opt) => apply(opt.value)}
+      onSelect={(opt) => {
+        if (opt.value === "unpin") return unpin()
+        if (opt.value === "layers") return pinLayers()
+        if (typeof opt.value === "number") apply(opt.value)
+      }}
     />
   )
 }

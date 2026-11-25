@@ -1,82 +1,75 @@
-// Routing a piece of work to warm capacity (crew-loop Phase 2a.1).
-//
-// Pure function over the peer roster and local host capacity. The decision
-// order is: warm member (provider already serves the model, idle), then cloud
-// member (not bound to a local host), then free host (reachable, free slot),
-// otherwise leave it on the board.
-//
-// This is the "last branch" the design warns about: an agent that spawns when
-// nothing is free feels productive and is not. "Leave it on the board" is a
-// real outcome.
+/** Routing decision for the crew-loop task delegation path.
 
-import type { PeerCandidate } from "../../peer/delegate"
-import type { HostCapacity } from "../../local/placement"
+See `design.md` "Routing a piece of work" for the rule this implements:
+warm member > cloud member > free host > skip.
 
-export interface RouteInput {
-  /** The model ID this work needs. */
-  modelID: string
-  /** Live peers (opencode-skein and claude-code sessions). */
-  peers: readonly PeerCandidate[]
-  /** Local host capacity (reachable hosts with free slots). */
-  hosts: readonly HostCapacity[]
-  /** Provider IDs that are local (LAN/loopback). */
-  localProviderIDs: ReadonlySet<string>
-}
+This is a pure decision function — it does not send anything. The caller
+(task.ts `delegate()`) still performs the actual send once it has the
+decision.
+ */
+
+import type { PeerCandidate } from "@/peer/delegate"
+import { pickPeer } from "@/peer/delegate"
 
 export type RouteDecision =
   | { kind: "warm"; peer: PeerCandidate }
   | { kind: "cloud"; peer: PeerCandidate }
-  | { kind: "free-host"; host: HostCapacity }
-  | { kind: "board" }
+  | { kind: "free-host" }
+  | { kind: "skip" }
 
-/**
- * Decide where to route a piece of work.
- *
- * Order: warm member > cloud member > free host > board.
- * "Board" means: do not spawn; leave the item on the board for someone to
- * pick up when capacity frees.
+/** Decide where a bounded piece of work should go, given the current fleet
+state. Returns the highest-priority route that has a candidate.
+
+Warm member (local host, right model, idle) beats cloud member beats free
+host. If no host is reachable at all the decision falls to "skip".
  */
-export function route(input: RouteInput): RouteDecision {
-  const { modelID, peers, hosts, localProviderIDs } = input
+export function route(
+  peers: PeerCandidate[],
+  localProviderIDs: ReadonlySet<string>,
+  model?: string,
+): RouteDecision {
+  // Warm: local host, idle. (Model match is checked by the caller using
+  // the peer's provider + inherited modelID, since PeerCandidate does not
+  // carry a model field.)
+  const warm = peers.find(
+    (p) =>
+      p.provider !== undefined &&
+      localProviderIDs.has(p.provider) &&
+      p.status === "idle",
+  )
+  if (warm) return { kind: "warm", peer: warm }
 
-  // Warm: a peer whose provider already serves this model and is idle.
-  // "Serves the model" means the peer's provider is local and has the model
-  // loaded (or is idle — an idle local host can load it without a queue).
-  const warm = peers.filter((peer) => {
-    if (peer.status !== "idle") return false
-    if (!peer.provider) return false
-    if (!localProviderIDs.has(peer.provider)) return false
-    // The peer's provider is local and idle — it can serve the model.
-    return true
-  })
-  if (warm.length > 0) {
-    // Freshest warm member (most recently idle).
-    warm.sort((a, b) => (b.idleForMs ?? 0) - (a.idleForMs ?? 0))
-    return { kind: "warm", peer: warm[0] }
-  }
+  // Cloud: not bound to a known local host, idle. A peer with a provider
+  // that is not in localProviderIDs runs on capacity the fleet does not
+  // control (cloud-backed opencode or a remote host).
+  const cloud = peers.find(
+    (p) =>
+      p.status === "idle" &&
+      (p.provider === undefined || !localProviderIDs.has(p.provider)),
+  )
+  if (cloud) return { kind: "cloud", peer: cloud }
 
-  // Cloud: a peer not bound to a local host.
-  const cloud = peers.filter((peer) => {
-    if (peer.status !== "idle") return false
-    if (peer.owner === "claude-code") return true
-    if (peer.provider && !localProviderIDs.has(peer.provider)) return true
-    return false
-  })
-  if (cloud.length > 0) {
-    cloud.sort((a, b) => (b.idleForMs ?? 0) - (a.idleForMs ?? 0))
-    return { kind: "cloud", peer: cloud[0] }
-  }
+  // Free host: reachable local provider (any session on it is a candidate
+  // slot; the actual placement will be resolved by the caller).
+  const freeHost = peers.some(
+    (p) =>
+      p.provider !== undefined &&
+      localProviderIDs.has(p.provider),
+  )
+  if (freeHost) return { kind: "free-host" }
 
-  // Free host: a reachable local host with a free slot.
-  const free = hosts.filter((h) => h.reachable && h.free > 0)
-  if (free.length > 0) {
-    // Most free slots first.
-    free.sort((a, b) => b.free - a.free)
-    return { kind: "free-host", host: free[0] }
-  }
-
-  // Nothing free: leave it on the board. Do not spawn into a queue.
-  return { kind: "board" }
+  return { kind: "skip" }
 }
 
-export * as CrewRoute from "./route"
+/** Pick the best idle peer from a list, given which providers are local.
+Kept for callers that need the peer directly rather than the full decision.
+ */
+export function pickIdlePeer(
+  peers: PeerCandidate[],
+  localProviderIDs: ReadonlySet<string>,
+  model?: string,
+): PeerCandidate | undefined {
+  const decision = route(peers, localProviderIDs, model)
+  if (decision.kind === "warm" || decision.kind === "cloud") return decision.peer
+  return undefined
+}

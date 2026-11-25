@@ -5,10 +5,9 @@ import { resetDatabase } from "../fixture/db"
 import { disposeAllInstances, tmpdir } from "../fixture/fixture"
 import { it } from "../lib/effect"
 
-// fork: local.model.setCtxSize must refuse a ctx_size above the model's
-// achievable ceiling. The TUI dialog annotates and blocks over-ceiling presets,
-// but this endpoint is reachable directly — a `--ctx-size 98304` patched onto a
-// 32k-trained model is what wedged a live backend.
+// fork: local.model.setCtxSize does NOT enforce llama-skein's fit ceiling. The
+// ceiling is an estimate that has been wrong (19k reported for a model running
+// at 75k), so the operator's value goes through and llama-skein decides.
 
 const MAX_FIT = 32768
 
@@ -92,9 +91,9 @@ afterEach(async () => {
   await resetDatabase()
 })
 
-describe("local.model.setCtxSize ceiling guard", () => {
+describe("local.model.setCtxSize ceiling is advisory", () => {
   it.live(
-    "refuses a ctx_size above max_fit_ctx and never patches the backend",
+    "patches a ctx_size above max_fit_ctx — the ceiling is advisory",
     Effect.gen(function* () {
       const backend = yield* backendEffect()
       const tmp = yield* tmpdirEffect({ config: providerConfig(backend.baseURL) })
@@ -102,8 +101,8 @@ describe("local.model.setCtxSize ceiling guard", () => {
       const response = yield* setCtxSize(tmp.path, 98304)
 
       expect(response.status).toBe(200)
-      expect(yield* Effect.promise(() => response.json())).toBe(false)
-      expect(backend.patched).toEqual([])
+      expect(yield* Effect.promise(() => response.json())).toBe(true)
+      expect(backend.patched).toEqual([98304])
     }),
   )
 

@@ -753,7 +753,7 @@ export type Loop = {
     finishedAt: number
   }>
   iterationSessionID?: string
-  mode?: "prompt" | "queue" | "auto"
+  mode?: "prompt" | "queue" | "crew" | "auto"
   currentChange?: string
   currentGate?: string
   report?: string
@@ -2520,6 +2520,8 @@ export type LocalOffloadPayload = {
   cpu_moe?: boolean
   cpu_offload_gb?: number
   override_tensor?: string
+  unpin_placement?: boolean
+  n_gpu_layers?: number
 }
 
 export type LocalOffloadRecommendation = {
@@ -9466,7 +9468,7 @@ export type LoopCreateData = {
     noProgressLimit?: number
     completionToken?: string
     eternal?: boolean
-    mode?: "prompt" | "queue" | "auto"
+    mode?: "prompt" | "queue" | "crew" | "auto"
     queue?: Array<string>
     queueGuidance?: string
     queueSync?: boolean

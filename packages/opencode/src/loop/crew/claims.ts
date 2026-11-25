@@ -37,8 +37,7 @@ export const ClaimInfo = Schema.Struct({
   heartbeat: Schema.Finite,
   releasedAt: Schema.optional(Schema.Finite),
   releaseReason: Schema.optional(Schema.Literals([...ReleaseReason])),
-})
-.annotate({ identifier: "ClaimInfo" })
+}).annotate({ identifier: "ClaimInfo" })
 export type ClaimInfo = Schema.Schema.Type<typeof ClaimInfo>
 
 export interface ClaimRow {
@@ -70,7 +69,7 @@ function fromRow(row: ClaimRow): ClaimInfo {
     holderHarness: row.holder_harness ?? undefined,
     holderName: row.holder_name ?? undefined,
     branch: row.branch ?? undefined,
-    worktree: row.worktree ? AbsolutePath.make(row.worktree) : undefined,
+    worktree: row.worktree ?? undefined,
     providerID: row.provider_id ? ProviderV2.ID.make(row.provider_id) : undefined,
     modelID: row.model_id ? ModelV2.ID.make(row.model_id) : undefined,
     gate: row.gate ?? undefined,
@@ -138,6 +137,19 @@ const layer = Layer.effect(
     const claim = Effect.fn("Claim.claim")(function* (input: CreateClaimInput) {
       const now = Date.now()
       const id = ClaimID.ascending()
+      // Optimistic check: if a live claim already exists, fail before inserting.
+      // The DB unique index is a safety net, but the app-level check gives a
+      // deterministic error instead of relying on SQLite dialect quirks.
+      const existing = yield* db
+        .select()
+        .from(ClaimTable)
+        .where(and(eq(ClaimTable.project_id, input.projectID), eq(ClaimTable.slug, input.slug), isNull(ClaimTable.released_at)))
+        .limit(1)
+        .get()
+        .pipe(Effect.orDie)
+      if (existing) {
+        return yield* new ClaimExistsError({ slug: input.slug })
+      }
       const inserted = Effect.gen(function* () {
         yield* db
           .insert(ClaimTable)
@@ -160,11 +172,11 @@ const layer = Layer.effect(
             },
           ])
           .run()
-      }).pipe(Effect.catch((err: unknown) =>
-        isUniqueViolation(err)
-          ? Effect.fail(new ClaimExistsError({ slug: input.slug }))
-          : Effect.die(err as never),
-      ))
+      }).pipe(
+        Effect.catch((err: unknown) =>
+          isUniqueViolation(err) ? Effect.fail(new ClaimExistsError({ slug: input.slug })) : Effect.die(err as never),
+        ),
+      )
       yield* inserted
       return yield* get(ClaimID.make(id))
     })
@@ -244,10 +256,7 @@ export const node = LayerNode.make({ service: Service, layer, deps: [Database.no
 
 function isUniqueViolation(err: unknown): boolean {
   if (err == null) return false
-  const text =
-    err instanceof Error
-      ? `${err.message} ${err.cause ? String(err.cause) : ""}`
-      : String(err)
+  const text = err instanceof Error ? `${err.message} ${err.cause ? String(err.cause) : ""}` : String(err)
   return text.includes("UNIQUE constraint failed")
 }
 

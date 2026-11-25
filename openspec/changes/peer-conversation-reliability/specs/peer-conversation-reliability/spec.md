@@ -56,6 +56,42 @@ fallback during migration but SHALL NOT be the primary correlation mechanism.
 - **WHEN** an inbound message matches the `[peer-task-result <taskID>]` pattern and the structured envelope is absent
 - **THEN** the reply is still correlated via the text marker and settled into the pending request
 
+### Requirement: delivery states SHALL form a bounded, non-misleading state machine
+
+A peer conversation SHALL track one delivery state per conversation, advancing
+through the ordered set accepted -> acknowledged -> working -> replied, with
+failures terminalising as failed or timed out and unresolved targets as
+unreachable. A transition from a terminal state SHALL NOT occur. The sender's
+tool result SHALL report exactly one current state, never a set of states that
+implies more than one is active.
+
+`acknowledged` and `working` SHALL be observable signals only. The sender SHALL
+NOT report `acknowledged` or `working` as proof that the peer understood,
+accepted, or completed any part of the request. Only `replied` settles the
+conversation. `timed out` and `failed` SHALL be emitted at most once, at the
+state transition that produces them, and SHALL not be followed by any later
+successful state.
+
+The existing `peer/delegate.ts` `pending` map models accepted, replied, and
+timeout; the general design SHALL extend it with acknowledged and working
+transitions without changing the subagent-overflow settlement behaviour.
+
+#### Scenario: a request advances to working then replied
+- **WHEN** a peer accepts a request, reports progress, then answers
+- **THEN** the sender sees accepted, then working, then exactly one replied that settles the conversation
+
+#### Scenario: a peer becomes unreachable mid-request
+- **WHEN** a conversation was working and the target later becomes unreachable
+- **THEN** the sender receives one unreachable transition and no further state
+
+#### Scenario: a request times out
+- **WHEN** the deadline passes without a correlated reply
+- **THEN** the sender receives exactly one timed-out transition and the conversation does not later report replied
+
+#### Scenario: a late reply arrives after a timeout
+- **WHEN** a conversation already reported timed out and a correlated reply arrives later
+- **THEN** the reply is recorded as superseded and does not flip the state back to replied
+
 ### Requirement: duplicate inbound frames SHALL be dropped by message id
 
 The inbound path SHALL pass the frame's message id through the sidecar to the parent, and the

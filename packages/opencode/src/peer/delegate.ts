@@ -4,15 +4,15 @@
 // handed to an idle peer — a Claude Code session or an opencode session that
 // runs on capacity the caller's saturated host does not share. The peer runs
 // it as a normal prompt in its own session and answers by messaging the
-// delegating session back with a marker line; the reply is intercepted at the
-// two inbound entry points (Claude sidecar, `send_peer_message`) and settled
-// here instead of being injected as a prompt.
+// delegating session back with a structured peer envelope whose header carries
+// the task id (`[peer reply task=<id>]`); the reply is intercepted at the two
+// inbound entry points (Claude sidecar, `send_peer_message`) and settled here
+// instead of being injected as a prompt.
 //
 // Pure formatting/parsing plus an in-memory registry; no transport.
 
-export const TASK_RESULT_MARKER = "[peer-task-result"
-
-const REPLY_RE = /^\s*\[peer-task-result\s+([A-Za-z0-9_-]+)\]\s*\n?([\s\S]*)$/
+import { InvalidTransition, PeerDelivery } from "./delivery-state"
+import { formatPeerEnvelope, newMessageID, parsePeerEnvelope, type PeerEnvelope } from "./envelope"
 
 export interface PeerCandidate {
   owner: "opencode-skein" | "claude-code"
@@ -58,56 +58,149 @@ export interface TaskEnvelopeInput {
 }
 
 export function buildTaskEnvelope(input: TaskEnvelopeInput): string {
-  const minutes = Math.max(1, Math.round(input.deadlineMs / 60_000))
-  return [
-    `[peer-task ${input.taskID}] ${input.description}`,
+  const messageID = newMessageID()
+  const envelope: PeerEnvelope = { mode: "request", messageID, taskID: input.taskID, deadlineMinutes: Math.max(1, Math.round(input.deadlineMs / 60_000)) }
+  return formatPeerEnvelope(envelope, [
     `Delegated by another agent session because it has no free local capacity. Work in ${input.cwd}.`,
-    `When done, reply with ${input.replyTool} to "${input.replyTo}" and start the message with the exact line:`,
-    `${TASK_RESULT_MARKER} ${input.taskID}]`,
-    `followed by your result. Reply within ${minutes} min or the task is reassigned. Normal tool permissions apply.`,
+    `Description: ${input.description}.`,
+    `When done, reply with ${input.replyTool} to "${input.replyTo}" using a structured peer envelope whose header starts with:`,
+    `[peer reply task=${input.taskID}]`,
+    `then your result. Reply within ${envelope.deadlineMinutes} min or the task is reassigned. Normal tool permissions apply.`,
     "",
     input.prompt,
-  ].join("\n")
+  ].join("\n"))
 }
 
-export function parseTaskReply(text: string): { taskID: string; text: string } | undefined {
-  const match = text.match(REPLY_RE)
-  if (!match) return undefined
-  return { taskID: match[1], text: match[2].trim() }
+/**
+ * Build an envelope for a hosted-subagent request. The peer receiving this
+ * request SHALL create a fresh child session with its own provider/model and
+ * run the task there under the HOST's permissions — not in its own session.
+ * The host's transcript records only that it hosted a task; the task text
+ * never appears in the host's own history.
+ */
+export interface HostedSubagentEnvelopeInput {
+  taskID: string
+  description: string
+  prompt: string
+  cwd: string
+  /** The caller's session id, for attribution and correlation. */
+  callerID: string
+  /** How the peer addresses the delegating session in its own send tool. */
+  replyTo: string
+  replyTool: string
+  deadlineMs: number
 }
 
-type Settle = (result: TaskReplyResult) => void
+export function buildHostedSubagentEnvelope(input: HostedSubagentEnvelopeInput): string {
+  const messageID = newMessageID()
+  const envelope: PeerEnvelope = {
+    mode: "request",
+    messageID,
+    taskID: input.taskID,
+    kind: "host",
+    deadlineMinutes: Math.max(1, Math.round(input.deadlineMs / 60_000)),
+  }
+  return formatPeerEnvelope(envelope, [
+    `Hosted subagent from session ${input.callerID}. Work in ${input.cwd}.`,
+    `Description: ${input.description}.`,
+    `Create a fresh child session with your current provider and model, run the task there under your own permissions, and return the result. Your own session must not receive the task text as a prompt — record one line that you hosted this task instead.`,
+    `When done, reply with ${input.replyTool} to "${input.replyTo}" using a structured peer envelope whose header starts with:`,
+    `[peer reply task=${input.taskID}]`,
+    `then your result. Reply within ${envelope.deadlineMinutes} min or the task is reassigned.`,
+    "",
+    input.prompt,
+  ].join("\n"))
+}
+
+type TaskEntry = {
+  settle: (result: TaskReplyResult) => void
+  timer: ReturnType<typeof setTimeout>
+  delivery: PeerDelivery
+}
+
 export type TaskReplyResult = { ok: true; text: string } | { ok: false; reason: "timeout" | "cancelled" }
 
-const pending = new Map<string, { settle: Settle; timer: ReturnType<typeof setTimeout> }>()
+const pending = new Map<string, TaskEntry>()
 
-export function awaitTaskReply(taskID: string, timeoutMs: number): Promise<TaskReplyResult> {
-  return new Promise((resolve) => {
-    const settle: Settle = (result) => {
-      const entry = pending.get(taskID)
-      if (!entry) return
-      clearTimeout(entry.timer)
-      pending.delete(taskID)
-      resolve(result)
-    }
-    const timer = setTimeout(() => settle({ ok: false, reason: "timeout" }), timeoutMs)
-    ;(timer as { unref?: () => void }).unref?.()
-    pending.set(taskID, { settle, timer })
-  })
+/**
+ * Register a pending task by its `taskID` and return a `{ promise, delivery }`
+ * pair. The promise resolves when a reply carrying a `[peer reply task=<taskID>]`
+ * structured envelope arrives.
+ * The `delivery` object owns the bounded state machine.
+ */
+export function awaitTaskReply(taskID: string, timeoutMs: number): {
+  promise: Promise<TaskReplyResult>
+  delivery: PeerDelivery
+} {
+  const delivery = new PeerDelivery()
+  return {
+    promise: new Promise<TaskReplyResult>((resolve) => {
+      const settle: TaskEntry["settle"] = (result) => {
+        const entry = pending.get(taskID)
+        if (!entry) return
+        clearTimeout(entry.timer)
+        pending.delete(taskID)
+        resolve(result)
+      }
+      const timer = setTimeout(() => {
+        const entry = pending.get(taskID)
+        if (!entry) return
+        clearTimeout(entry.timer)
+        pending.delete(taskID)
+        try {
+          delivery.transition("timed out")
+        } catch {
+          // A late reply already settled the task; the timeout is superseded.
+        }
+        resolve({ ok: false, reason: "timeout" })
+      }, timeoutMs)
+      ;(timer as { unref?: () => void }).unref?.()
+      pending.set(taskID, { settle, timer, delivery })
+    }),
+    delivery,
+  }
 }
 
-/** True when the text was a reply to a task still being waited on. */
+/**
+ * True when the text was a reply to a task still being waited on.
+ *
+ * The task id rides in the reply's structured envelope header (`[peer reply
+ * task=<id>]`), so correlation matches the header rather than a marker anchored
+ * at the start of the body. That is the point of the migration: a reply whose
+ * id is matched out of the header settles whether or not anything else precedes
+ * it, and a plain message without the header is left to fall through to prompt
+ * injection rather than being mistaken for a task answer.
+ *
+ * When the task has already terminalised (timed out, failed, or already
+ * replied), the reply is recorded as superseded and the state machine refuses
+ * the flip — the return value is `false` so the caller treats it as "no
+ * pending task was settled" rather than throwing.
+ */
 export function settleTaskReply(text: string): boolean {
-  const reply = parseTaskReply(text)
-  if (!reply) return false
-  const entry = pending.get(reply.taskID)
+  const parsed = parsePeerEnvelope(text)
+  const taskID = parsed?.envelope.mode === "reply" ? parsed.envelope.taskID : undefined
+  if (!taskID) return false
+  const entry = pending.get(taskID)
   if (!entry) return false
-  entry.settle({ ok: true, text: reply.text })
+  try {
+    entry.delivery.transition("replied")
+  } catch {
+    // A terminal state refuses the flip; the reply is superseded.
+    return false
+  }
+  entry.settle({ ok: true, text: parsed?.body ?? "" })
   return true
 }
 
 export function cancelTaskReply(taskID: string): void {
-  pending.get(taskID)?.settle({ ok: false, reason: "cancelled" })
+  const entry = pending.get(taskID)
+  if (!entry) return
+  try {
+    entry.delivery.transition("failed")
+  } catch {
+    // Already in a terminal state — the cancel is a no-op for state purposes.
+  }
+  entry.settle({ ok: false, reason: "cancelled" })
 }
 
 export function pendingTaskIDs(): string[] {

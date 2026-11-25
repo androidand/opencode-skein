@@ -16,6 +16,7 @@
 // SHALL NOT re-sort it.
 
 import fs from "fs"
+import os from "os"
 import path from "path"
 import { Effect } from "effect"
 
@@ -60,7 +61,9 @@ interface QueryItem {
   blocked_by: string[]
 }
 
-const localSpecsyncPath = "/Users/andreas/dev/specsync/specsync"
+// A specsync build with query/claim/release, when one is checked out next to
+// this repo; SPECSYNC_BIN overrides it. Falls back to `specsync` on PATH.
+const localSpecsyncPath = process.env.SPECSYNC_BIN ?? path.join(os.homedir(), "dev", "specsync", "specsync")
 
 function runSpecsync(args: string[], cwd?: string): Effect.Effect<{ code: number; stdout: string; stderr: string }, never, never> {
   return Effect.promise(() =>

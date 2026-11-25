@@ -75,6 +75,14 @@ export type InferenceInfo = {
    * True when every slot of every running model is occupied (in_flight >= slots_total > 0) — a new request would queue. False when no model is running: the host is idle, it just needs a swap-in.
    */
   busy?: boolean
+  /**
+   * Number of slot leases currently held by external callers. They count against free slots like in-flight requests.
+   */
+  leased?: number
+  /**
+   * Holder names for each active lease.
+   */
+  holders?: Array<string>
 }
 
 export type LoadedModelInfo = {
@@ -211,10 +219,11 @@ export type Model = {
    * True if the model emits reasoning/thinking output (reasoning_content) before its answer. Resolved from the model config; omitted when not declared. Clients use it to enable reasoning-stream rendering.
    */
   reasoning?: boolean
+  capabilities?: ModelCapabilities
   /**
-   * What this model can do. Follows Ollama's capabilities pattern. Derived from the model config; empty when not declared.
+   * True when the model can be relied on to emit a requested structure directly, false when it forces reasoning first. false when capabilities.reasoning is true; null when capabilities is null.
    */
-  capabilities?: Array<ModelCapability>
+  prefers_structured_output?: boolean
   last_error?: LastError
   /**
    * Whether the model's primary weights file currently exists on disk. Distinct from being configured (present in this list at all) — a configured model's weight file can be missing (deleted, moved, or never finished installing). Omitted when it cannot be determined (e.g. no -m/--model path in the command).
@@ -333,6 +342,18 @@ export type ConfigModelPatchRequest = {
   "cache-type-k"?: string
   cache_type_v?: string
   "cache-type-v"?: string
+  /**
+   * Writes the model's `placement:` declaration block (reason / intent / allowKvQuantization). An empty object removes the block. Written as a structured field, so no `cmd` string is read, edited and written back.
+   */
+  placement?: {
+    reason?: string
+    intent?: "auto" | "latency" | "context" | "custom"
+    allow_kv_quantization?: boolean
+  }
+  /**
+   * When true, removes every placement-pinning flag from the model's command (--n-gpu-layers/-ngl/--gpu-layers, --n-cpu-moe, --cpu-moe, --override-tensor/-ot, --tensor-split/-ts) so automatic placement takes over: full GPU when the model fits, host-RAM offload only when it does not. This is the explicit 'allow offload' action; it is deliberately separate from n_gpu_layers, where 0 is a real value (all layers on CPU) and must never mean 'remove'. A no-op when no such flag is present. llamacpp only.
+   */
+  unpin_placement?: boolean
   /**
    * Number of leading layers whose MoE expert tensors are offloaded to CPU/RAM (llama.cpp --n-cpu-moe). 0 removes the flag. llamacpp only.
    */
@@ -681,6 +702,14 @@ export type ModelFit = {
    * True when a configured model's --ctx-size is materially below the context VRAM could safely hold. Signals a starved config that the fit report would otherwise hide behind the small configured_ctx.
    */
   under_configured?: boolean
+  /**
+   * Where gpu_resident_mb / host_resident_mb came from. measured: read from the backend's own load log for the currently loaded model, so it includes a split the engine decided itself (--fit adjusting -ngl) that no command flag reveals. estimated: parsed from the command's placement flags, which cannot see an engine-side split — authoritative only when the model is not loaded or its log is unavailable.
+   */
+  resident_source?: "measured" | "estimated"
+  /**
+   * True when part of the model's weights are host-resident (host_resident_mb > 0) although the whole model would fit usable VRAM at the configured context, i.e. the offload is avoidable. Advisory. Keys on the outcome, not on a pinned flag value, so a pin that happens to exceed the model's layer count is never flagged, and a model that genuinely needs host RAM is never flagged. Omitted when false.
+   */
+  under_offloaded?: boolean
   /**
    * Largest --ctx-size (hard n_ctx) that fits this host's VRAM. The grow target for an under-configured model. 0 when VRAM is unknown.
    */
@@ -1151,6 +1180,45 @@ export type ArtifactRole = "weights" | "projector" | "draft" | "tokenizer" | "co
  */
 export type ModelCapability = "completion" | "vision" | "reasoning" | "tool-use"
 
+/**
+ * Engine-sourced capability report for a model. Sourced from /props at load time; null when unknown (never loaded or backend has no probe).
+ */
+export type ModelCapabilities = {
+  /**
+   * True when the model emits reasoning/thinking output (reasoning_content) before its answer. Sourced from chat_template_caps.supports_preserve_reasoning.
+   */
+  reasoning?: boolean
+  /**
+   * True when the model supports tool/function calling. Sourced from chat_template_caps.supports_tool_calls.
+   */
+  tool_calls?: boolean
+  /**
+   * True when the model supports parallel tool calls. Sourced from chat_template_caps.supports_parallel_tool_calls.
+   */
+  parallel_tool_calls?: boolean
+  /**
+   * True when the model supports the system role in chat templates. Sourced from chat_template_caps.supports_system_role.
+   */
+  system_role?: boolean
+  /**
+   * Multimodal capabilities. Sourced from /props.modalities.
+   */
+  modalities?: {
+    /**
+     * True when the model accepts images.
+     */
+    vision?: boolean
+    /**
+     * True when the model accepts audio input.
+     */
+    audio?: boolean
+    /**
+     * True when the model accepts video input.
+     */
+    video?: boolean
+  }
+} | null
+
 export type InstallArtifact = {
   /**
    * Repository-relative source path, e.g. "model-Q4_K_M-00001-of-00002.gguf". Never a full URL or a path outside the pinned repository/revision — resolved against source_repository/source_revision at plan-validation time.
@@ -1351,9 +1419,56 @@ export type PlacementDecision = {
    */
   effective_args?: string
   /**
+   * True when the model's config carries a `placement:` block, i.e. the operator stated that its placement is deliberate. False for a raw placement flag with no block (undeclared) and for models with no pin at all. Descriptive only: it never changes what the planner does.
+   */
+  declared?: boolean
+  /**
+   * The operator's `placement.reason` text when the placement is declared. Distinct from `reason`, which explains the planner's decision.
+   */
+  declared_reason?: string
+  /**
+   * The operator's declared placement intent (auto when the block is present without one). latency: never offload, refuse instead. context: the configured --ctx-size is a floor the retry ladder will not shrink below. custom: the operator owns placement and automatic placement stays out.
+   */
+  declared_intent?: "auto" | "latency" | "context" | "custom"
+  /**
+   * Report only, never applied: for a model that pins placement flags with no placement: block (an undeclared pin), the YAML block the operator could add to record the pin as deliberate. Absent for declared models and for models with no pin.
+   */
+  suggested_declaration?: string
+  if_unpinned?: PlacementAlternative
+  /**
    * Adaptive retry ladder history, oldest first. Empty when the model has never failed for a memory reason.
    */
   retry_attempts?: Array<PlacementAttempt>
+}
+
+/**
+ * What automatic placement WOULD decide for a model whose command pins placement flags (-ngl, --n-cpu-moe, -ot, ...), had the pin been absent. A report only: nothing is applied, and the pinned command still runs exactly as written. Answers 'could this model load at all, and at what cost, if I removed the pin?'. Absent when the counterfactual could not be computed (telemetry warming up, unreadable weights).
+ */
+export type PlacementAlternative = {
+  /**
+   * gpu: would fit fully in VRAM, so the pin can simply be dropped. hybrid: would load with weights in host RAM. cpu: would load CPU-only. refuse: would not load even with offload.
+   */
+  mode?: "gpu" | "hybrid" | "cpu" | "refuse"
+  /**
+   * False only for a confident refuse: the model does not fit VRAM plus the safe host budget in any placement.
+   */
+  loadable?: boolean
+  /**
+   * Qualitative expectation for the unpinned placement; never a tokens-per-second prediction.
+   */
+  perf_class?: "native-gpu" | "fast-hybrid" | "cpu-bound-hybrid" | "cpu-only"
+  /**
+   * Planned GPU memory footprint, MB.
+   */
+  est_gpu_mb?: number
+  /**
+   * Planned host-RAM weight footprint, MB. For a placement delegated to the engine's own --fit this is the planner's estimate of the overflow, not a measured split.
+   */
+  est_host_mb?: number
+  /**
+   * Human-readable explanation of the unpinned decision.
+   */
+  reason?: string
 }
 
 /**
@@ -1405,7 +1520,7 @@ export type ModelLoadFailure = {
  */
 export type PeerSource = {
   /**
-   * Control-plane base URL of the llama-skein host to import from, e.g. http://192.0.2.239:8080. Must resolve to a private or loopback address unless allowPublicPeers is set.
+   * Control-plane base URL of the llama-skein host to import from, e.g. http://192.0.2.10:8080. Must resolve to a private or loopback address unless allowPublicPeers is set.
    */
   base_url: string
   /**
@@ -2510,3 +2625,60 @@ export type GetModelArtifactResponses = {
 }
 
 export type GetModelArtifactResponse = GetModelArtifactResponses[keyof GetModelArtifactResponses]
+
+export type CreateSlotLeaseData = {
+  body?: {
+    /**
+     * Who holds this lease (e.g. opencode session id)
+     */
+    holder: string
+    /**
+     * TTL in seconds (defaults to server config)
+     */
+    ttl_s?: number
+  }
+  path?: never
+  query?: never
+  url: "/api/slots/lease"
+}
+
+export type CreateSlotLeaseErrors = {
+  /**
+   * Bad request
+   */
+  400: unknown
+  /**
+   * No free slots
+   */
+  409: unknown
+}
+
+export type CreateSlotLeaseResponses = {
+  /**
+   * Lease created
+   */
+  201: unknown
+}
+
+export type DeleteSlotLeaseData = {
+  body?: never
+  path: {
+    id: string
+  }
+  query?: never
+  url: "/api/slots/lease/{id}"
+}
+
+export type DeleteSlotLeaseErrors = {
+  /**
+   * Lease not found
+   */
+  404: unknown
+}
+
+export type DeleteSlotLeaseResponses = {
+  /**
+   * Lease released
+   */
+  200: unknown
+}

@@ -6,8 +6,9 @@ import { DialogModelCtx } from "../../component/dialog-model-ctx"
 import { DialogTuning } from "../../component/dialog-tuning"
 import { createClient, createConfig } from "../../local/llama-skein/gen/client"
 import { LlamaSkeinClient } from "../../local/llama-skein/gen/sdk.gen"
-import type { ResourceSnapshot, TuningStatus } from "../../local/llama-skein/gen/types.gen"
+import type { ModelFit, ResourceSnapshot, TuningStatus } from "../../local/llama-skein/gen/types.gen"
 import { TextAttributes } from "@opentui/core"
+import { placementIndicator } from "../../local/model-fit"
 
 const id = "internal:sidebar-context"
 
@@ -122,21 +123,29 @@ function vramSegs(m: MemSnapshot, tokenPercent: number | null, t: any): Seg[] {
   ]
 }
 
-function MemBreakdown(props: { mem: MemSnapshot; theme: any }) {
-  const m = props.mem
-  const t = props.theme
-  const total = `${fmtGB(m.totalMb)} GB`
-  if (m.modelMb > 0) {
-    return (
-      <text fg={t.textMuted}>
-        <span style={{ fg: t.warning }}>mod</span>{" "}{fmtGB(m.modelMb)}
+// Reads props at render time, never copied into a const: the parent passes a
+// fresh sample every poll, and a one-time copy froze the readout on the first
+// sample (taken while the model was still loading → `0.1 / 24.0 GB`) while the
+// bar beside it kept updating.
+export function MemBreakdown(props: { mem: MemSnapshot; theme: any }) {
+  return (
+    <Show
+      when={props.mem.modelMb > 0}
+      fallback={
+        <text fg={props.theme.textMuted}>
+          {fmtGB(props.mem.usedMb)} / {fmtGB(props.mem.totalMb)} GB
+        </text>
+      }
+    >
+      <text fg={props.theme.textMuted}>
+        <span style={{ fg: props.theme.warning }}>mod</span> {fmtGB(props.mem.modelMb)}
         {" + "}
-        <span style={{ fg: t.accent }}>ctx</span>{" "}{fmtGB(m.kvEstMb)}
-        {" / "}{total}
+        <span style={{ fg: props.theme.accent }}>ctx</span> {fmtGB(props.mem.kvEstMb)}
+        {" / "}
+        {fmtGB(props.mem.totalMb)} GB
       </text>
-    )
-  }
-  return <text fg={t.textMuted}>{fmtGB(m.usedMb)} / {total}</text>
+    </Show>
+  )
 }
 
 function View(props: { api: TuiPluginApi; session_id: string }) {
@@ -148,6 +157,7 @@ function View(props: { api: TuiPluginApi; session_id: string }) {
   const [mem, setMem] = createSignal<MemSnapshot | null>(null)
   const [balance, setBalance] = createSignal<ProviderBalance | null>(null)
   const [tuning, setTuning] = createSignal<TuningStatus | null>(null)
+  const [fit, setFit] = createSignal<ModelFit | null>(null)
 
   const state = createMemo(() => {
     const last = msg().findLast((item): item is AssistantMessage => item.role === "assistant" && item.tokens.output > 0)
@@ -196,7 +206,9 @@ function View(props: { api: TuiPluginApi; session_id: string }) {
       // (and stick forever if the new backend lacks /api/hardware).
       setMem(null)
       setTuning(null)
+      setFit(null)
       if (!url) return
+      const fitModel = key?.slice(url.length + 1) || null
       const llamaClient = new LlamaSkeinClient({
         client: createClient(createConfig({ baseUrl: normalizeBaseURL(url) })),
       })
@@ -212,6 +224,16 @@ function View(props: { api: TuiPluginApi; session_id: string }) {
         } catch { /* backend may not support /api/hardware */ }
         // Fold the tuning read into the same poll — no separate loop, reusing
         // the cancelled/abort guard so a provider switch can't write stale data.
+        // Same poll, same guard: the fit read carries run_mode /
+        // host_resident_mb / under_offloaded for the placement indicator.
+        if (fitModel) {
+          try {
+            const res = await llamaClient.getModelFit({ model: fitModel }, { signal: aborter.signal })
+            if (!cancelled) setFit(res.data ?? null)
+          } catch {
+            if (!cancelled) setFit(null) /* older/non-llama-skein backend */
+          }
+        }
         try {
           const res = await llamaClient.getTuning({ signal: aborter.signal })
           if (!cancelled) setTuning(res.data ?? null)
@@ -324,6 +346,17 @@ function View(props: { api: TuiPluginApi; session_id: string }) {
             </>
           )}
         </Show>
+      </Show>
+
+      {/* ── Avoidable CPU offload (local llama-skein only) ──
+          Fires only on avoidable offload, never on a correct hybrid or a fully
+          resident model; clicking opens the per-model dialog where it is fixed. */}
+      <Show when={state().isLocal ? placementIndicator(fit()) : null}>
+        {(ind) => (
+          <text fg={theme().warning} onMouseUp={openCtxDialog}>
+            {ind().text}
+          </text>
+        )}
       </Show>
 
       {/* ── GPU tuning badge (local llama-skein only) ── */}

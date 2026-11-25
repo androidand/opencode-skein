@@ -1,5 +1,7 @@
-import { expect, test } from "bun:test"
-import { aboveCeiling, computeRecommendedCtx, MAX_CTX, MIN_WORKFLOW_CTX, PRESETS } from "../src/local/model-fit"
+import { describe, expect, test } from "bun:test"
+import type { ModelFit } from "../src/local/llama-skein/gen/types.gen"
+import type { MemSnapshot } from "../src/local/model-fit"
+import { aboveCeiling, buildCtxRows, computeRecommendedCtx, describePlacement, parseGpuLayers, placementAction, placementIndicator, MAX_CTX, MIN_WORKFLOW_CTX, PRESETS } from "../src/local/model-fit"
 
 function mem(overrides: Partial<Parameters<typeof computeRecommendedCtx>[0]> = {}) {
   return {
@@ -60,4 +62,133 @@ test("PRESETS offers sizes above a typical VRAM ceiling", () => {
   // must exist.
   expect(PRESETS.filter((n) => aboveCeiling(n, 32768)).length).toBeGreaterThan(0)
   expect(PRESETS).toContain(98304)
+})
+
+describe("describePlacement", () => {
+  test("offloaded weights report the GPU/RAM split and flag host-paced classes", () => {
+    const base = { model: "m", gpu_resident_mb: 30720, host_resident_mb: 20480 } as ModelFit
+    expect(describePlacement(base)).toBe("weights 30.0 GB GPU + 20.0 GB RAM (offloaded)")
+    expect(describePlacement({ ...base, placement: { perf_class: "cpu-bound-hybrid" } } as ModelFit)).toBe(
+      "weights 30.0 GB GPU + 20.0 GB RAM (offloaded, slow)",
+    )
+  })
+  test("a pinned command says offload is off; plain GPU says nothing", () => {
+    expect(describePlacement({ model: "m", placement: { mode: "custom" } } as ModelFit)).toContain("pinned off")
+    expect(describePlacement({ model: "m", host_resident_mb: 0, placement: { mode: "gpu" } } as ModelFit)).toBeNull()
+    expect(describePlacement(null)).toBeNull()
+  })
+})
+
+describe("placementAction", () => {
+  const pinned = (alt: Record<string, unknown> | undefined) =>
+    ({ model: "m", placement: { mode: "custom", if_unpinned: alt } }) as unknown as ModelFit
+
+  test("nothing to offer for an unpinned, unknown or alternative-less model", () => {
+    expect(placementAction(null)).toBeNull()
+    expect(placementAction({ model: "m", placement: { mode: "gpu" } } as ModelFit)).toBeNull()
+    expect(placementAction(pinned(undefined))).toBeNull()
+  })
+  test("pinned but fits on the GPU anyway → drop the pin", () => {
+    const a = placementAction(pinned({ mode: "gpu", loadable: true }))!
+    expect(a.kind).toBe("unpin")
+    expect(a.title).toBe("Remove the placement pin")
+    expect(a.description).toContain("reloads the model")
+  })
+  test("pinned and only loadable with offload → says how much RAM and whether it is slow", () => {
+    const a = placementAction(pinned({ mode: "hybrid", loadable: true, est_host_mb: 20480, perf_class: "cpu-bound-hybrid" }))!
+    expect(a.kind).toBe("unpin")
+    expect(a.description).toContain("~20.0 GB")
+    expect(a.description).toContain("slow")
+  })
+  test("won't load even unpinned → info only, never an action", () => {
+    const a = placementAction(pinned({ mode: "refuse", loadable: false }))!
+    expect(a.kind).toBe("info")
+    expect(a.description).toContain("even with offload")
+  })
+})
+
+describe("placementIndicator", () => {
+  const fit = (o: Record<string, unknown>) => ({ model: "m", ...o }) as unknown as ModelFit
+
+  // The five host A models from flag-under-offloaded-models: two avoidably
+  // offloaded must warn, three fully resident (two pinned at -ngl 40 above their
+  // layer count) must not — so the check keys on the OUTCOME, never the pin.
+  test("warns on avoidable offload, naming the host-resident amount", () => {
+    const m2 = placementIndicator(fit({ host_resident_mb: 6037, under_offloaded: true }))
+    expect(m2?.text).toContain("5.9 GB")
+    expect(placementIndicator(fit({ host_resident_mb: 6166, under_offloaded: true }))).not.toBeNull()
+  })
+  test("silent for fully resident models, whatever the pin says", () => {
+    for (const run_mode of ["gpu"]) {
+      expect(placementIndicator(fit({ run_mode, host_resident_mb: 0, placement: { mode: "custom" } }))).toBeNull()
+    }
+    expect(placementIndicator(fit({ host_resident_mb: 0, under_offloaded: false }))).toBeNull()
+  })
+  test("silent for a genuine hybrid the model cannot run without", () => {
+    expect(placementIndicator(fit({ host_resident_mb: 50000, under_offloaded: false, run_mode: "moe_offload" }))).toBeNull()
+  })
+  test("a host that predates under_offloaded falls back to run_mode + vram_required", () => {
+    const avoidable = fit({ run_mode: "cpu_offload", host_resident_mb: 7165, vram_required_mb: 20000, vram_total_mb: 24560 })
+    expect(placementIndicator(avoidable)).not.toBeNull()
+    const needed = fit({ run_mode: "cpu_offload", host_resident_mb: 7165, vram_required_mb: 30000, vram_total_mb: 24560 })
+    expect(placementIndicator(needed)).toBeNull()
+  })
+  test("no fit (non-llama-skein backend) renders nothing", () => {
+    expect(placementIndicator(null)).toBeNull()
+  })
+})
+
+describe("parseGpuLayers", () => {
+  test("accepts whole numbers including 0, rejects everything else", () => {
+    expect(parseGpuLayers("99")).toBe(99)
+    expect(parseGpuLayers(" 0 ")).toBe(0)
+    for (const bad of ["", "-1", "1.5", "all", "40 layers", "1e3"]) expect(parseGpuLayers(bad)).toBeNull()
+  })
+})
+
+// What the operator is shown, against REAL host payloads (z4 and host C,
+// 2026-10-15) — the dialog displays llama-skein's figures and never replaces them.
+describe("buildCtxRows against real payloads", () => {
+  const z4Mem: MemSnapshot = { freeMb: 12896, totalMb: 49136, usedMb: 36240, label: "VRAM", modelMb: 30000, kvEstMb: 6240 }
+  const row = (rows: ReturnType<typeof buildCtxRows>, n: number) => rows.find((r) => r.value === n)!
+
+  test("the engine's physical ceiling is a row of its own and is never altered", () => {
+    // z4 BEFORE the MTP fix: the API said 164249. The dialog must show exactly that
+    // figure — correcting it is the server's job, not the client's.
+    const old = buildCtxRows({ current: 110789, recommended: null, maxPhysical: 164249, mem: z4Mem })
+    expect(row(old, 164249).description).toContain("physical max")
+    // z4 AFTER the fix: 262144 is a preset and the trained context.
+    const fixed = buildCtxRows({ current: 110789, recommended: null, maxPhysical: 262144, mem: z4Mem })
+    expect(row(fixed, 262144).description).toContain("physical max")
+    expect(fixed.some((r) => r.value > 262144 && !r.description?.includes("above estimated ceiling"))).toBe(false)
+  })
+
+  test("rows above the ceiling are annotated, not removed or blocked", () => {
+    const rows = buildCtxRows({ current: 110789, recommended: null, maxPhysical: 164249, mem: z4Mem })
+    expect(row(rows, 196608).description).toContain("above estimated ceiling (160k)")
+    expect(row(rows, 163840).description ?? "").not.toContain("above estimated ceiling")
+    // Every preset is still selectable: nothing was filtered out.
+    expect(rows.length).toBeGreaterThanOrEqual(PRESETS.length)
+  })
+
+  test("a context already set above the ceiling keeps its row, marked current", () => {
+    const rows = buildCtxRows({ current: 196608, recommended: null, maxPhysical: 164249, mem: z4Mem })
+    expect(row(rows, 196608).description).toMatch(/^current · ⚠ above estimated ceiling/)
+  })
+
+  test("no ceiling known (older backend) never annotates anything as too large", () => {
+    const rows = buildCtxRows({ current: 110789, recommended: null, maxPhysical: 0, mem: null })
+    expect(rows.some((r) => r.description?.includes("above estimated ceiling"))).toBe(false)
+  })
+
+  // The client's own arithmetic (recommended ctx) may not exceed what the
+  // measured numbers imply. z4: measured 62.8 KB/token; free 12.9 GB over a
+  // 110789 context => about 326k, so any recommendation <= 262144 is supported.
+  test("the recommended ctx never exceeds what measured free VRAM supports", () => {
+    const rec = computeRecommendedCtx(z4Mem, 110789, 219281)!
+    const measuredKvBytesPerToken = 62826
+    const supported = 110789 + (z4Mem.freeMb * 1048576) / measuredKvBytesPerToken
+    expect(rec).toBeLessThanOrEqual(supported)
+    expect(rec).toBeLessThanOrEqual(219281)
+  })
 })

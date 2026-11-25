@@ -9,6 +9,12 @@ import { similarity } from "@/loop/similarity"
 export interface ToolCallPart {
   tool: string
   input: Record<string, unknown>
+  /**
+   * What the call returned (output or error text). Part of the signature: the
+   * same call with a different result is polling or retrying with progress
+   * (re-running tests after an edit, checking a job's status), not a loop.
+   */
+  result?: string
 }
 
 /**
@@ -19,7 +25,7 @@ export interface ToolCallPart {
  */
 export function toolCallSignature(parts: readonly ToolCallPart[]): string | undefined {
   if (parts.length === 0) return undefined
-  return parts.map((p) => `${p.tool}:${JSON.stringify(p.input, Object.keys(p.input).sort())}`).join("|")
+  return parts.map((p) => `${p.tool}:${JSON.stringify(p.input, Object.keys(p.input).sort())}=>${p.result ?? ""}`).join("|")
 }
 
 export interface TurnSnapshot {
@@ -35,6 +41,8 @@ export function nudgeText(kind: "text" | "tool", streak: number): string {
       : `Your last ${streak} turns produced near-identical output and made no progress`
   return `${what}. Stop and do not repeat it. Work out why it isn't working (check the error, the working directory, the arguments), then try a different approach and continue with the task.`
 }
+
+const MinTextLength = 40
 
 export type RepeatResult = { repeated: false } | { repeated: true; kind: "text" | "tool"; similarity?: number }
 
@@ -58,6 +66,10 @@ export function detectRepeat(current: TurnSnapshot, last: TurnSnapshot | undefin
   }
 
   if (last.toolSignature !== undefined) return { repeated: false }
+
+  // Empty or trivially short text (a reasoning-only turn, "Continuing.") is
+  // bigram-identical to itself by construction and says nothing about progress.
+  if (current.text.trim().length < MinTextLength || last.text.trim().length < MinTextLength) return { repeated: false }
 
   const sim = similarity(current.text, last.text)
   if (sim >= threshold) return { repeated: true, kind: "text", similarity: sim }
