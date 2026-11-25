@@ -173,6 +173,7 @@
     "packages/tui/test/ui/dialog-select-footer.test.ts",
     "packages/tui/test/ui/dialog-model-fit.test.ts",
     "packages/tui/test/ui/dialog-select-fit.test.ts",
+    "packages/tui/test/ui/dialog-model-footer.test.ts",
     "packages/tui/test/ui/sidebar-context.test.ts",
     "packages/opencode/src/agent/presence-claude.ts",
     "packages/opencode/test/agent/presence-claude.test.ts",
