@@ -61,7 +61,7 @@ export function DialogModel(props: { providerID?: string }) {
   // Total VRAM (or unified memory) per local provider, fetched once per dialog
   // lifetime — never blocks dialog open, and a provider that doesn't answer
   // /api/hardware (non-local, or an older backend) simply has no label.
-  const [vram, setVram] = createSignal<Record<string, string>>({})
+  const [vram, setVram] = createSignal<Record<string, { mb: number; label: string }>>({})
   // Per-model fit verdicts, same lifetime and the same "never blocks, no
   // data is not an error" contract. Not yet read by the option list below —
   // wiring "(Recommended)" and a cannot-fit marker into the picker itself is
@@ -82,7 +82,7 @@ export function DialogModel(props: { providerID?: string }) {
           if (!res.data) return
           const mem = extractMem(res.data)
           if (!mem || mem.totalMb <= 0) return
-          setVram((prev) => ({ ...prev, [item.id]: `${fmtGB(mem.totalMb)} GB ${mem.label}` }))
+          setVram((prev) => ({ ...prev, [item.id]: { mb: mem.totalMb, label: mem.label } }))
         })
         .catch(() => {
           // backend may not support /api/hardware — no VRAM label, nothing else changes
@@ -91,9 +91,12 @@ export function DialogModel(props: { providerID?: string }) {
     }
   })
 
+  // Group header only. A row's provenance is the bare provider name: the
+  // memory total rides in the row's size footer instead ("27.2/31.9 GB"), so a
+  // filtered, flattened row isn't "size · host · total VRAM" crowding the title.
   function providerLabel(providerID: string, name: string) {
-    const label = vram()[providerID]
-    return label ? `${name} · ${label}` : name
+    const mem = vram()[providerID]
+    return mem ? `${name} · ${fmtGB(mem.mb)} GB ${mem.label}` : name
   }
 
   const showExtra = createMemo(() => connected() && !props.providerID)
@@ -121,13 +124,13 @@ export function DialogModel(props: { providerID?: string }) {
             title: model.name ?? item.modelID,
             description: provider.name + (fit ? ` · ${cannotFit ? "⚠ " : ""}${fit}` : undefined),
             category,
-            provenance: providerLabel(provider.id, provider.name),
+            provenance: provider.name,
             disabled: provider.id === "opencode" && model.id.includes("-nano"),
             // sizeBytes rides on the runtime provider Model (llama-skein
             // size_bytes) but isn't in the generated SDK type yet — read it
             // loosely; regen the SDK to type it properly.
             footer:
-              formatModelSize((model as { sizeBytes?: number }).sizeBytes) ??
+              formatModelSize((model as { sizeBytes?: number }).sizeBytes, vram()[provider.id]?.mb) ??
               (model.cost?.input === 0 && provider.id === "opencode" ? "Free" : undefined),
             onSelect: () => {
               onSelect(provider.id, model.id)
@@ -174,10 +177,10 @@ export function DialogModel(props: { providerID?: string }) {
                 (fit ? `${cannotFit ? "⚠ " : ""}${fit}` : "") +
                 (isRecommended ? " (Recommended)" : ""),
               category: connected() ? providerLabel(provider.id, provider.name) : undefined,
-              provenance: providerLabel(provider.id, provider.name),
+              provenance: provider.name,
               disabled: provider.id === "opencode" && model.includes("-nano"),
               footer:
-                formatModelSize((info as { sizeBytes?: number }).sizeBytes) ??
+                formatModelSize((info as { sizeBytes?: number }).sizeBytes, vram()[provider.id]?.mb) ??
                 (info.cost?.input === 0 && provider.id === "opencode" ? "Free" : undefined),
               onSelect() {
                 onSelect(provider.id, model)
@@ -384,9 +387,12 @@ export function matchProviderByNeedle<T extends { id: string; name: string }>(
 
 // formatModelSize renders a llama-skein size_bytes weight size as a compact
 // GB/MB string for the picker footer, so similar quantizations are told apart
-// by disk size. undefined when unknown (non-local models, size not reported).
-export function formatModelSize(bytes?: number): string | undefined {
+// by disk size. With the host's total memory known it reads "27.2/31.9 GB"
+// (weights / host total), so the row needs no separate VRAM label. undefined
+// when the size is unknown (non-local models, size not reported).
+export function formatModelSize(bytes?: number, totalMb?: number): string | undefined {
   if (!bytes || bytes <= 0) return undefined
+  if (totalMb && totalMb > 0) return `${(bytes / 1024 ** 3).toFixed(1)}/${fmtGB(totalMb)} GB`
   const gb = bytes / 1024 ** 3
   if (gb >= 1) return `${gb.toFixed(1)} GB`
   return `${Math.round(bytes / 1024 ** 2)} MB`
