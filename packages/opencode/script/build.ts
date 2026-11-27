@@ -132,7 +132,7 @@ const targets = singleFlag
 
       return true
     })
-  : allTargets
+  : allTargets.filter((t) => t.os === 'linux' && t.arch === 'x64' && !t.abi && t.avx2 !== false)
 
 await $`rm -rf dist`
 
