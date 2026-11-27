@@ -10,7 +10,7 @@ import { LayerNode } from "@opencode-ai/core/effect/layer-node"
 import { EventV2 } from "@opencode-ai/core/event"
 import { statics } from "@opencode-ai/schema/schema"
 import { AbortedError, SessionV1 } from "@opencode-ai/core/v1/session"
-import { Cause, Context, Deferred, Effect, Layer, Ref, Result, Schema, Scope } from "effect"
+import { Cause, Context, Deferred, Effect, Layer, Ref, Result, Schema, Scope, Option } from "effect"
 import { EventV2Bridge } from "@/event-v2-bridge"
 import { Identifier } from "@/id/id"
 import { SessionPrompt } from "@/session/prompt"
@@ -1204,7 +1204,22 @@ export const layer = Layer.effect(
       })
 
 
+    // `held` is the claim this run currently owns. It lives outside the driver so
+    // that every way out of it (drain, halt, cancel, defect) releases the claim.
     const runQueue = (id: LoopID) =>
+      Effect.suspend(() => {
+        const held: { claim?: Claim.ClaimID } = {}
+        // Kept fresh on a timer: a single gate turn can far outlast the stale limit.
+        const heartbeat = Effect.suspend(() =>
+          held.claim ? crewClaim.heartbeat(held.claim).pipe(Effect.ignoreCause) : Effect.void,
+        ).pipe(Effect.delay(Claim.DefaultStaleAfterMs / 3), Effect.forever)
+        const release = Effect.suspend(() =>
+          held.claim ? crewClaim.release(held.claim, "cancelled").pipe(Effect.ignoreCause) : Effect.void,
+        )
+        return Effect.raceFirst(driveQueue(id, held), heartbeat).pipe(Effect.ensuring(release))
+      })
+
+    const driveQueue = (id: LoopID, held: { claim?: Claim.ClaimID }) =>
       Effect.gen(function* () {
         const initial = (yield* Ref.get(state)).get(id)
         const exec = execIn(yield* gateCwd(initial))
@@ -1223,7 +1238,7 @@ export const layer = Layer.effect(
         // Live claims from all members in this project — their slugs are excluded
         // from the cursor so two members never both pick the same change.
         const liveClaims = yield* crewClaim.listLive(projectID).pipe(Effect.orElseSucceed(() => [] as import("./crew/claims").ClaimInfo[]))
-        const claimedSlugs = new Set(liveClaims.map((c) => c.slug))
+        const claimedSlugs = new Set(liveClaims.filter((c) => !Claim.isStale(c)).map((c) => c.slug))
         // The spec requires the resolved order be reported before the first
         // iteration: an unattended run is only auditable if you can see what it
         // decided to work, and in what order, up front.
@@ -1298,7 +1313,6 @@ export const layer = Layer.effect(
             }
           })
 
-        let currentClaimID: Claim.ClaimID | undefined
         // Idle-watch backoff, in ms; reset whenever work is found.
         let watchMs = 0
         while (true) {
@@ -1309,19 +1323,19 @@ export const layer = Layer.effect(
           // Re-resolve live claims each iteration so inter-member visibility
           // is up to date, then re-resolve the queue with the current claim set.
           const refreshedClaims = yield* crewClaim.listLive(projectID).pipe(Effect.orElseSucceed(() => [] as import("./crew/claims").ClaimInfo[]))
-          const refreshedSlugs = new Set(refreshedClaims.map((c) => c.slug))
+          const refreshedSlugs = new Set(refreshedClaims.filter((c) => !Claim.isStale(c)).map((c) => c.slug))
           // Drop the claim if the holder is gone and it is no longer in the
           // refreshed set — the next iteration will pick a new change.
-          if (currentClaimID && !refreshedClaims.some((c) => c.id === currentClaimID)) {
-            currentClaimID = undefined
+          if (held.claim && !refreshedClaims.some((c) => c.id === held.claim)) {
+            held.claim = undefined
           }
           // Heartbeat the current claim so it stays live across iterations.
-          if (currentClaimID) {
-            yield* crewClaim.heartbeat(currentClaimID).pipe(
+          if (held.claim) {
+            yield* crewClaim.heartbeat(held.claim).pipe(
               Effect.catch((err: unknown) => {
                 const e = err as { _tag?: string }
                 if (e._tag === "ClaimReleasedError" || e._tag === "ClaimNotFoundError") {
-                  currentClaimID = undefined
+                  held.claim = undefined
                   return Effect.void
                 }
                 return Effect.fail(err)
@@ -1438,8 +1452,8 @@ export const layer = Layer.effect(
                 return Effect.fail(err)
               }),
             )
-           currentClaimID = claimResult?.id
-           if (!currentClaimID) {
+           held.claim = claimResult?.id
+           if (!held.claim) {
              // Lost the claim race; re-resolve and try the next eligible change.
              continue
            }
@@ -1735,12 +1749,12 @@ export const layer = Layer.effect(
           // Release the claim so the change becomes available again (quarantined)
           // or stays released (completed). A failed release is logged but does
           // not change the outcome — the queue state already recorded it.
-          if (currentClaimID) {
+          if (held.claim) {
             const reason = ending.outcome === "completed" ? ("completed" as const) : ("quarantined" as const)
-            yield* crewClaim.release(currentClaimID, reason).pipe(
-              Effect.catch((err: unknown) => Effect.logWarning("queue claim release failed", { "claim.id": currentClaimID, error: err })),
+            yield* crewClaim.release(held.claim, reason).pipe(
+              Effect.catch((err: unknown) => Effect.logWarning("queue claim release failed", { "claim.id": held.claim, error: err })),
             )
-            currentClaimID = undefined
+            held.claim = undefined
           }
           // Announce the handoff to other live crew members (task 3.4).
           if (record.info.mode === "crew") {
@@ -2406,6 +2420,13 @@ export const layer = Layer.effect(
                   "loop.id": id,
                   cause: Cause.pretty(cause),
                 })
+                // A cancelled run is interrupted here too; its report stands.
+                const current = (yield* Ref.get(state)).get(id)
+                if (current && !isTerminal(current.info.status))
+                  yield* patch(id, (record) => ({
+                    ...record,
+                    info: { ...record.info, report: `loop run died: ${Cause.pretty(cause).slice(0, 2_000)}` },
+                  }))
                 yield* finalize(id, "error")
               }),
             ),
@@ -2525,13 +2546,26 @@ export const layer = Layer.effect(
         }))
         // Write a durable synthetic session message so a crash does not lose it.
         const sessionID = record.info.sessionID
+        // The prompt step takes agent, model and turn settings from the newest
+        // user message, so this one must carry the session's real ones. A
+        // placeholder here fails model lookup on the next step and kills the run.
+        const previous = Option.getOrUndefined(
+          yield* session.findMessage(sessionID, (m) => m.info.role === "user").pipe(Effect.orDie),
+        )?.info as SessionV1.User | undefined
+        const carried = previous ?? {
+          agent: (yield* agents.defaultInfo()).name,
+          model: yield* provider.defaultModel().pipe(Effect.orDie),
+        }
         const userMsg: SessionV1.User = {
           id: MessageID.ascending(),
           sessionID,
           role: "user",
           time: { created: Date.now() },
-          agent: "crew-inbox",
-          model: { providerID: ProviderV2.ID.make("none"), modelID: ModelV2.ID.make("none") },
+          agent: carried.agent,
+          model: carried.model,
+          tools: previous?.tools,
+          system: previous?.system,
+          format: previous?.format,
         }
         yield* session.updateMessage(userMsg)
         yield* session.updatePart({

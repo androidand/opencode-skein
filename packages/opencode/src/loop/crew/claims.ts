@@ -12,6 +12,9 @@ import { and, eq, isNull } from "drizzle-orm"
 
 export const DefaultStaleAfterMs = 60_000
 
+/** A holder that has not refreshed its claim within the limit is gone. */
+export const isStale = (claim: { heartbeat: number }, now = Date.now()) => now - claim.heartbeat >= DefaultStaleAfterMs
+
 export const ClaimID = Schema.String.check(Schema.isStartsWith("claim")).pipe(
   Schema.brand("ClaimID"),
   statics((s) => ({
@@ -148,7 +151,20 @@ const layer = Layer.effect(
         .get()
         .pipe(Effect.orDie)
       if (existing) {
-        return yield* new ClaimExistsError({ slug: input.slug })
+        if (!isStale(existing, now)) return yield* new ClaimExistsError({ slug: input.slug })
+        // Guarded on the heartbeat we read: a holder that woke up in between keeps its claim.
+        yield* db
+          .update(ClaimTable)
+          .set({ released_at: now, release_reason: "abandoned" })
+          .where(
+            and(
+              eq(ClaimTable.id, existing.id),
+              eq(ClaimTable.heartbeat, existing.heartbeat),
+              isNull(ClaimTable.released_at),
+            ),
+          )
+          .run()
+          .pipe(Effect.orDie)
       }
       const inserted = Effect.gen(function* () {
         yield* db
@@ -245,7 +261,7 @@ const layer = Layer.effect(
         .where(and(eq(ClaimTable.project_id, projectID), isNull(ClaimTable.released_at)))
         .all()
         .pipe(Effect.orDie)
-      return rows.filter((row) => now - row.heartbeat >= DefaultStaleAfterMs).map(fromRow)
+      return rows.filter((row) => isStale(row, now)).map(fromRow)
     })
 
     return Service.of({ claim, heartbeat, release, listLive, listAbandoned })
