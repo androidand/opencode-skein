@@ -143,4 +143,23 @@ describe("Claim", () => {
       expect(abandonedSlugs).not.toContain("crew-loop-7")
     }),
   )
+
+  it.effect("a stale claim is taken over, a fresh one is not", () =>
+    Effect.gen(function* () {
+      yield* seedProject()
+      const service = yield* Claim.Service
+      const first = yield* service.claim({ projectID, slug: "crew-loop-8", holderSession: "ses-dead" })
+      const { db } = yield* Database.Service
+      yield* db
+        .update(ClaimTable)
+        .set({ heartbeat: Date.now() - 2 * Claim.DefaultStaleAfterMs })
+        .where(eq(ClaimTable.id, first.id))
+        .run()
+        .pipe(Effect.orDie)
+
+      const second = yield* service.claim({ projectID, slug: "crew-loop-8", holderSession: "ses-new" })
+      expect(second.holderSession).toBe("ses-new")
+      expect((yield* service.listLive(projectID)).map((c) => c.id)).toEqual([second.id])
+    }),
+  )
 })

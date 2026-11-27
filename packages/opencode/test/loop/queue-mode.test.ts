@@ -29,6 +29,8 @@ import { Question } from "@/question"
 import { Todo } from "@/session/todo"
 import { Unattended } from "../../src/session/unattended"
 import { Loop } from "@/loop/loop"
+import { Claim } from "@/loop/crew/claims"
+import { Project } from "@/project/project"
 import { LLM } from "@/session/llm"
 import { Session } from "@/session/session"
 import { SessionCompaction } from "@/session/compaction"
@@ -119,6 +121,8 @@ const testLLMServerNode = LayerNode.make({ service: TestLLMServer, layer: TestLL
 
 const loopRoot = LayerNode.group([
   Loop.node,
+  Claim.node,
+  Project.node,
   SessionPrompt.node,
   Session.node,
   SessionProjector.node,
@@ -1327,3 +1331,89 @@ it.instance(
 )
 
 
+
+it.instance(
+  "a peer message delivered mid-turn keeps the session's model and the loop alive",
+  () =>
+    Effect.gen(function* () {
+      const { directory: dir } = yield* TestInstance
+      const llm = yield* TestLLMServer
+      yield* writeConfig(dir, providerCfg(llm.url))
+      const loop = yield* Loop.Service
+      const session = yield* Session.Service
+
+      // First step is held open until the message has landed, then ends in a
+      // tool call so the same turn needs a second step.
+      const delivered = Promise.withResolvers<void>()
+      yield* llm.push(reply().wait(delivered.promise).tool("glob", { pattern: "*" }))
+      yield* llm.push(reply().text("<promise>DONE</promise>").stop())
+
+      const info = yield* loop.create({ prompt: "work", interval: 0, eternal: false, completionToken: "DONE" })
+      yield* llm.wait(1)
+      expect(
+        yield* loop.inbox({
+          loopID: info.id,
+          from: { harness: "opencode-skein", id: "ses-peer" },
+          mode: "notify",
+          text: "mid-turn hello",
+        }),
+      ).toBe(true)
+      const stored = (yield* session.messages({ sessionID: info.sessionID })).filter((m) => m.info.role === "user")
+      const [first, message] = [stored[0]!.info, stored.at(-1)!.info] as SessionV1.User[]
+      expect(message!.model).toEqual(first!.model)
+      expect(message!.agent).toBe(first!.agent)
+      delivered.resolve()
+
+      const done = yield* pollWithTimeout(
+        loop.get(info.id).pipe(Effect.map((i) => (i && i.status !== "running" ? i : undefined))),
+        "loop did not finish",
+      )
+      expect(done.status).toBe("completed")
+    }),
+  { config: {} },
+)
+
+it.instance(
+  "a cancelled queue run releases its claim",
+  () =>
+    Effect.gen(function* () {
+      const { directory: dir } = yield* TestInstance
+      const llm = yield* TestLLMServer
+      yield* writeConfig(dir, providerCfg(llm.url))
+      writeChange(dir, "claimed-change", "- [ ] 1.1 work\n")
+      const loop = yield* Loop.Service
+      const claims = yield* Claim.Service
+      const project = yield* Project.Service
+
+      yield* llm.push(reply().wait(new Promise<void>(() => {})).text("never").stop())
+      const info = yield* loop.create({ prompt: "", mode: "queue", interval: 0 })
+      yield* llm.wait(1)
+      const projectID = (yield* project.fromDirectory(info.directory)).project.id
+      expect((yield* claims.listLive(projectID)).map((c) => c.slug)).toEqual(["claimed-change"])
+
+      yield* loop.cancel(info.id)
+      yield* pollWithTimeout(
+        claims.listLive(projectID).pipe(Effect.map((live) => (live.length === 0 ? true : undefined))),
+        "claim was not released",
+      )
+    }),
+  { config: {} },
+)
+
+it.instance(
+  "a dead loop driver records the cause in its report",
+  () =>
+    Effect.gen(function* () {
+      const { directory: dir } = yield* TestInstance
+      const llm = yield* TestLLMServer
+      // A configured model that does not exist is a defect inside the prompt step.
+      yield* writeConfig(dir, { ...providerCfg(llm.url), model: "test/missing" })
+      const loop = yield* Loop.Service
+
+      const info = yield* loop.create({ prompt: "work", interval: 0 })
+      const done = yield* waitForTerminal(info.id)
+      expect(done.status).toBe("error")
+      expect(done.report).toContain("loop run died")
+    }),
+  { config: {} },
+)
