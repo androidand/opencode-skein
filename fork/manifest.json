@@ -293,6 +293,7 @@
     "packages/opencode/test/provider/local-silence.test.ts",
     "packages/opencode/test/server/local-unpin-placement.test.ts",
     "packages/opencode/test/session/overflow-breaker.test.ts",
+    "packages/opencode/test/session/overflow.test.ts",
     "packages/opencode/test/session/repeat-detect.test.ts",
     "packages/opencode/test/session/runaway-detect.test.ts",
     "packages/opencode/test/tool/task-verify.test.ts",
