@@ -290,6 +290,7 @@
     "packages/opencode/test/peer/claude/loop-route.test.ts",
     "packages/opencode/test/peer/delivery-state.test.ts",
     "packages/opencode/test/peer/pty-exchange.ts",
+    "packages/opencode/test/provider/fit-context-verdict.test.ts",
     "packages/opencode/test/provider/local-silence.test.ts",
     "packages/opencode/test/server/local-unpin-placement.test.ts",
     "packages/opencode/test/session/overflow-breaker.test.ts",
