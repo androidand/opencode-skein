@@ -130,6 +130,12 @@ export function acceptedStatus(manifest: Manifest, readHead: HeadReader, diffed:
   return status
 }
 
+/** A file's committed content at `ref`, or undefined when that ref does not carry it. */
+export const gitHeadReader = (root: string, ref = "HEAD"): HeadReader => (rel) => {
+  const proc = Bun.spawnSync(["git", "show", `${ref}:${rel}`], { cwd: root })
+  return proc.exitCode === 0 ? proc.stdout.toString() : undefined
+}
+
 /** Files inside divergence scope that differ from baseline and are neither registered nor accepted. */
 export function collectDivergence(manifest: Manifest, diffed: Set<string>): string[] {
   const divergence = manifest.divergence
@@ -213,10 +219,7 @@ function main() {
   const manifestPath = path.join(root, "fork", "manifest.json")
   const manifest = parseManifest(fs.readFileSync(manifestPath, "utf8"))
 
-  const head: HeadReader = (rel) => {
-    const proc = Bun.spawnSync(["git", "show", `HEAD:${rel}`], { cwd: root })
-    return proc.exitCode === 0 ? proc.stdout.toString() : undefined
-  }
+  const head = gitHeadReader(root)
 
   // Both the working tree AND the committed state are checked. A marker present
   // in the worktree but missing from HEAD is exactly how the fork loses features

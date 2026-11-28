@@ -300,19 +300,26 @@
     "packages/tui/test/live/fit-contract.live.ts"
   ],
   "_ownedRemoved_2026-09-05": {
-    "note": "packages/opencode/src/session/stream-stalled.ts, packages/opencode/src/session/tool-activity.ts, and packages/opencode/test/session/tool-activity.test.ts were deleted by a90c49880b \u2014 confirmed intentional, not a merge regression: a full, reasoned commit message explains that the stream-inactivity watchdog these files implemented only ever fired on false positives (host-paced hybrid loads, foreground subagents, compaction's single big call, cold-load chunks \u2014 each already special-cased before this commit finished the trend) and never once caught a genuinely wedged socket, while its false positives were abandoning working turns fleet-wide. Same commit also removed the fork patches this manifest tracked in llm.ts (marker @/local/skein-loading \u2014 the SkeinLoading cold-load liveness tick that fed only this watchdog), message-v2.ts (marker StreamStalledError \u2014 the error-mapping case for the watchdog's failure type; message-v2.ts no longer diverges from upstream at all and was fully removed from `patched`), and tools.ts (marker \"fork: the stream watchdog must not count\" \u2014 the per-tool-call liveness ticks). llm.ts and tools.ts each still diverge from upstream for unrelated, still-live fork reasons and were re-registered in `patched` with fresh markers (see those entries) rather than dropped \u2014 only the watchdog-specific tracking was retired.",
-    "commits": ["a90c49880b"]
+    "note": "packages/opencode/src/session/stream-stalled.ts, packages/opencode/src/session/tool-activity.ts, and packages/opencode/test/session/tool-activity.test.ts were deleted by a90c49880b — confirmed intentional, not a merge regression: a full, reasoned commit message explains that the stream-inactivity watchdog these files implemented only ever fired on false positives (host-paced hybrid loads, foreground subagents, compaction's single big call, cold-load chunks — each already special-cased before this commit finished the trend) and never once caught a genuinely wedged socket, while its false positives were abandoning working turns fleet-wide. Same commit also removed the fork patches this manifest tracked in llm.ts (marker @/local/skein-loading — the SkeinLoading cold-load liveness tick that fed only this watchdog), message-v2.ts (marker StreamStalledError — the error-mapping case for the watchdog's failure type; message-v2.ts no longer diverges from upstream at all and was fully removed from `patched`), and tools.ts (marker \"fork: the stream watchdog must not count\" — the per-tool-call liveness ticks). llm.ts and tools.ts each still diverge from upstream for unrelated, still-live fork reasons and were re-registered in `patched` with fresh markers (see those entries) rather than dropped — only the watchdog-specific tracking was retired.",
+    "commits": [
+      "a90c49880b"
+    ]
   },
   "_ownedRemoved_2026-08-14": {
-    "note": "packages/opencode/src/util/sync-log.ts was deleted in the origin/dev merge \u2014 confirmed intentional, not a merge regression. It was added by 21c1ac9dd6 to give non-Effect call sites (provider.ts, local/placement.ts) a TUI-safe logger after the core/util/log shim was deleted. The dev-side design solved the same problem differently: those helpers now return outcomes (PickOutcome, DiscoveryResult.warnings) and the Effect caller logs (tool/task.ts, provider.ts). That left zero call sites, so the file was removed rather than carried as dead code.",
-    "commits": ["21c1ac9dd6"]
+    "note": "packages/opencode/src/util/sync-log.ts was deleted in the origin/dev merge — confirmed intentional, not a merge regression. It was added by 21c1ac9dd6 to give non-Effect call sites (provider.ts, local/placement.ts) a TUI-safe logger after the core/util/log shim was deleted. The dev-side design solved the same problem differently: those helpers now return outcomes (PickOutcome, DiscoveryResult.warnings) and the Effect caller logs (tool/task.ts, provider.ts). That left zero call sites, so the file was removed rather than carried as dead code.",
+    "commits": [
+      "21c1ac9dd6"
+    ]
   },
   "_ownedRemoved_2026-08-13": {
-    "note": "packages/core/src/util/log.ts (the legacy-logger compatibility shim, upstream's own module removed in #31310) was deleted 2026-08-12 \u2014 confirmed intentional, not a merge regression: upstream now has its own logger, making the shim genuinely obsolete."
+    "note": "packages/core/src/util/log.ts (the legacy-logger compatibility shim, upstream's own module removed in #31310) was deleted 2026-08-12 — confirmed intentional, not a merge regression: upstream now has its own logger, making the shim genuinely obsolete."
   },
   "_ownedRemoved_2026-08-12": {
     "note": "auto-reply.ts, automation-features.ts, pattern-detection.ts (+ its two CLI commands), scheduler.ts, and hook.ts were deliberately deleted 2026-08-07 (commits 88731dfc6f, 0530944759) for being dead/broken code, not lost in a merge. fork:verify was reporting all 7 as regressions because this manifest was never updated at deletion time. Removed here, not re-added.",
-    "commits": ["88731dfc6f", "0530944759"]
+    "commits": [
+      "88731dfc6f",
+      "0530944759"
+    ]
   },
   "patched": [
     {
@@ -353,17 +360,17 @@
     {
       "file": "packages/core/src/git.ts",
       "marker": "LC_ALL",
-      "note": "Pins LC_ALL=C on git spawns. This code matches git's human-readable output by text (forceRequired), and git localises it \u2014 on a non-English machine those checks silently read false."
+      "note": "Pins LC_ALL=C on git spawns. This code matches git's human-readable output by text (forceRequired), and git localises it — on a non-English machine those checks silently read false."
     },
     {
       "file": "packages/core/src/installation/version.ts",
       "marker": "InstallationReleaseChannels",
-      "note": "Fork edit to an upstream file. Adds InstallationIsRelease (channel is latest/beta/prod) alongside the existing InstallationLocal, shared by database.ts's session-db path and upgrade.ts's self-upgrade eligibility check so any non-release build \u2014 not just literally channel \"local\" \u2014 is treated as never having been published. Marker is a string the fork's edit introduces and upstream does not contain, so a merge that reverts the edit fails fork:verify."
+      "note": "Fork edit to an upstream file. Adds InstallationIsRelease (channel is latest/beta/prod) alongside the existing InstallationLocal, shared by database.ts's session-db path and upgrade.ts's self-upgrade eligibility check so any non-release build — not just literally channel \"local\" — is treated as never having been published. Marker is a string the fork's edit introduces and upstream does not contain, so a merge that reverts the edit fails fork:verify."
     },
     {
       "file": "packages/core/src/npm.ts",
       "marker": "basePackage",
-      "note": "Splits a package specifier from its export subpath. `@ai-sdk/amazon-bedrock/mantle` is not an installable npm spec \u2014 npa cannot parse it, so npm treats it as a local folder and arborist reads <cwd>/@ai-sdk/... Install the base package, resolve the full specifier for the entrypoint."
+      "note": "Splits a package specifier from its export subpath. `@ai-sdk/amazon-bedrock/mantle` is not an installable npm spec — npa cannot parse it, so npm treats it as a local folder and arborist reads <cwd>/@ai-sdk/... Install the base package, resolve the full specifier for the entrypoint."
     },
     {
       "file": "packages/core/src/v1/config/agent.ts",
@@ -427,7 +434,7 @@
     },
     {
       "file": "packages/opencode/src/cli/cmd/run.ts",
-      "marker": "fork: auto-mode \u2014 `--auto` (or OPENCODE_",
+      "marker": "fork: auto-mode — `--auto` (or OPENCODE_",
       "note": "Fork edit to an upstream file (+7/-0 vs baseline). Marker is a string the fork's edit introduces and upstream does not contain, so a merge that reverts the edit fails fork:verify."
     },
     {
@@ -458,7 +465,7 @@
     {
       "file": "packages/opencode/src/cli/upgrade.ts",
       "marker": "InstallationIsRelease",
-      "note": "Fork edit to an upstream file. Skips the self-upgrade check for any non-release channel (was only the literal \"local\" channel, which missed a local build on the fork's own \"dev\" channel \u2014 confirmed live: it read as needing a release patch and silently curl-installed over a running dev binary mid-session). Marker is a string the fork's edit introduces and upstream does not contain, so a merge that reverts the edit fails fork:verify."
+      "note": "Fork edit to an upstream file. Skips the self-upgrade check for any non-release channel (was only the literal \"local\" channel, which missed a local build on the fork's own \"dev\" channel — confirmed live: it read as needing a release patch and silently curl-installed over a running dev binary mid-session). Marker is a string the fork's edit introduces and upstream does not contain, so a merge that reverts the edit fails fork:verify."
     },
     {
       "file": "packages/opencode/src/command/index.ts",
@@ -573,11 +580,11 @@
     {
       "file": "packages/opencode/src/server/routes/instance/httpapi/handlers/event.ts",
       "marker": "SUBSCRIBER_QUEUE_CAPACITY",
-      "note": "Fork edit: bounds the per-subscriber SSE event queue (was Queue.unbounded \u2014 upstream #45215) via core's EventV2.allBounded; a stalled client fails and resyncs instead of retaining every event forever."
+      "note": "Fork edit: bounds the per-subscriber SSE event queue (was Queue.unbounded — upstream #45215) via core's EventV2.allBounded; a stalled client fails and resyncs instead of retaining every event forever."
     },
     {
       "file": "packages/opencode/src/server/routes/instance/httpapi/handlers/global.ts",
-      "marker": "fork: name the binary location \u2014 the com",
+      "marker": "fork: name the binary location — the com",
       "note": "Fork edit to an upstream file (+7/-1 vs baseline). Marker is a string the fork's edit introduces and upstream does not contain, so a merge that reverts the edit fails fork:verify."
     },
     {
@@ -598,7 +605,7 @@
     {
       "file": "packages/opencode/src/server/routes/instance/httpapi/server.ts",
       "marker": "ClaudeSidecarLifecycle",
-      "note": "Fork edit: joins ClaudeSidecarLifecycle.node to THIS file's own separate LayerNode graph (the actual root the HTTP server boots from \u2014 distinct from effect/app-runtime.ts's AppLayer, which app-runtime.ts's own consumers use). Both graphs need the node or session-lifecycle events published during real HTTP-served requests never reach it. See openspec/changes/claude-peer-messaging, Phase 3."
+      "note": "Fork edit: joins ClaudeSidecarLifecycle.node to THIS file's own separate LayerNode graph (the actual root the HTTP server boots from — distinct from effect/app-runtime.ts's AppLayer, which app-runtime.ts's own consumers use). Both graphs need the node or session-lifecycle events published during real HTTP-served requests never reach it. See openspec/changes/claude-peer-messaging, Phase 3."
     },
     {
       "file": "packages/opencode/src/session/compaction.ts",
@@ -612,13 +619,13 @@
     },
     {
       "file": "packages/opencode/src/session/prompt.ts",
-      "marker": "fork: loop detection \u2014 if consecutive as",
+      "marker": "fork: loop detection — if consecutive as",
       "note": "Fork edit to an upstream file (+287/-121 vs baseline). Marker is a string the fork's edit introduces and upstream does not contain, so a merge that reverts the edit fails fork:verify."
     },
     {
       "file": "packages/opencode/src/session/session.ts",
       "marker": "A shallow copy is the snapshot that matters",
-      "note": "Fork edit: updatePart publishes a shallow copy of the part instead of structuredClone (upstream #35107 direction) \u2014 same snapshot semantics for the in-place-mutated text field, without copying part bytes per publish."
+      "note": "Fork edit: updatePart publishes a shallow copy of the part instead of structuredClone (upstream #35107 direction) — same snapshot semantics for the in-place-mutated text field, without copying part bytes per publish."
     },
     {
       "file": "packages/opencode/src/session/summary.ts",
@@ -628,7 +635,7 @@
     {
       "file": "packages/opencode/src/session/tools.ts",
       "marker": "QueueAuthority",
-      "note": "Fork edit to an upstream file (+110/-82 vs upstream/dev as of 2026-09-05): the loop-spec-queue authority ceiling (deny-rules-before-auto-mode-skip ordering, credential-less shell for push-denied sessions). Re-registered here with a fresh marker after a90c49880b retired the previous marker (`fork: the stream watchdog must not count`) along with the watchdog's tool-liveness ticks \u2014 tools.ts still diverges substantially from upstream for this unrelated, load-bearing reason and must stay tracked."
+      "note": "Fork edit to an upstream file (+110/-82 vs upstream/dev as of 2026-09-05): the loop-spec-queue authority ceiling (deny-rules-before-auto-mode-skip ordering, credential-less shell for push-denied sessions). Re-registered here with a fresh marker after a90c49880b retired the previous marker (`fork: the stream watchdog must not count`) along with the watchdog's tool-liveness ticks — tools.ts still diverges substantially from upstream for this unrelated, load-bearing reason and must stay tracked."
     },
     {
       "file": "packages/opencode/src/tool/code-mode.ts",
@@ -678,7 +685,7 @@
     {
       "file": "packages/opencode/test/fixture/fixture.ts",
       "marker": "disposeDirectory",
-      "note": "Disposes each test's instance when the test ends. InstanceStore otherwise holds every instance the suite creates \u2014 each with its own :memory: SQLite and slice of the app graph \u2014 until the process exits, which measured as the bulk of the suite's memory (provider dir: 3004 -> 2577 MB)."
+      "note": "Disposes each test's instance when the test ends. InstanceStore otherwise holds every instance the suite creates — each with its own :memory: SQLite and slice of the app graph — until the process exits, which measured as the bulk of the suite's memory (provider dir: 3004 -> 2577 MB)."
     },
     {
       "file": "packages/opencode/test/fixture/mcp-session-recovery.ts",
@@ -818,7 +825,7 @@
     {
       "file": "packages/tui/src/context/theme.tsx",
       "marker": "ThemeState.set",
-      "note": "createEffect writing ThemeState.set(store.active) \u2014 the writer half of the local-backend themed-loading-screen feature (reader is provider.ts ThemeState.get). theme-state.ts now lives in packages/core/src/local so both the TUI (writer) and the opencode provider (reader) can share the singleton across the package boundary."
+      "note": "createEffect writing ThemeState.set(store.active) — the writer half of the local-backend themed-loading-screen feature (reader is provider.ts ThemeState.get). theme-state.ts now lives in packages/core/src/local so both the TUI (writer) and the opencode provider (reader) can share the singleton across the package boundary."
     },
     {
       "file": "packages/tui/src/feature-plugins/home/tips-view.tsx",
@@ -848,7 +855,7 @@
     {
       "file": "packages/tui/src/routes/session/index.tsx",
       "marker": "transcriptWindow",
-      "note": "Fork edit: transcript windowing \u2014 messages older than the most recent `transcript_window` (TUI config, default 40, 0 disables) render as a one-line CollapsedMessage until clicked, so a long session no longer keeps every part's markdown/syntax/code renderer mounted for its whole life (long-running-session OOM)."
+      "note": "Fork edit: transcript windowing — messages older than the most recent `transcript_window` (TUI config, default 40, 0 disables) render as a one-line CollapsedMessage until clicked, so a long session no longer keeps every part's markdown/syntax/code renderer mounted for its whole life (long-running-session OOM)."
     },
     {
       "file": "packages/tui/src/routes/session/permission.tsx",
@@ -907,114 +914,431 @@
     }
   ],
   "divergence": {
-    "note": "Ratchet for the failure this fork keeps hitting: a merge silently deleting a fork feature (see the self-healing compaction entry). Any file under `scope` that differs from baseline.upstreamRef and is neither owned/patched nor listed in `accepted` fails fork:verify. `accepted` is the divergence that already existed when the gate was added \u2014 classify those as feature or drift over time; new files must be classified immediately. The single remaining accepted entry is packages/core/src/effect/dfdf, which upstream committed by accident \u2014 its contents are an editor's \"File to save in:\" prompt. It is deleted here on purpose; it stays accepted rather than registered because there is no file left to carry a marker. Re-baseline deliberately with `bun run fork:verify --accept-divergence`.",
-    "scope": ["^packages/[^/]+/(src|test)/"],
+    "note": "Ratchet for the failure this fork keeps hitting: a merge silently deleting a fork feature (see the self-healing compaction entry). Any file under `scope` that differs from baseline.upstreamRef and is neither owned/patched nor listed in `accepted` fails fork:verify. An `accepted` entry is a claim about content, not a path exemption: each one pins the sha256 of the file as committed at HEAD, and fork:verify fails when that content changes (ACCEPTED DIVERGENCE CHANGED) or when an \"absent\" pin reappears; a bare path pins nothing and is refused when the manifest is parsed, because a path-shaped exemption hides exactly the drift this gate exists to catch. 105 accepted entries as of 2026-11-28: 104 content-pinned, plus 1 \"absent\" pin for packages/core/src/effect/dfdf, which upstream committed by accident (its contents are an editor’s \"File to save in:\" prompt) and which this fork deletes on purpose — it stays accepted rather than registered because there is no file left to carry a marker. Pinning is not classification: the 104 are known, in-scope differences from upstream that have not yet been sorted into fork feature versus drift; classify one and move it to owned/patched. The gate lists on every run the accepted entries that no longer differ from baseline (stale) — delete those rather than re-pinning them. Re-pin an accepted entry after an intended change with `bun run fork:verify --record-divergence`; re-baseline the whole accepted set deliberately with `bun run fork:verify --accept-divergence`.",
+    "scope": [
+      "^packages/[^/]+/(src|test)/"
+    ],
     "accepted": [
-      "packages/core/src/background-job.ts",
-      "packages/core/src/control-plane/move-session.ts",
-      "packages/core/src/credential.ts",
-      "packages/core/src/cross-spawn-spawner.ts",
-      "packages/core/src/effect/dfdf",
-      "packages/core/src/event.ts",
-      "packages/core/src/fs-util.ts",
-      "packages/core/src/global.ts",
-      "packages/core/src/models-dev.ts",
-      "packages/core/src/permission/saved.ts",
-      "packages/core/src/process.ts",
-      "packages/core/src/project.ts",
-      "packages/core/src/project/directories.ts",
-      "packages/core/src/pty/ticket.ts",
-      "packages/core/src/repository-cache.ts",
-      "packages/core/src/ripgrep.ts",
-      "packages/core/src/ripgrep/binary.ts",
-      "packages/core/src/session/execution/local.ts",
-      "packages/core/src/session/projector.ts",
-      "packages/core/src/session/store.ts",
-      "packages/core/src/skill/discovery.ts",
-      "packages/core/src/tool/application-tools.ts",
-      "packages/core/src/util/effect-flock.ts",
-      "packages/opencode/src/cli/cmd/attach.ts",
-      "packages/opencode/src/project/bootstrap.ts",
-      "packages/opencode/src/question/index.ts",
-      "packages/opencode/src/session/processor.ts",
-      "packages/opencode/src/session/run-state.ts",
-      "packages/opencode/src/session/status.ts",
-      "packages/opencode/src/session/todo.ts",
-      "packages/opencode/src/share/share-next.ts",
-      "packages/opencode/src/tool/shell/prompt.ts",
-      "packages/opencode/src/tool/truncate.ts",
-      "packages/opencode/test/fixture/config.ts",
-      "packages/opencode/test/mcp/oauth-provider.test.ts",
-      "packages/opencode/test/provider/transform.test.ts",
-      "packages/opencode/test/tool/fixtures/models-api.json",
-      "packages/session-ui/src/components/markdown-inline-code-kind.ts",
-      "packages/tui/src/component/dialog-move-session.tsx",
-      "packages/ui/src/assets/icons/file-types/aurelia.svg",
-      "packages/ui/src/assets/icons/file-types/cds.svg",
-      "packages/ui/src/assets/icons/file-types/drizzle.svg",
-      "packages/ui/src/assets/icons/file-types/graphql.svg",
-      "packages/ui/src/assets/icons/file-types/kcl.svg",
-      "packages/ui/src/assets/icons/file-types/markojs.svg",
-      "packages/ui/src/assets/icons/file-types/pm2-ecosystem.svg",
-      "packages/ui/src/assets/icons/file-types/solidity.svg",
-      "packages/ui/src/assets/icons/file-types/stackblitz.svg",
-      "packages/ui/src/assets/icons/file-types/velite.svg",
-      "packages/ui/src/assets/icons/file-types/vue.svg",
-      "packages/ui/src/components/file-icons/sprite.svg",
-      "packages/ui/src/theme/color.ts",
-      "packages/web/src/content/docs/ar/go.mdx",
-      "packages/web/src/content/docs/ar/web.mdx",
-      "packages/web/src/content/docs/ar/zen.mdx",
-      "packages/web/src/content/docs/bs/go.mdx",
-      "packages/web/src/content/docs/bs/web.mdx",
-      "packages/web/src/content/docs/bs/zen.mdx",
-      "packages/web/src/content/docs/da/go.mdx",
-      "packages/web/src/content/docs/da/web.mdx",
-      "packages/web/src/content/docs/da/zen.mdx",
-      "packages/web/src/content/docs/de/go.mdx",
-      "packages/web/src/content/docs/de/web.mdx",
-      "packages/web/src/content/docs/de/zen.mdx",
-      "packages/web/src/content/docs/es/go.mdx",
-      "packages/web/src/content/docs/es/web.mdx",
-      "packages/web/src/content/docs/es/zen.mdx",
-      "packages/web/src/content/docs/fr/go.mdx",
-      "packages/web/src/content/docs/fr/web.mdx",
-      "packages/web/src/content/docs/fr/zen.mdx",
-      "packages/web/src/content/docs/go.mdx",
-      "packages/web/src/content/docs/it/go.mdx",
-      "packages/web/src/content/docs/it/web.mdx",
-      "packages/web/src/content/docs/it/zen.mdx",
-      "packages/web/src/content/docs/ja/go.mdx",
-      "packages/web/src/content/docs/ja/web.mdx",
-      "packages/web/src/content/docs/ja/zen.mdx",
-      "packages/web/src/content/docs/ko/go.mdx",
-      "packages/web/src/content/docs/ko/web.mdx",
-      "packages/web/src/content/docs/ko/zen.mdx",
-      "packages/web/src/content/docs/nb/go.mdx",
-      "packages/web/src/content/docs/nb/zen.mdx",
-      "packages/web/src/content/docs/pl/go.mdx",
-      "packages/web/src/content/docs/pl/web.mdx",
-      "packages/web/src/content/docs/pl/zen.mdx",
-      "packages/web/src/content/docs/pt-br/go.mdx",
-      "packages/web/src/content/docs/pt-br/web.mdx",
-      "packages/web/src/content/docs/pt-br/zen.mdx",
-      "packages/web/src/content/docs/ru/go.mdx",
-      "packages/web/src/content/docs/ru/web.mdx",
-      "packages/web/src/content/docs/ru/zen.mdx",
-      "packages/web/src/content/docs/th/go.mdx",
-      "packages/web/src/content/docs/th/web.mdx",
-      "packages/web/src/content/docs/th/zen.mdx",
-      "packages/web/src/content/docs/tr/go.mdx",
-      "packages/web/src/content/docs/tr/web.mdx",
-      "packages/web/src/content/docs/tr/zen.mdx",
-      "packages/web/src/content/docs/web.mdx",
-      "packages/web/src/content/docs/zen.mdx",
-      "packages/web/src/content/docs/zh-cn/go.mdx",
-      "packages/web/src/content/docs/zh-cn/web.mdx",
-      "packages/web/src/content/docs/zh-cn/zen.mdx",
-      "packages/web/src/content/docs/zh-tw/go.mdx",
-      "packages/web/src/content/docs/zh-tw/web.mdx",
-      "packages/web/src/content/docs/zh-tw/zen.mdx"
+      {
+        "file": "packages/core/src/background-job.ts",
+        "hash": "86905aa5017d206934cd2cdf68a980d3d4f7228c57a06d5c914c527a5d22af66"
+      },
+      {
+        "file": "packages/core/src/control-plane/move-session.ts",
+        "hash": "d7514ad5f5d5039632965e0e98330052392d0992703acc56c0b66abbe1664f5f"
+      },
+      {
+        "file": "packages/core/src/credential.ts",
+        "hash": "030ccb1f4b5507d1b22314794f1a3f135a8f533d66f3f027b97ae5f9a04df70f"
+      },
+      {
+        "file": "packages/core/src/cross-spawn-spawner.ts",
+        "hash": "77a6a73ffdb7b4f27cc489a38dd543fe713bae667148e4e3015027f1e5ae1d5f"
+      },
+      {
+        "file": "packages/core/src/effect/dfdf",
+        "hash": "absent"
+      },
+      {
+        "file": "packages/core/src/event.ts",
+        "hash": "39df6226cd58808a57bef282f843426958307cc81beb60ab773a58ef6bb6c60f"
+      },
+      {
+        "file": "packages/core/src/fs-util.ts",
+        "hash": "ab609c5a8db808b98a40c23d84fd4d0ab1bd51a6495a4409986a6a16397c8b54"
+      },
+      {
+        "file": "packages/core/src/global.ts",
+        "hash": "bfc1688db2b7713a10670d5905b76501a576e9876acb93d457de82dd3222db35"
+      },
+      {
+        "file": "packages/core/src/models-dev.ts",
+        "hash": "6e11e800a72b0b753cb98f1ab964e16a1292eee62318a6407e018a6ab332a7af"
+      },
+      {
+        "file": "packages/core/src/permission/saved.ts",
+        "hash": "ea3b3a639e607393924649a91d9c153cad781336da12c36f1c9b30a6a014973d"
+      },
+      {
+        "file": "packages/core/src/process.ts",
+        "hash": "8d2bdcbc06697b6f40ededb33e2e9ba6a95199729d4895e66028eecb2bf8eacb"
+      },
+      {
+        "file": "packages/core/src/project.ts",
+        "hash": "38cb274ebba2b23ceb37ab6e8be8823fe2e15f1defd7bc23961f9c00602ccf14"
+      },
+      {
+        "file": "packages/core/src/project/directories.ts",
+        "hash": "d24ac43bc4044bff7cf5f3e3d905820026b10b72c5763c7c2fd7f1f0d1d824e2"
+      },
+      {
+        "file": "packages/core/src/pty/ticket.ts",
+        "hash": "a3d990fe88dbf9bf02ff0d37c0b89decae9f2ded21efcc3fbefdb05d15910e8e"
+      },
+      {
+        "file": "packages/core/src/repository-cache.ts",
+        "hash": "08f877f459034390cfa119b75c1274f942b2764aa8dddeca35507a2f0560b1cf"
+      },
+      {
+        "file": "packages/core/src/ripgrep.ts",
+        "hash": "909aa234b671ae6d3bad0f186a60813dfe71d94cf01e3b4d491f0a0613e24bb5"
+      },
+      {
+        "file": "packages/core/src/ripgrep/binary.ts",
+        "hash": "a29105b7bfe381325cbb65ff0ea96ea6337370b9a2b5f4e02e22b8e0a3c05c3c"
+      },
+      {
+        "file": "packages/core/src/session/execution/local.ts",
+        "hash": "33f72d9e6fbf1780fe13f3361bd49f93d1c40dc1d6cb150269ed8162aa1cb7e3"
+      },
+      {
+        "file": "packages/core/src/session/projector.ts",
+        "hash": "668e93d3a7d24bd0fcf0272d2bef4eca7afec02e281c0b2bb6966d6b88a1f346"
+      },
+      {
+        "file": "packages/core/src/session/store.ts",
+        "hash": "e98ae530e99c3cf055b683035a264f9f9ea81a8e2a0b7ac804352caf9ea4cb8b"
+      },
+      {
+        "file": "packages/core/src/skill/discovery.ts",
+        "hash": "574b643e31fff5b6a65c9501915aca4593cbe66cad60be0651d1a2f0d78434a9"
+      },
+      {
+        "file": "packages/core/src/tool/application-tools.ts",
+        "hash": "7de5b3a208058d2851f51d537c821b454b19e2facea1b3806d31483e7dc8eb4c"
+      },
+      {
+        "file": "packages/core/src/util/effect-flock.ts",
+        "hash": "d2dc77f6443c8712bc42ee8b44a9b3aa2e8c6b97a3f98f4b845719628a96cf51"
+      },
+      {
+        "file": "packages/opencode/src/cli/cmd/attach.ts",
+        "hash": "7c2b4309ee8f79655ba27d134eee07e673f53a25cc833111c17979cf0733c323"
+      },
+      {
+        "file": "packages/opencode/src/project/bootstrap.ts",
+        "hash": "a0bd3ec6370978891ac8d7c6f24eeadd7756926a61abc05cbd7b59037baf33db"
+      },
+      {
+        "file": "packages/opencode/src/question/index.ts",
+        "hash": "515eb99777fe2b8f4a4514268ee4a948afad5ec141b55210506039bda63494d0"
+      },
+      {
+        "file": "packages/opencode/src/session/processor.ts",
+        "hash": "d7aa0354039ba04d4c7cf260ecd417c58dec9fdd6e6d6faf90f9598016e7ab68"
+      },
+      {
+        "file": "packages/opencode/src/session/run-state.ts",
+        "hash": "fb4d6d6836fb69aff856d0f824ee300bd3d09721ab4341921fda8773a7ea0373"
+      },
+      {
+        "file": "packages/opencode/src/session/status.ts",
+        "hash": "84aba1b5d5e6705222e62e1ac0cecedd8de3db62bb2cd958b6165eea9ce0287f"
+      },
+      {
+        "file": "packages/opencode/src/session/todo.ts",
+        "hash": "cd5da9573c7bfa9652ca133ea038576dfb0daae5c7518d4d2f40b2ebd88368b5"
+      },
+      {
+        "file": "packages/opencode/src/share/share-next.ts",
+        "hash": "87ac0339b5d85281e4e28d31b8bfece175b38bdb59ecd9eca8a8a4b7edb34431"
+      },
+      {
+        "file": "packages/opencode/src/tool/shell/prompt.ts",
+        "hash": "49420caa032d4248476e7c42a7694566bae789f635cace7b80db48e8551b8194"
+      },
+      {
+        "file": "packages/opencode/src/tool/truncate.ts",
+        "hash": "3813e2a50be27b24534d330569ce65634a972381d4de33cc523bef5d1c78d973"
+      },
+      {
+        "file": "packages/opencode/test/fixture/config.ts",
+        "hash": "6e4859ae4b09d0e05aa702587367a594f89fd2605aab9dc9b9283fe7b7a413c6"
+      },
+      {
+        "file": "packages/opencode/test/mcp/oauth-provider.test.ts",
+        "hash": "60d2791a244672f5d15dfbeeb33a43b9466a70e169aa25f5cb936c28e63886e8"
+      },
+      {
+        "file": "packages/opencode/test/provider/transform.test.ts",
+        "hash": "33647dab2f6d60bbbbb7f90a1081daaddeb5948d8d86322f644aa3bb1b84a531"
+      },
+      {
+        "file": "packages/opencode/test/tool/fixtures/models-api.json",
+        "hash": "34baed397c5847fc1af83be7570e7f2e8d94f5a8178d50af24c6f7cfd2111dc4"
+      },
+      {
+        "file": "packages/session-ui/src/components/markdown-inline-code-kind.ts",
+        "hash": "223ae585873eca6818fde7bbc38599f26e4b6525826ace40e60f60c60078b5b4"
+      },
+      {
+        "file": "packages/tui/src/component/dialog-move-session.tsx",
+        "hash": "0f3d194150a77fce8cbe785537bc3dd6874f9786b24be228611cc8361d67d65b"
+      },
+      {
+        "file": "packages/ui/src/assets/icons/file-types/aurelia.svg",
+        "hash": "9b36e28fc5fad1db622216907cf2d9c9141393195fe9029ee4038325d843880d"
+      },
+      {
+        "file": "packages/ui/src/assets/icons/file-types/cds.svg",
+        "hash": "0401c3440130539e3fe52b7f72b6097cd37baef15fab80114f6325b066dd0298"
+      },
+      {
+        "file": "packages/ui/src/assets/icons/file-types/drizzle.svg",
+        "hash": "23f54048e9423579aa4bdcc35bd304735b4507a78fc57b0aea55abac779016ea"
+      },
+      {
+        "file": "packages/ui/src/assets/icons/file-types/graphql.svg",
+        "hash": "731ab2528182fa351d9d9bea512c09392ef3dcb20684ed90a62cd2a13df9eede"
+      },
+      {
+        "file": "packages/ui/src/assets/icons/file-types/kcl.svg",
+        "hash": "2875bbaae7a12bacc13f33d7a4c562b2194ac65cac713ecf3b2a770716f7d309"
+      },
+      {
+        "file": "packages/ui/src/assets/icons/file-types/markojs.svg",
+        "hash": "d41578d9c2facd2cfaf6293d7da4fb0a213c07957684f9f7d291f7b591d79b6e"
+      },
+      {
+        "file": "packages/ui/src/assets/icons/file-types/pm2-ecosystem.svg",
+        "hash": "15670499d7d0c1b31b5e1299a0393a9b116b61b3642f8cfa44ee8af146144c41"
+      },
+      {
+        "file": "packages/ui/src/assets/icons/file-types/solidity.svg",
+        "hash": "4fd0b071a10dc912cebbcd50562973288c9e2ba562e744edf61837d310db07e1"
+      },
+      {
+        "file": "packages/ui/src/assets/icons/file-types/stackblitz.svg",
+        "hash": "ed436c3e7a5a0f51f208b658e302020beff0399ed574118e8e401e8db7b6559b"
+      },
+      {
+        "file": "packages/ui/src/assets/icons/file-types/velite.svg",
+        "hash": "69764ab85b492ce1433d5ca48a2cedfa56b8563ca462590e3ce0efe4e147a020"
+      },
+      {
+        "file": "packages/ui/src/assets/icons/file-types/vue.svg",
+        "hash": "039814fe6b28ff71bbff54a477132b160fdc5c208553c5d154809b834069c0ff"
+      },
+      {
+        "file": "packages/ui/src/components/file-icons/sprite.svg",
+        "hash": "a7c09fdeea203b6dbf1f5607e988c81e0815bdc03e595cff842c9b03f4676517"
+      },
+      {
+        "file": "packages/ui/src/theme/color.ts",
+        "hash": "1367919b197fd34a15c68ef2a605a340344da78ce17bef5325e8d86e5f6ede54"
+      },
+      {
+        "file": "packages/web/src/content/docs/ar/go.mdx",
+        "hash": "da8e82be765ba7ff60c2078a0eadcd8a791ae562ef336f249472c685d35a638f"
+      },
+      {
+        "file": "packages/web/src/content/docs/ar/web.mdx",
+        "hash": "50ae00e5da27f1d421af034bda34e37b9432356358c044120eb85e5419354877"
+      },
+      {
+        "file": "packages/web/src/content/docs/ar/zen.mdx",
+        "hash": "1f807a9fead6a0dc6ebf4c04766b36ef93df6e221bb10ed8eb81ef1e0c868ee9"
+      },
+      {
+        "file": "packages/web/src/content/docs/bs/go.mdx",
+        "hash": "d2ce69ba694daa76b83265439454b728993b6422386249244e4cf562e5c981c1"
+      },
+      {
+        "file": "packages/web/src/content/docs/bs/web.mdx",
+        "hash": "0280d6a3394831ad0654b12a91216e4a0e5c0dc245232d0f3be2efaafa0282e1"
+      },
+      {
+        "file": "packages/web/src/content/docs/bs/zen.mdx",
+        "hash": "0c1a604dfcdfac26cec70b8d4c5f5718093d4616e89185bbe0c4939f478a2427"
+      },
+      {
+        "file": "packages/web/src/content/docs/da/go.mdx",
+        "hash": "791ed4410736a40f0ed471521d13fbd86b7d1e95768683635f61d66902838a0c"
+      },
+      {
+        "file": "packages/web/src/content/docs/da/web.mdx",
+        "hash": "927064856c0232704d59353900c07dad59aa449c848338eb36c6cb6bc23b8c51"
+      },
+      {
+        "file": "packages/web/src/content/docs/da/zen.mdx",
+        "hash": "b45e91ff30723a1e9d409e1d055d9d327a0301f818716b5bc7cd68d7c55c0906"
+      },
+      {
+        "file": "packages/web/src/content/docs/de/go.mdx",
+        "hash": "0a1877738aa7d1a6bf4de7de687cde847999e900dcfef5d11af5d256abdeebac"
+      },
+      {
+        "file": "packages/web/src/content/docs/de/web.mdx",
+        "hash": "198c529809c3750c815eebe4646736a64a977407daf436909ba2277f9548c100"
+      },
+      {
+        "file": "packages/web/src/content/docs/de/zen.mdx",
+        "hash": "e0501bfe635be5d04a91b4f35b5a3111223f6ad1fa72bb4e9b403a42dfb9af33"
+      },
+      {
+        "file": "packages/web/src/content/docs/es/go.mdx",
+        "hash": "45aa6a202b3b15510d3e983169a9b52887df0f5e6674107b125c27b903feba2d"
+      },
+      {
+        "file": "packages/web/src/content/docs/es/web.mdx",
+        "hash": "a455f08cc85e22e1fa92debb16d345a853dd8ceb4d0c25a5cd20d1cb2c847924"
+      },
+      {
+        "file": "packages/web/src/content/docs/es/zen.mdx",
+        "hash": "d4983fcb5d8c9c6c233733eb980c704dd8304bb183d8b1814d7bd5c382b6dbc8"
+      },
+      {
+        "file": "packages/web/src/content/docs/fr/go.mdx",
+        "hash": "f50cdc23bb44256838c952d6690216e989aaeab9b2e736713f6bfd37f6993dbc"
+      },
+      {
+        "file": "packages/web/src/content/docs/fr/web.mdx",
+        "hash": "00e8e8ebdfc10e9422428a9569c166995af99a0e12464c1b04bf54ccb7c980ee"
+      },
+      {
+        "file": "packages/web/src/content/docs/fr/zen.mdx",
+        "hash": "51d22d3b1dbde3c76c20a523113ef3ad9cc85bdc2cb40a6955b10c5134dae78d"
+      },
+      {
+        "file": "packages/web/src/content/docs/go.mdx",
+        "hash": "c742cc235cb330b38c26cb464d0f4977ec394d2c2f731dc0f8806a599a79bd0d"
+      },
+      {
+        "file": "packages/web/src/content/docs/it/go.mdx",
+        "hash": "49bf0e015637cec61096d3cb56df03856b667f1fba91d57fdbb4d4384b071537"
+      },
+      {
+        "file": "packages/web/src/content/docs/it/web.mdx",
+        "hash": "047bc332cb12b5426963dd9ff880e7c4ee285c4feb9bbb2e26b19927278e17f5"
+      },
+      {
+        "file": "packages/web/src/content/docs/it/zen.mdx",
+        "hash": "3ca498cbc5b488ce9835709cf0b2e7f934b95f591c56b9e8092748e738904dc3"
+      },
+      {
+        "file": "packages/web/src/content/docs/ja/go.mdx",
+        "hash": "857d05d06b02321f8c9262a6df7145a6c3853f844a13d18397e1ef7c7e868af3"
+      },
+      {
+        "file": "packages/web/src/content/docs/ja/web.mdx",
+        "hash": "3404b6baa79215b6240889058b45e811faee210bf2bab3ce6ef223ae2a02cc18"
+      },
+      {
+        "file": "packages/web/src/content/docs/ja/zen.mdx",
+        "hash": "f97e65d907223a24d7b7f2f98444a1c217a3873c6089968df00aaab555110228"
+      },
+      {
+        "file": "packages/web/src/content/docs/ko/go.mdx",
+        "hash": "0c162d46f5b2e4fcbc59351a65ac48cc9c6e386e9261624c5d8d55d74f655597"
+      },
+      {
+        "file": "packages/web/src/content/docs/ko/web.mdx",
+        "hash": "0dc880b73ec010f631432fa68f58e2c8b56ae3b2e22b4a339c9a5e26e2237dba"
+      },
+      {
+        "file": "packages/web/src/content/docs/ko/zen.mdx",
+        "hash": "100de1c972057663c7245ee77dbe3f83906a1809be92d0cc6fe4f995ab352be6"
+      },
+      {
+        "file": "packages/web/src/content/docs/nb/go.mdx",
+        "hash": "67551df4370cde82d89ab9561189517046af27508f36809054d61135593c004f"
+      },
+      {
+        "file": "packages/web/src/content/docs/nb/zen.mdx",
+        "hash": "a85a8b55d3a72f70148cdea5d4f4def82b2f70e613a6cad5b7e2c6205e5e0442"
+      },
+      {
+        "file": "packages/web/src/content/docs/pl/go.mdx",
+        "hash": "19cde418c3beb60993a53d3f53b429befb403f3699827ac4fd7347eb2ad8dc36"
+      },
+      {
+        "file": "packages/web/src/content/docs/pl/web.mdx",
+        "hash": "1e7af27cb625421de052d50b4109cd8d692721b295b0243abdd2773d57f80758"
+      },
+      {
+        "file": "packages/web/src/content/docs/pl/zen.mdx",
+        "hash": "6f18bfa28e36b1cda44687832e8e99110a1ac7492014040a6f970cec3944e7ab"
+      },
+      {
+        "file": "packages/web/src/content/docs/pt-br/go.mdx",
+        "hash": "b05467ac36989d8895cb79c9d230324f34ef21eb9f7cfa306699dcd88c4ae4cf"
+      },
+      {
+        "file": "packages/web/src/content/docs/pt-br/web.mdx",
+        "hash": "d613ec14c01433535cbc85aa9a89fef5706c91f19dcce85877bdbefea3abf394"
+      },
+      {
+        "file": "packages/web/src/content/docs/pt-br/zen.mdx",
+        "hash": "30f9eb7000a8219372fc265c4b1e4015b30e1a6dc249072b28109e6bfd09da5e"
+      },
+      {
+        "file": "packages/web/src/content/docs/ru/go.mdx",
+        "hash": "779b7d77374e06d7657a933d183995b9cfd398ff651f0cc2ea0ed84686b8dba2"
+      },
+      {
+        "file": "packages/web/src/content/docs/ru/web.mdx",
+        "hash": "cc74689e9a9fb8529f00044a2e5d174ed3b72fd17bad9ee88d59638472b4f022"
+      },
+      {
+        "file": "packages/web/src/content/docs/ru/zen.mdx",
+        "hash": "61e93e7343912d37a865cd7fe1d5b22a6cd9edebddc9f54ef6f62ddbdc2ae5a5"
+      },
+      {
+        "file": "packages/web/src/content/docs/th/go.mdx",
+        "hash": "9e4a78f83f733e3c0efa1314d2fb12139c8c4f5d582193bc7b6250a560ada3d5"
+      },
+      {
+        "file": "packages/web/src/content/docs/th/web.mdx",
+        "hash": "e86c0b45355d1c142da9a5769b76fc794c1883d5326fd3ff3665ce0df8dbd2bb"
+      },
+      {
+        "file": "packages/web/src/content/docs/th/zen.mdx",
+        "hash": "a41efd0aac4519ea41fd7fafbe1b573c12dcfeaeec68429f9a553fa97bb6629a"
+      },
+      {
+        "file": "packages/web/src/content/docs/tr/go.mdx",
+        "hash": "ff01165902c9759d955dc1605a947083474802ebf5e2e7f7f0c28e380c941fdf"
+      },
+      {
+        "file": "packages/web/src/content/docs/tr/web.mdx",
+        "hash": "a8a068f7b408a9dd2b52c2f4b603a28007e1c0933fea8dc61409c7d139c4150f"
+      },
+      {
+        "file": "packages/web/src/content/docs/tr/zen.mdx",
+        "hash": "512ba0f139edbf934dd381165a712647cae595f83bd45d9ab73f12680a58735f"
+      },
+      {
+        "file": "packages/web/src/content/docs/web.mdx",
+        "hash": "99bab3e5bbad3479638453ad6a8e9a85f4c5d32c336739a22fd5fbde34ef41ba"
+      },
+      {
+        "file": "packages/web/src/content/docs/zen.mdx",
+        "hash": "63ef462f757ce304ec7fb9ba8728117b356da01e2186963e3334f591e987c7d8"
+      },
+      {
+        "file": "packages/web/src/content/docs/zh-cn/go.mdx",
+        "hash": "835c1e4c8fe7c16f40f7aca6a5628dd4dc0cc9c13abac5f65a222aba1db078e3"
+      },
+      {
+        "file": "packages/web/src/content/docs/zh-cn/web.mdx",
+        "hash": "742de9af9e583da78486b767810817b50764566c02c2dc3a47765c9109243425"
+      },
+      {
+        "file": "packages/web/src/content/docs/zh-cn/zen.mdx",
+        "hash": "abf3b3c135688893453ecec0eea7d20d7a2155bc36065bc9c58b6ebf121e8128"
+      },
+      {
+        "file": "packages/web/src/content/docs/zh-tw/go.mdx",
+        "hash": "be4afd3957e0575b5530f45bfb57da8cac4cae7a2f0070d3d3c41e84e788a3e0"
+      },
+      {
+        "file": "packages/web/src/content/docs/zh-tw/web.mdx",
+        "hash": "e6bff17578669404766fdc255897cf39a77c00b69beafd68c3f5a303e03dd01c"
+      },
+      {
+        "file": "packages/web/src/content/docs/zh-tw/zen.mdx",
+        "hash": "ecc95089b711cd3520ca3e148a868384f341b7b93e777c3f4498301a2a40fe33"
+      }
     ]
   }
 }

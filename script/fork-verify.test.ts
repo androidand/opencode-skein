@@ -5,6 +5,7 @@ import {
   ABSENT,
   acceptedStatus,
   collectDivergence,
+  gitHeadReader,
   parseManifest,
   recordAccepted,
   sha256,
@@ -125,5 +126,19 @@ describe("fork-verify divergence gate", () => {
     expect(validateAccepted(real)).toEqual([])
     expect(real.divergence?.accepted.every((e) => typeof e !== "string")).toBe(true)
     expect(real.divergence?.accepted.length).toBeGreaterThan(0)
+  })
+
+  test("the fork's own manifest reports no accepted entry that drifted from HEAD", () => {
+    const root = path.resolve(import.meta.dir, "..")
+    const real = parseManifest(fs.readFileSync(path.join(root, "fork", "manifest.json"), "utf8"))
+    const diffed = new Set(
+      Bun.spawnSync(["git", "diff", "--name-only", real.baseline.upstreamRef], { cwd: root })
+        .stdout.toString()
+        .split("\n")
+        .filter(Boolean),
+    )
+    const status = acceptedStatus(real, gitHeadReader(root), diffed)
+    expect(status.drifted).toEqual([])
+    expect(status.fingerprinted + status.absent).toBe(real.divergence?.accepted.length)
   })
 })
