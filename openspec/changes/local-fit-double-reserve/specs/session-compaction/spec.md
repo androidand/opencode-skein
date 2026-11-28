@@ -22,10 +22,4 @@ The compaction threshold MUST NOT deduct the reply allowance from a context limi
 - **WHEN** a model has a context limit from a catalog and no fit report
 - **THEN** the threshold is computed as before
 
-### Requirement: The meter shows where compaction happens
-
-The context meter MUST show the compaction threshold when it differs from the configured context.
-
-#### Scenario: Threshold below the configured context
-- **WHEN** the configured context is 81,920 and the threshold is 65,126
-- **THEN** the meter shows both numbers
+The meter requirement was moved out of this change on 2026-11-28 to `context-meter-threshold`, at the owner's decision, so this change ships the threshold correction alone. It is not dropped: see `openspec/changes/context-meter-threshold/specs/context-meter/spec.md`.

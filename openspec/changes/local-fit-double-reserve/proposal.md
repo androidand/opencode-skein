@@ -25,10 +25,10 @@ The `compaction.reserved` setting lets a user work around this, but it has to be
 - Mark a model whose `limit.context` came from a llama-skein fit report (`maxSafeCtx`) as fit-derived, for example with a field on the discovered model.
 - For fit-derived models, `usable()` reserves only a small safety buffer (default 2,048 tokens) instead of the model's maximum output tokens, because the reply allowance is already excluded. An explicit `compaction.reserved` still wins.
 - Models not derived from a fit report keep today's rule.
-- The context meter shows the compaction trigger as well as the configured context, for example "46,261 of 59,000 before compaction (80k context)".
+- Not in this change: showing the compaction trigger in the context meter (the "second, smaller effect" above). It was split out on 2026-11-28 into `context-meter-threshold`, by owner decision, so the threshold correction could be reviewed alone. The meter still shows only the configured context until that change lands.
 
 ## Impact
 
-- `packages/opencode/src/provider/provider.ts` (discovery), `packages/opencode/src/session/overflow.ts` (`usable`), the context meter in the TUI.
-- No change for non-llama-skein providers.
+- `packages/opencode/src/provider/provider.ts` (discovery), `packages/opencode/src/session/overflow.ts` (`usable`).
+- No change for non-llama-skein providers. The meter in the TUI is untouched here.
 - Related, in llama-skein: the 8% margin inside `max_safe_ctx` is fixed (change `tune-prompt-margin`).
