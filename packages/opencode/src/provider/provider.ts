@@ -1655,9 +1655,11 @@ export function isFitDerivedContext(providerID: string, modelID: string): boolea
   return fitDerivedContextModels.has(`${providerID}/${modelID}`)
 }
 
-/** Updates the fit-derived-context registry from a discovery pass, same rules as
- * noteSlowColdStart: fresh data wins, `undefined` (no fit report) keeps the
- * previous verdict — a lost probe must not widen a budget that was trimmed. */
+/** Updates the fit-derived-context registry from a discovery pass. The verdict is a claim
+ * about the `limit.context` value that pass assigned, not about fit data in general:
+ * `false` clears it when the number came from a catalog or the backend's raw
+ * `context_length`, and `undefined` keeps the previous verdict only when the pass re-used
+ * a previously-known value — a lost probe must not widen a budget that was trimmed. */
 export function noteFitDerivedContext(providerID: string, modelID: string, derived?: boolean): void {
   if (derived === undefined) return
   const key = `${providerID}/${modelID}`
@@ -1835,7 +1837,18 @@ async function discoverOpenAICompatibleModels(input: {
           existingModel?.sizeBytes
         noteHostPaced(input.providerID, modelID, fit)
         noteSlowColdStart(input.providerID, modelID, fit)
-        noteFitDerivedContext(input.providerID, modelID, fit ? fit.maxSafeCtx > 0 : undefined)
+        // fork: the verdict must describe the number assigned above, not whether a fit
+        // report existed. `true` only when this pass really set `context = fit.maxSafeCtx`;
+        // `undefined` only when the conservative branch re-used a previously-known value,
+        // whose provenance the registry already records; `false` otherwise — a raw
+        // `context_length` adopted with nothing retained behind it must not keep the small
+        // buffer that an earlier trim earned, because compaction would then aim above the
+        // ceiling the host answers with a 413.
+        noteFitDerivedContext(
+          input.providerID,
+          modelID,
+          fit?.maxSafeCtx ? true : context === previouslyKnownContext ? undefined : false,
+        )
 
         discovered[modelID] = {
           id: ModelV2.ID.make(modelID),
