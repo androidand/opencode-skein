@@ -1640,6 +1640,31 @@ export function noteSlowColdStart(providerID: string, modelID: string, fit?: { c
   else slowColdStartModels.delete(key)
 }
 
+// fork: llama-skein's `max_safe_ctx` is already a prompt budget — the host
+// deducted the reply allowance when it computed it. Compaction must not deduct
+// it a second time on top of that number, which is why a model whose
+// `limit.context` came from a fit report is tracked here and gets only a small
+// safety buffer. Tracked separately from hostPaced (a speed verdict) and
+// slowColdStart (a load-time verdict): this one says the number is already
+// trimmed, which is a fact about the number, not about the host.
+const fitDerivedContextModels = new Set<string>()
+
+/** Reports whether a model's `limit.context` was taken from a llama-skein fit
+ * report rather than a catalog or the backend's raw `context_length`. */
+export function isFitDerivedContext(providerID: string, modelID: string): boolean {
+  return fitDerivedContextModels.has(`${providerID}/${modelID}`)
+}
+
+/** Updates the fit-derived-context registry from a discovery pass, same rules as
+ * noteSlowColdStart: fresh data wins, `undefined` (no fit report) keeps the
+ * previous verdict — a lost probe must not widen a budget that was trimmed. */
+export function noteFitDerivedContext(providerID: string, modelID: string, derived?: boolean): void {
+  if (derived === undefined) return
+  const key = `${providerID}/${modelID}`
+  if (derived) fitDerivedContextModels.add(key)
+  else fitDerivedContextModels.delete(key)
+}
+
 async function fetchLocalModelFit(
   controlBase: string,
   signal?: AbortSignal,
@@ -1810,6 +1835,7 @@ async function discoverOpenAICompatibleModels(input: {
           existingModel?.sizeBytes
         noteHostPaced(input.providerID, modelID, fit)
         noteSlowColdStart(input.providerID, modelID, fit)
+        noteFitDerivedContext(input.providerID, modelID, fit ? fit.maxSafeCtx > 0 : undefined)
 
         discovered[modelID] = {
           id: ModelV2.ID.make(modelID),

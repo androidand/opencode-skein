@@ -1,11 +1,15 @@
 import type { Config } from "@/config/config"
 import { ConfigV1 } from "@opencode-ai/core/v1/config/config"
 import { SessionV1 } from "@opencode-ai/core/v1/session"
-import type { Provider } from "@/provider/provider"
+import { Provider } from "@/provider/provider"
 import { ProviderTransform } from "@/provider/transform"
 import type { MessageV2 } from "./message-v2"
 
 const COMPACTION_BUFFER = 20_000
+// A fit-derived `limit.context` already has the reply allowance deducted by the
+// host, so only a small buffer is left to hold — enough for the count to be a
+// little stale, not enough to re-charge the deduction.
+const FIT_DERIVED_BUFFER = 2_048
 
 export function usable(input: { cfg: ConfigV1.Info; model: Provider.Model; outputTokenMax?: number }) {
   const context = input.model.limit.context
@@ -13,7 +17,9 @@ export function usable(input: { cfg: ConfigV1.Info; model: Provider.Model; outpu
 
   const reserved =
     input.cfg.compaction?.reserved ??
-    Math.min(COMPACTION_BUFFER, ProviderTransform.maxOutputTokens(input.model, input.outputTokenMax))
+    (Provider.isFitDerivedContext(input.model.providerID, input.model.id)
+      ? FIT_DERIVED_BUFFER
+      : Math.min(COMPACTION_BUFFER, ProviderTransform.maxOutputTokens(input.model, input.outputTokenMax)))
   const inputLimit = input.model.limit.input
   const capacity = inputLimit ? Math.min(inputLimit, context) : context
   return Math.max(0, capacity - reserved)
